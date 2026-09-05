@@ -2,6 +2,7 @@
 
 Next.js website for Express Laundry, Chinnappanahalli.
 
+
 ```bash
 npm install
 npm run dev
