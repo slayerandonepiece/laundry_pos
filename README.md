@@ -1,6 +1,6 @@
 # Express Laundry
 
-Next.js website for Express Laundry, Chinnappanahalli.
+Next.js website for Express Laundry, Chinnappanahalli. 
 
 ```bash
 npm install
