@@ -50,6 +50,18 @@
  .ad-cart-table-actions button{min-height:40px}
  .ad-orders-card .ad-orders-table-wrap{margin-inline:12px;width:calc(100% - 24px)}
 }
+
+@media(max-width:767px){
+ .ad-orders-card,.ad-orders-table-wrap,.ad-mobile-records,.ad-mobile-order,
+ .ad-mobile-expense,.ad-cart-table-scroll,.ad-items-table,.ad-dialog-details,
+ .ad-details-header,.ad-order-title-row,.ad-delivery-facts,.ad-delivery-steps{min-width:0;max-width:100%}
+ .ad-details-header{grid-template-columns:minmax(0,1fr)}
+ .ad-details-header>div:last-child,.ad-order-title-row{grid-column:1}
+ .ad-delivery-facts{grid-template-columns:minmax(0,1fr)}
+ .ad-dialog-details .ad-detail-footer{align-items:stretch}
+ .ad-dialog-details .ad-detail-footer label{min-width:0;width:100%;flex-direction:column;align-items:stretch}
+ .ad-dialog-details .ad-detail-footer select,.ad-dialog-details .ad-detail-footer .ad-button{width:100%}
+}
 /* Short windows / software keyboards must never make payment fields unreachable. */
 @media(max-height:600px){.ad-counter .ad-pos-cart-content,.ad-dialog .ad-pos-cart-content{overflow:auto}.ad-cart-table-scroll{flex:none;max-height:180px}}
 /* Reference layout: 60/40 content within a half-screen drawer. */
@@ -202,4 +214,14 @@
  .ad-root .ad-table-card .ad-pagination button{min-height:44px}
  .ad-root .ad-table-card .ad-pagination>div{margin-left:auto}
  .ad-root .ad-table-card>.ad-toolbar input,.ad-root .ad-table-card>.ad-toolbar select{min-width:0;max-width:100%}
+}
+
+/* Final narrow-screen overrides for rules above that use wider drawer layouts. */
+@media(max-width:767px){
+ .ad-details-header{grid-template-columns:minmax(0,1fr)}
+ .ad-details-header>div:last-child,.ad-order-title-row{grid-column:1}
+ .ad-delivery-facts{grid-template-columns:minmax(0,1fr)}
+ .ad-dialog-details .ad-detail-footer{align-items:stretch}
+ .ad-dialog-details .ad-detail-footer label{min-width:0;width:100%;flex-direction:column;align-items:stretch}
+ .ad-dialog-details .ad-detail-footer select,.ad-dialog-details .ad-detail-footer .ad-button{width:100%}
 }

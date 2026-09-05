@@ -19,3 +19,22 @@
 @media(max-width:767px){.ad-pos-products{grid-template-columns:repeat(2,minmax(0,1fr))}.ad-pos-product{padding:12px;gap:7px}.ad-pos-product h3{font-size:15px}.ad-pos-mobile-cart{left:16px;right:16px;bottom:max(12px,env(safe-area-inset-bottom));font-size:13px}.ad-pos-search{flex-direction:column;align-items:stretch}.ad-pos-search input{width:100%}.ad-category-tabs button{min-height:44px;padding:8px 10px}.ad-order-detail-content{padding:14px}.ad-order-overview{align-items:flex-start;flex-wrap:wrap}.ad-detail-section{padding:14px}.ad-detail-footer{padding:10px 16px max(10px,env(safe-area-inset-bottom))}.ad-pos-cart-content .ad-form-grid{grid-template-columns:1fr 1fr}.ad-pos-cart-content input,.ad-pos-cart-content select{font-size:16px}.ad-cart-line-actions button{min-height:44px}.ad-root.ad-dialog-compact{inset:auto 0 0;margin:0;width:100%;max-width:100%;max-height:90dvh;border-radius:16px 16px 0 0}.ad-pos-cart-footer .ad-button{padding:10px 12px}.ad-detail-meta{grid-template-columns:1fr 1fr}}
 @media(max-width:380px){.ad-pos-cart-content .ad-form-grid{grid-template-columns:1fr}.ad-pos-slabs>span{flex-wrap:wrap}.ad-pos-product p strong{font-size:19px}}
 @media(max-height:500px){.ad-pos-summary{height:calc(100dvh - 20px)}.ad-detail-footer{padding-block:8px}.ad-order-detail-content{padding:12px}}
+
+@media(max-width:767px){
+ .ad-pos,.ad-pos-catalogue,.ad-pos-products,.ad-pos-product,.ad-pos-search,
+ .ad-pos-mobile-cart,.ad-pos-cart,.ad-pos-cart-content,.ad-cart-line,
+ .ad-order-detail,.ad-order-detail-content,.ad-order-overview,.ad-detail-columns,
+ .ad-detail-main,.ad-detail-summary,.ad-detail-section,.ad-detail-footer{min-width:0;max-width:100%}
+ .ad-pos-products{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .ad-pos-mobile-cart{width:auto}
+ .ad-pos-cart-content .ad-form-grid{grid-template-columns:minmax(0,1fr)}
+ .ad-detail-meta{grid-template-columns:minmax(0,1fr)}
+ .ad-detail-footer label{min-width:0;width:100%}
+ .ad-detail-footer select{width:100%}
+}
+
+@media(max-width:390px){
+ .ad-pos-products{grid-template-columns:minmax(0,1fr)}
+ .ad-pos-preview{gap:8px}.ad-pos-preview strong{font-size:20px}
+ .ad-pos-cart-footer>*{min-width:0}
+}

@@ -164,3 +164,24 @@
  .ad-confirm-dialog{padding:18px}.ad-confirm-actions{display:grid;grid-template-columns:1fr 1fr}
 }
 @media(max-height:500px){.ad-dialog>header{padding-block:8px}.ad-dialog>header .ad-eyebrow{display:none}.ad-order-form .ad-form-footer{padding-block:8px}.ad-sidebar-bottom{padding-top:12px}.ad-store-note{display:none}}
+
+/* Keep admin pages inside narrow mobile viewports. */
+.ad-root,.ad-workspace,.ad-main,.ad-screen-content,.ad-card,.ad-toolbar,.ad-row,
+.ad-form,.ad-form-grid,.ad-form-footer,.ad-table-card,.ad-catalogue{min-width:0;max-width:100%}
+.ad-root img,.ad-root svg{max-width:100%}
+.ad-root h1,.ad-root h2,.ad-root h3,.ad-root p,.ad-root a,.ad-root span,.ad-root strong,.ad-root small{overflow-wrap:anywhere}
+
+@media(max-width:767px){
+ .ad-topbar>.ad-row{min-width:0}.ad-breadcrumb,.ad-user-role{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .ad-toolbar>*{min-width:0;max-width:100%}
+ .ad-toolbar input,.ad-toolbar select{width:100%;flex:1 1 100%}
+ .ad-form-grid{grid-template-columns:minmax(0,1fr)}
+ .ad-form-footer{align-items:stretch}
+ .ad-form-footer>span,.ad-form-footer>.ad-row{min-width:0}
+ .ad-form-footer>.ad-row{flex-wrap:wrap}
+ .ad-form-footer .ad-button{flex:1 1 auto}
+ .ad-card-heading{min-width:0}.ad-card-heading>div{min-width:0}
+ .ad-mobile-order,.ad-mobile-expense,.ad-record-heading{min-width:0}
+ .ad-record-heading{gap:8px;flex-wrap:wrap}
+ .ad-confirm-dialog{max-width:calc(100% - 24px)}
+}

@@ -32,6 +32,11 @@ export default function EmployeeSalesContainer() {
   const lines: Line[] = draft.entries.flatMap(entry => { const product = products.find(p => p.id === entry.productId); return product ? [{ productId: product.id, name: product.name, quantity: entry.quantity, unit: product.type === 'weight' ? 'kg' : 'pcs', amount: price(product, entry.quantity) }] : []; });
   const amount = lines.reduce((sum, line) => sum + line.amount, 0);
   const change = (patch: Partial<SaleDraft>) => { submitted.current = false; setDraft(previous => ({ ...previous, ...patch })); setError(''); };
+  const setItemQuantity = (productId: string, quantity: number) => change({ entries: quantity > 0
+    ? draft.entries.some(entry => entry.productId === productId)
+      ? draft.entries.map(entry => entry.productId === productId ? { ...entry, quantity } : entry)
+      : [...draft.entries, { productId, quantity }]
+    : draft.entries.filter(entry => entry.productId !== productId) });
   function punchOrder() {
     if (submitted.current || !user || !store) return;
     const phone = draft.phone.replace(/[\s()-]/g, ''), received = Math.round(Number(draft.received) * 100);
@@ -46,16 +51,16 @@ export default function EmployeeSalesContainer() {
     setStore(previous => previous && ({ ...previous, orders: [order, ...previous.orders] }));
     setDraft(blank()); setCartOpen(false); setSaved(order.id); setBusy(false);
   }
-  const cart = <OrderCart draft={draft} lines={lines} error={error} busy={busy} onChange={change} onEdit={id => { const product = products.find(p => p.id === id); if (product) setSelection({ product, editing: true }); }} onRemove={id => change({ entries: draft.entries.filter(e => e.productId !== id) })} onClear={() => setClear(true)} onSubmit={punchOrder}/>;
+  const cart = <OrderCart draft={draft} lines={lines} error={error} busy={busy} onChange={change} onEdit={id => { const product = products.find(p => p.id === id); if (product) setSelection({ product, editing: true }); }} onRemove={id => setItemQuantity(id, 0)} onIncrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) + 1)} onDecrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) - 1)} onClear={() => setClear(true)} onSubmit={punchOrder}/>;
   if (!ready) return <p>Restoring your sale…</p>;
   return <>
     {storageNote && <p className="ad-help">{storageNote}</p>}
-    <div className="ad-pos"><ServiceGrid products={products.filter(p => (category === 'All' || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase()))} categories={[...new Set(products.map(p => p.category))]} query={query} category={category} onQuery={setQuery} onCategory={setCategory} onAdd={product => setSelection({ product, editing: false })}/><aside className="ad-pos-summary">{cart}</aside></div>
+    <div className="ad-pos"><ServiceGrid products={products.filter(p => (category === 'All' || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase()))} categories={[...new Set(products.map(p => p.category))]} query={query} category={category} quantities={Object.fromEntries(draft.entries.map(entry => [entry.productId, entry.quantity]))} onQuery={setQuery} onCategory={setCategory} onAdd={product => setSelection({ product, editing: Boolean(draft.entries.find(entry => entry.productId === product.id)) })} onIncrement={product => setItemQuantity(product.id, (draft.entries.find(entry => entry.productId === product.id)?.quantity || 0) + 1)} onDecrement={product => setItemQuantity(product.id, (draft.entries.find(entry => entry.productId === product.id)?.quantity || 0) - 1)}/></div>
     <button className="ad-pos-mobile-cart ad-button" onClick={() => setCartOpen(true)}>View order · {lines.length} services · {money(amount)}</button>
     {cartOpen && <Panel title="New sale" warnOnChanges={false} onClose={() => setCartOpen(false)}>{cart}</Panel>}
     {selection && <Panel variant="compact" title={selection.product.name} warnOnChanges={false} onClose={() => setSelection(null)}><QuantityForm product={selection.product} existing={draft.entries.find(e => e.productId === selection.product.id)?.quantity ?? 0} quantity={selection.editing ? draft.entries.find(e => e.productId === selection.product.id)?.quantity : undefined} onCancel={() => setSelection(null)} onConfirm={quantity => {
       const id = selection.product.id, existing = draft.entries.find(e => e.productId === id);
-      change({ entries: existing ? draft.entries.map(e => e.productId === id ? { ...e, quantity: selection.editing ? quantity : Math.round((e.quantity + quantity) * 1000) / 1000 } : e) : [...draft.entries, { productId: id, quantity }] }); setSelection(null); if (window.matchMedia('(max-width:1000px)').matches) setCartOpen(true);
+      change({ entries: existing ? draft.entries.map(e => e.productId === id ? { ...e, quantity: selection.editing ? quantity : Math.round((e.quantity + quantity) * 1000) / 1000 } : e) : [...draft.entries, { productId: id, quantity }] }); setSelection(null);
     }}/></Panel>}
     {clear && <ConfirmationDialog title="Clear this order?" description="The selected services and customer details will be removed from this draft." confirmLabel="Clear order" onCancel={() => setClear(false)} onConfirm={() => { setDraft(blank()); setError(''); setClear(false); }}/>} 
     {saved && <div className="ad-toast" role="status">Order {saved} saved · Pending <button aria-label="Dismiss saved notice" onClick={() => setSaved(null)}>×</button></div>}
