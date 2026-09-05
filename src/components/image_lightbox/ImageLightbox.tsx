@@ -1,0 +1,3 @@
+import Image from 'next/image';
+type Props = { open: boolean; onOpen: () => void; onClose: () => void };
+export default function ImageLightbox({ open, onOpen, onClose }: Props) { return <><button className="rate-link" type="button" onClick={onOpen}>View original rate card ↗</button>{open && <div className="lightbox" role="dialog" aria-modal="true" aria-label="Rate card preview" onMouseDown={event => event.target === event.currentTarget && onClose()}><button type="button" onClick={onClose} aria-label="Close image">×</button><Image src="/images/rate-card.webp" alt="Express Laundry original rate card" width={1000} height={1400}/></div>}</>; }
