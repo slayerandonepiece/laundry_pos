@@ -1,5 +1,7 @@
 import { dateLabel, paid, rangeFor, today, total, within } from './admin.data';
-import type { DateRange, Store } from './admin.types';
+import type { DateRange, Expense, Order, Product } from './admin.types';
+
+interface DashboardSource { orders: Order[]; expenses: Expense[]; products: Product[] }
 export interface TrendPoint { label: string; amount: number }
 export interface CashPoint { label: string; income: number; expenses: number }
 export interface Breakdown { label: string; amount: number }
@@ -13,7 +15,7 @@ function intervals(range: DateRange, maximum: number) {
     return { from, to: end, label: from === end ? dateLabel(from) : `${dateLabel(from)}–${dateLabel(end)}` };
   });
 }
-export function dashboardData(store: Store, range: DateRange) {
+export function dashboardData(store: DashboardSource, range: DateRange) {
   const current = today(), monthRange = rangeFor('month'), orders = store.orders.filter(order => within(order.date, range));
   const active = orders.filter(order => !order.legacyCancelled), payments = store.orders.flatMap(order => order.payments);
   const bars: TrendPoint[] = intervals(range, 12).map(interval => ({ label: interval.label, amount: active.filter(order => within(order.date, interval)).reduce((sum, order) => sum + total(order), 0) }));

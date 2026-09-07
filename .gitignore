@@ -6,3 +6,5 @@ out
 .env*
 !.env.example
 .vercel
+
+/src/generated/prisma

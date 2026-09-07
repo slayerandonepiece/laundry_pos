@@ -1,3 +1,2 @@
-import AdminScreenContainer from '@/features/admin/containers/AdminScreenContainer';
-export default function Page() { return <AdminScreenContainer screen="login"/>; }
-
+import { redirect } from 'next/navigation';
+export default function Page() { redirect('/login'); }

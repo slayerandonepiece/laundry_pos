@@ -1,0 +1,198 @@
+// Prisma schema for the Express Laundry backend.
+// Money is stored as integer paise. Timestamps are stored in UTC; the app
+// layer interprets dates in Asia/Kolkata to match existing UI semantics.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  EMPLOYEE
+}
+
+enum ProductType {
+  ITEM
+  WEIGHT
+}
+
+enum WorkStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+model User {
+  id                String   @id @default(cuid())
+  name              String
+  username          String   @unique
+  passwordHash      String
+  role              Role
+  active            Boolean  @default(true)
+  credentialVersion Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  sessions     Session[]
+  statusEvents StatusEvent[]
+
+  @@map("users")
+}
+
+model Session {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialVersion Int
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Product {
+  id        String        @id @default(cuid())
+  name      String
+  category  String
+  type      ProductType
+  active    Boolean       @default(true)
+  price     Int? // paise; set when type = ITEM
+  extra     Int? // paise per extra unit beyond slabs; set when type = WEIGHT
+  slabs     ProductSlab[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  orderLines OrderLine[]
+
+  @@map("products")
+}
+
+model ProductSlab {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  limit     Decimal @db.Decimal(10, 3) // weight limit, e.g. kg
+  price     Int // paise at this slab
+
+  @@index([productId])
+  @@map("product_slabs")
+}
+
+model Order {
+  id              String     @id @default(cuid())
+  orderNumber     Int        @unique @default(autoincrement())
+  idempotencyKey  String?    @unique
+  customerName    String
+  phone           String
+  // Calendar dates (Asia/Kolkata), not instants — stored without a time
+  // component so no server timezone conversion can shift the day.
+  orderDate       DateTime   @default(now()) @db.Date
+  dueDate         DateTime   @db.Date
+  completedAt     DateTime?  @db.Date
+  status          WorkStatus @default(PENDING)
+  notes           String     @default("")
+  legacyCancelled Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  lines        OrderLine[]
+  payments     Payment[]
+  statusEvents StatusEvent[]
+
+  @@index([status])
+  @@index([dueDate])
+  @@map("orders")
+}
+
+model OrderLine {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name      String // product name snapshot at time of sale
+  quantity  Decimal  @db.Decimal(10, 3)
+  unit      String
+  amount    Int // paise, snapshot line total
+
+  @@index([orderId])
+  @@map("order_lines")
+}
+
+model Payment {
+  id      String   @id @default(cuid())
+  orderId String
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount  Int // paise
+  method  String
+  paidAt  DateTime @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+model StatusEvent {
+  id       String     @id @default(cuid())
+  orderId  String
+  order    Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status   WorkStatus
+  at       DateTime   @default(now())
+  byUserId String?
+  byUser   User?      @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("status_events")
+}
+
+model RecurringExpenseSeries {
+  id        String   @id @default(cuid())
+  title     String
+  category  String
+  amount    Int // paise
+  dueDay    Int
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  occurrences Expense[]
+
+  @@map("recurring_expense_series")
+}
+
+model Expense {
+  id          String                  @id @default(cuid())
+  title       String
+  category    String
+  amount      Int // paise
+  dueDate     DateTime                @db.Date
+  paidAt      DateTime?               @db.Date
+  seriesId    String?
+  series      RecurringExpenseSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  // 'YYYY-MM', set only on series-generated occurrences. With seriesId this
+  // gives a retry-safe unique key so generating occurrences twice (e.g. two
+  // concurrent listExpenses calls) can't create duplicate months.
+  periodMonth String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@unique([seriesId, periodMonth])
+  @@index([dueDate])
+  @@map("expenses")
+}
+
+// Single-row table: the store's own profile/contact details.
+model StoreProfile {
+  id      String @id @default(cuid())
+  name    String
+  phone   String
+  email   String
+  store   String
+  address String
+
+  @@map("store_profile")
+}

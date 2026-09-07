@@ -2,10 +2,16 @@ import type { Metadata, Viewport } from 'next';
 import '@fontsource-variable/dm-sans';
 import '@fontsource-variable/manrope';
 import './globals.css';
+import { AdminProvider } from '@/features/admin/containers/AdminProvider';
+import './admin/admin.css';
+import './admin/pos.css';
+import './admin/counter.css';
+import './admin/tables.css';
 
 export const metadata: Metadata = {
-  title: 'Express Laundry | Chinnappanahalli, Bengaluru',
-  description: 'Laundry, dry cleaning, steam ironing, doorstep pickup and delivery in Chinnappanahalli, Bengaluru.',
+  title: 'Store workspace | Express Laundry',
+  robots: { index: false, follow: false },
+  description: 'Express Laundry store workspace.',
 };
 
 export const viewport: Viewport = {
@@ -15,5 +21,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return <html lang="en"><body><AdminProvider>{children}</AdminProvider></body></html>;
 }

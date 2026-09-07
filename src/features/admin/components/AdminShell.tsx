@@ -11,8 +11,8 @@ function Navigation({ screen, role, onNavigate, onLogout }: { screen: Screen; ro
   return <>
     <Link className="ad-logo" href={homeFor(role)} onClick={onNavigate}><span className="ad-logo-mark">◎</span><span>Express Laundry<small>STORE WORKSPACE</small></span></Link>
     <p className="ad-nav-label">WORKSPACE</p>
-    <nav aria-label="Admin navigation">{links.filter(([id]) => role === 'owner' ? id !== 'orders' : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={'/admin/' + id} onClick={onNavigate}><span aria-hidden="true">{icon}</span>{label}</Link>)}</nav>
-    <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>Chinnappanahalli<small>One store. Everything in view.</small></div><Link href="/" onClick={onNavigate}>Visit public website ↗</Link><button onClick={onLogout}>Log out ↗</button></div>
+    <nav aria-label="Admin navigation">{links.filter(([id]) => role === 'owner' ? id !== 'orders' : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}><span aria-hidden="true">{icon}</span>{label}</Link>)}</nav>
+    <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>Chinnappanahalli<small>One store. Everything in view.</small></div><button onClick={onLogout}>Log out ↗</button></div>
   </>;
 }
 
@@ -43,7 +43,7 @@ export default function AdminShell({ screen, name, role, children, onLogout, onN
       <main className="ad-main">
         <div className="ad-page-heading"><div><p className="ad-eyebrow">EXPRESS LAUNDRY WORKSPACE</p><h1>{screen.charAt(0).toUpperCase() + screen.slice(1)}</h1><p>{screen === 'dashboard' ? 'Your orders, sales and upcoming deliveries.' : { products: role === 'owner' ? 'Manage your services and prices.' : 'View the services available for orders.', sales: role === 'employee' ? 'Choose services, add customer details and punch an order.' : 'Track orders from drop-off to handover.', orders: 'Find orders and update their progress.', expenses: 'Track bills and payments.', employees: 'Manage your team and their access.', profile: 'Your account and store details.' }[screen as 'products']}</p></div>{screen === 'sales' && role === 'owner' && <button className="ad-button" onClick={onNew}>＋ New sale</button>}</div>
         <div className="ad-screen-content">{children}</div>
-        <footer className="ad-bottom"><span className="ad-footer-brand">Express Laundry</span><span>Demo data · stored only in this browser</span></footer>
+        <footer className="ad-bottom"><span className="ad-footer-brand">Express Laundry</span><span>IST · INR ₹</span></footer>
       </main>
     </div>
   </div>;
