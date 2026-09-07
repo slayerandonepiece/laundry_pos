@@ -1,3 +1,17 @@
+# Express Laundry — agent entry point
+
+This is the frontend store workspace, not the public marketing website.
+Before working, read the shared instructions and project context:
+
+1. [.agents/README.md](.agents/README.md) — scope, conventions and validation.
+2. [.agents/CURRENT-STATE.md](.agents/CURRENT-STATE.md) — implemented frontend,
+   routes, source map and browser-storage limitations.
+3. [.agents/BACKEND-PLAN.md](.agents/BACKEND-PLAN.md) — remaining backend work
+   inside this Next.js app; a plan, not implemented functionality.
+
+These files are the shared source of truth for Codex/GPT, Claude and Gemini.
+Keep them current when architecture, routes, permissions or persistence change.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

@@ -1,14 +1,18 @@
 'use client';
 import { useState, useRef } from 'react';
-import type { Product, Order, Line } from '../admin.types';
+import type { Product, Line } from '../admin.types';
 import { money, price, today } from '../admin.data';
 import { Button, usePanelClose } from '../components/Primitives';
+import type { CreateOrderInput } from '@/server/services/orders';
 
 interface Entry { key: string; id: string; quantity: number }
 const blankEntry = (): Entry => ({ key: crypto.randomUUID(), id: '', quantity: 1 });
-export default function OrderEditorContainer({ products, onSave }: { products: Product[]; onSave: (order: Order) => void }) {
+export default function OrderEditorContainer({ products, onSave }: { products: Product[]; onSave: (input: CreateOrderInput) => Promise<void> }) {
   const onCancel = usePanelClose();
   const [entries, setEntries] = useState<Entry[]>([]), [error, setError] = useState('');
+  // One key per form mount; reused across resubmits of this draft so a
+  // double-click or retry can't create two orders.
+  const idempotencyKey = useRef(crypto.randomUUID());
   const submitted = useRef(false), available = products.filter(product => product.active);
   const lines: Line[] = entries.flatMap(entry => {
     const product = available.find(product => product.id === entry.id);
@@ -24,7 +28,15 @@ export default function OrderEditorContainer({ products, onSave }: { products: P
     if (new Set(entries.map(entry => entry.id)).size !== entries.length) return setError('Combine repeated services into one line.');
     if (!Number.isFinite(received) || received > sum || received < 0) return setError('Payment must be between zero and the order total.');
     submitted.current = true;
-    onSave({ id: 'EL-' + crypto.randomUUID().slice(0, 8).toUpperCase(), name: String(data.get('name')).trim(), phone, date: today(), due: String(data.get('due')), status: 'Pending', lines, notes: String(data.get('notes')).trim(), payments: received ? [{ id: crypto.randomUUID(), amount: received, method: String(data.get('method')), date: today() }] : [] });
+    onSave({
+      idempotencyKey: idempotencyKey.current,
+      customerName: String(data.get('name')).trim(),
+      phone,
+      dueDate: String(data.get('due')),
+      notes: String(data.get('notes')).trim(),
+      entries: entries.map(entry => ({ productId: entry.id, quantity: entry.quantity })),
+      initialPayment: received ? { amount: received, method: String(data.get('method')) } : undefined,
+    }).catch(() => { submitted.current = false; });
   }}>
     <div className="ad-form-fields">
       <h3>Customer details</h3><div className="ad-form-grid"><label>Phone number<input name="phone" type="tel" placeholder="10-digit mobile number" required/></label><label>Customer name<input name="name" placeholder="Optional"/></label></div>
