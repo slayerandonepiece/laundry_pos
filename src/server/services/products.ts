@@ -29,8 +29,9 @@ export type ProductInput = z.infer<typeof productSchema>;
 
 type ProductRow = Awaited<ReturnType<typeof findAll>>[number];
 
-function findAll() {
+function findAll(storeId: string) {
   return prisma.product.findMany({
+    where: { storeId },
     include: { slabs: { orderBy: { limit: 'asc' } } },
     orderBy: { createdAt: 'asc' },
   });
@@ -47,20 +48,25 @@ function toDTO(row: ProductRow): Product {
   };
 }
 
-export async function listProducts(): Promise<Product[]> {
-  const rows = await findAll();
+export async function listProducts(storeId: string): Promise<Product[]> {
+  const rows = await findAll(storeId);
   return rows.map(toDTO);
 }
 
-export async function saveProduct(input: unknown): Promise<Product> {
+export async function saveProduct(storeId: string, input: unknown): Promise<Product> {
   const data = productSchema.parse(input);
 
   const row = await prisma.$transaction(async tx => {
+    // upsert-by-id doesn't know about storeId, so cross-tenant ownership has
+    // to be checked explicitly before writing to an existing row.
+    const existing = await tx.product.findUnique({ where: { id: data.id }, select: { storeId: true } });
+    if (existing && existing.storeId !== storeId) throw new Error('Product not found.');
+
     if (data.type === 'item') {
       const saved = await tx.product.upsert({
         where: { id: data.id },
         update: { name: data.name, category: data.category, active: data.active, type: 'ITEM', price: data.price, extra: null },
-        create: { id: data.id, name: data.name, category: data.category, active: data.active, type: 'ITEM', price: data.price },
+        create: { id: data.id, storeId, name: data.name, category: data.category, active: data.active, type: 'ITEM', price: data.price },
       });
       await tx.productSlab.deleteMany({ where: { productId: data.id } });
       return { ...saved, slabs: [] as { limit: unknown; price: number }[] };
@@ -69,7 +75,7 @@ export async function saveProduct(input: unknown): Promise<Product> {
     const saved = await tx.product.upsert({
       where: { id: data.id },
       update: { name: data.name, category: data.category, active: data.active, type: 'WEIGHT', price: null, extra: data.extra },
-      create: { id: data.id, name: data.name, category: data.category, active: data.active, type: 'WEIGHT', extra: data.extra },
+      create: { id: data.id, storeId, name: data.name, category: data.category, active: data.active, type: 'WEIGHT', extra: data.extra },
     });
     await tx.productSlab.deleteMany({ where: { productId: data.id } });
     await tx.productSlab.createMany({ data: data.slabs.map(slab => ({ productId: data.id, limit: slab.limit, price: slab.price })) });

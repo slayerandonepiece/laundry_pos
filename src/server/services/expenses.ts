@@ -38,10 +38,10 @@ function toDTO(row: ExpenseRow): Expense {
 // Extend each active recurring series' occurrences through next month, without
 // touching existing (possibly already-paid) rows. The (seriesId, periodMonth)
 // unique constraint makes this safe to call repeatedly/concurrently.
-async function ensureRecurringOccurrences(): Promise<void> {
+async function ensureRecurringOccurrences(storeId: string): Promise<void> {
   const horizon = nextMonthKey(todayIST().slice(0, 7));
   const series = await prisma.recurringExpenseSeries.findMany({
-    where: { active: true },
+    where: { storeId, active: true },
     include: { occurrences: { orderBy: { dueDate: 'asc' } } },
   });
 
@@ -53,6 +53,7 @@ async function ensureRecurringOccurrences(): Promise<void> {
     while (cursor <= horizon) {
       if (!existingMonths.has(cursor)) {
         creates.push({
+          storeId,
           title: s.title,
           category: s.category,
           amount: s.amount,
@@ -68,9 +69,9 @@ async function ensureRecurringOccurrences(): Promise<void> {
   if (creates.length) await prisma.expense.createMany({ data: creates, skipDuplicates: true });
 }
 
-export async function listExpenses(): Promise<Expense[]> {
-  await ensureRecurringOccurrences();
-  const rows = await prisma.expense.findMany({ orderBy: { dueDate: 'asc' } });
+export async function listExpenses(storeId: string): Promise<Expense[]> {
+  await ensureRecurringOccurrences(storeId);
+  const rows = await prisma.expense.findMany({ where: { storeId }, orderBy: { dueDate: 'asc' } });
   return rows.map(toDTO);
 }
 
@@ -85,27 +86,29 @@ const createExpenseSchema = z.object({
 
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 
-export async function createExpense(input: CreateExpenseInput): Promise<Expense> {
+export async function createExpense(storeId: string, input: CreateExpenseInput): Promise<Expense> {
   const data = createExpenseSchema.parse(input);
   const dueDate = parseCalendarDate(data.due);
   const paidAt = data.paidToday ? parseCalendarDate(todayIST()) : null;
 
   if (!data.monthly) {
-    const row = await prisma.expense.create({ data: { title: data.title, category: data.category, amount: data.amount, dueDate, paidAt } });
+    const row = await prisma.expense.create({ data: { storeId, title: data.title, category: data.category, amount: data.amount, dueDate, paidAt } });
     return toDTO(row);
   }
 
   const dueDay = Number(data.due.slice(-2));
   const row = await prisma.$transaction(async tx => {
-    const series = await tx.recurringExpenseSeries.create({ data: { title: data.title, category: data.category, amount: data.amount, dueDay } });
+    const series = await tx.recurringExpenseSeries.create({ data: { storeId, title: data.title, category: data.category, amount: data.amount, dueDay } });
     return tx.expense.create({
-      data: { title: data.title, category: data.category, amount: data.amount, dueDate, paidAt, seriesId: series.id, periodMonth: data.due.slice(0, 7) },
+      data: { storeId, title: data.title, category: data.category, amount: data.amount, dueDate, paidAt, seriesId: series.id, periodMonth: data.due.slice(0, 7) },
     });
   });
   return toDTO(row);
 }
 
-export async function markExpensePaid(id: string): Promise<Expense> {
+export async function markExpensePaid(storeId: string, id: string): Promise<Expense> {
+  const existing = await prisma.expense.findUnique({ where: { id }, select: { storeId: true } });
+  if (!existing || existing.storeId !== storeId) throw new Error('Expense not found.');
   const row = await prisma.expense.update({ where: { id }, data: { paidAt: parseCalendarDate(todayIST()) } });
   return toDTO(row);
 }

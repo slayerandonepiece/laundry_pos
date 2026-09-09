@@ -46,7 +46,7 @@ export default function Dashboard({ data: d, onSelect }: { data: DashboardData; 
     </div>
     <section className="ad-card ad-table-card">
       <div className="ad-card-heading"><div><h2>Orders to finish</h2><p>All unfinished orders, oldest delivery date first</p></div><Link className="ad-text-link" href="/admin/sales?attention=1">Due today & late ↗</Link></div>
-      <OrderTable orders={d.commitments} onSelect={onSelect} compact/>
+      <OrderTable orders={d.commitments} onSelect={onSelect} compact emptyText="Nothing due today or overdue — you're all caught up."/>
     </section>
   </>;
 }

@@ -12,6 +12,8 @@ interface Props {
 }
 export default function Sales({ orders, matching, employee, attentionOnly, query, status, payment, onQuery, onStatus, onPayment, onClear, onSelect, delivery, onDelivery }: Props) {
   const scope = delivery === 'today' ? 'Due today · all dates' : delivery === 'late' ? 'Late · all dates' : attentionOnly ? 'Due today or late' : 'In the selected period';
+  const hasFilters = Boolean(query.trim()) || status !== 'All' || payment !== 'All' || delivery !== 'all' || attentionOnly;
+  const emptyText = hasFilters ? 'No orders match this search. Try another filter.' : 'No orders yet for this period — punch a new sale to get started.';
   return <>
     {employee ? <div className="ad-metrics ad-order-counts"><Metric primary label="Total orders" value={String(orders.length)} detail={scope}/>{(['Pending', 'In Progress', 'Completed'] as const).map(state => <Metric key={state} label={state} value={String(orders.filter(order => order.status === state).length)} detail={scope}/>)}</div> : <div className="ad-metrics three"><Metric primary label="Order value" value={money(matching.reduce((sum, order) => sum + total(order), 0))} detail={matching.length + ' matching orders'}/><Metric label="Collected on these orders" value={money(matching.reduce((sum, order) => sum + paid(order), 0))} detail="Payments received, across all dates"/><Metric label="Balance to collect" value={money(matching.reduce((sum, order) => sum + total(order) - paid(order), 0))} detail="On matching orders"/></div>}
     <section className="ad-card ad-table-card ad-orders-card">
@@ -20,7 +22,7 @@ export default function Sales({ orders, matching, employee, attentionOnly, query
         <select value={status} aria-label="Filter work status" onChange={event => onStatus(event.target.value)}>{['All', 'Pending', 'In Progress', 'Completed'].map(value => <option key={value} value={value}>{value === 'All' ? 'All work statuses' : value}</option>)}</select>
         <select value={payment} aria-label="Filter payment status" onChange={event => onPayment(event.target.value)}>{['All', 'Unpaid', 'Part-paid', 'Paid'].map(value => <option key={value} value={value}>{value === 'All' ? 'All payment statuses' : value}</option>)}</select>
         <button className="ad-text-link" onClick={onClear}>Clear</button>
-      </div><OrderTable orders={matching} onSelect={onSelect}/>
+      </div><OrderTable orders={matching} onSelect={onSelect} emptyText={emptyText}/>
     </section>
   </>;
 }

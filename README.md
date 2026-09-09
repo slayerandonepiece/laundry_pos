@@ -1,7 +1,8 @@
-# Express Laundry store workspace
+# Express Laundry / StoreOps workspace
 
-Frontend prototype built with Next.js App Router, React and TypeScript.
-The public website is maintained separately in `../vendor_websites/express-laundry`.
+Multi-tenant Next.js App Router app (React, TypeScript) backed by Postgres
+(Neon) via Prisma 7 — no separate backend service. The public website is
+maintained separately in `../vendor_websites/express-laundry`.
 
 ```bash
 npm install
@@ -10,11 +11,15 @@ npm run dev
 
 Open `http://localhost:3000/`: signed-out users go to `/login`; signed-in owners
 see the dashboard. Employees land at `/admin/sales`. Old `/admin/login` and
-`/admin/dashboard` URLs redirect to the canonical routes.
+`/admin/dashboard` URLs redirect to the canonical routes. Platform admins
+(Super Admin) sign in separately at `/super-admin/login` and manage store
+onboarding/subscriptions at `/super-admin/stores`.
 
-Data currently lives in browser storage. Login and role guards are frontend demo
-behavior, not production authentication. No application database/API backend is
-implemented yet.
+All application data (stores, users/sessions, products, orders, expenses,
+subscriptions) is stored in Postgres. `Store` is the tenant boundary — every
+owner/employee belongs to a store via `StoreMembership`, and every domain
+record carries a `storeId`. Login/role checks are real server-verified
+sessions, not a frontend demo.
 
 ## Project and agent documentation
 

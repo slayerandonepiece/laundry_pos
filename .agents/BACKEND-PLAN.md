@@ -6,8 +6,15 @@ Orders, Expenses, Employees, Profile, Dashboard) is server-backed by Postgres
 service. Stack decisions made: Neon Postgres (independent project, branch per
 environment), Prisma 7 ORM, hand-rolled DB-backed sessions (no third-party auth
 library), Server Actions for mutations, Server Components for reads. See
-`CURRENT-STATE.md` for what's implemented and verified. What's left is hardening
-(tests, CI/deploy pipeline, observability) — see section 5 below, mostly unchecked.
+`CURRENT-STATE.md` for what's implemented and verified. What's left from this
+plan is hardening (tests, CI/deploy pipeline, observability) — see section 5
+below, mostly unchecked.
+
+This plan covers the single-tenant backend only. The app is now mid-migration
+to a multi-tenant platform (StoreOps) on top of it — schema, auth, and the
+Super Admin onboarding UI are done; subscription-lock enforcement and invoice
+generation are not yet built. See `CURRENT-STATE.md`'s "Multi-tenant
+foundation" section for that work; it isn't tracked in this document.
 
 ## Proposed boundaries
 

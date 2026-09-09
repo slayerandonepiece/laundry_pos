@@ -1,15 +1,14 @@
-# Express Laundry admin prototype
+# Express Laundry admin — moved
 
-Open `/admin/login`. Demo username: `admin`; password: `admin@123$`.
+This file described an early localStorage-only prototype (demo login,
+browser-stored records). That prototype is gone: the admin app is now
+server-backed by Postgres, with real per-store accounts and no demo
+credentials — see [.agents/CURRENT-STATE.md](.agents/CURRENT-STATE.md) for
+the current implementation, routes, and source map.
 
-Routes cover dashboard, products, sales, expenses and profile. Public website remains at `/`.
+Admin source is still isolated in `src/features/admin` (route files in
+`src/app/admin`), and admin CSS still extends the public-site fonts/theme
+without replacing the website's own stylesheet.
 
-Admin source is isolated in `src/features/admin` with feature-local containers and components. Route files are in `src/app/admin`. Scoped admin CSS extends the installed public-site fonts and theme without replacing the existing website stylesheet or dependencies.
-
-This is a local design prototype, not production authentication. Mock records and edits are stored in this browser's localStorage. Demo login/password state uses sessionStorage. Do not enter real customer data. Password changes last for the browser session only.
-
-Working flows: login/logout, date/search/status filters, service creation/edit/archive, weight-slab preview, mixed-service order entry, order details, work-status updates, partial payments, expense entry/payment, profile updates and demo password changes.
-
-Monthly expense entry creates the current bill and one next-month unpaid reminder. A production recurring scheduler, editable bill occurrences, real authentication/API/database, refunds, receipts/uploads, order editing, exports, discounts and tax handling remain future integration work. Mobile layouts use full-screen detail panels; desktop panels use half the screen at 1200px and above.
-
-Validation: production build and ESLint; direct pricing checks for 4kg/4.01kg/6kg/6.5kg/8kg and mixed-service totals. Browser interaction and visual QA have not been run.
+`ADMIN-FIXES.md` remains a dated changelog of frontend fixes from before the
+backend migration — read it as history, not current behavior.
