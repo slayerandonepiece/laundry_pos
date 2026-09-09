@@ -9,7 +9,9 @@ export interface AdminUser { id: string; name: string; role: Role }
 export type WorkStatus = 'Pending' | 'In Progress' | 'Completed';
 export type Product = { id: string; name: string; category: string; active: boolean } & ({ type: 'item'; price: number } | { type: 'weight'; slabs: { limit: number; price: number }[]; extra: number });
 export interface Line { productId: string; name: string; quantity: number; unit: string; amount: number }
-export interface Payment { id: string; amount: number; date: string; method: string }
+export type PaymentMethod = string;
+export interface StorePaymentMethod { id: string; name: string; active: boolean }
+export interface Payment { id: string; amount: number; date: string; method: PaymentMethod }
 export interface StatusEvent { status: WorkStatus; at: string; by: string }
 export interface Order { history?: StatusEvent[]; id: string; name: string; phone: string; date: string; due: string; completed?: string; legacyCancelled?: boolean; status: WorkStatus; lines: Line[]; payments: Payment[]; notes: string }
 export interface Expense { id: string; title: string; category: string; amount: number; due: string; paid?: string; monthly: boolean; seriesId?: string }

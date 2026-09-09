@@ -8,11 +8,11 @@ import type { Prisma } from '@/generated/prisma/client';
 
 const ORDER_CODE_PREFIX = 'EL-';
 
-function toOrderCode(orderNumber: number) {
+export function toOrderCode(orderNumber: number) {
   return `${ORDER_CODE_PREFIX}${orderNumber}`;
 }
 
-function parseOrderCode(code: string): number | null {
+export function parseOrderCode(code: string): number | null {
   const match = /^EL-(\d+)$/.exec(code.trim());
   return match ? Number(match[1]) : null;
 }
@@ -28,7 +28,7 @@ const createOrderSchema = z.object({
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().trim().default(''),
   entries: z.array(entrySchema).min(1),
-  initialPayment: z.object({ amount: z.number().int().nonnegative(), method: z.string().min(1) }).optional(),
+  initialPayment: z.object({ amount: z.number().int().nonnegative(), method: z.string().trim().min(1).max(40) }).optional(),
 });
 
 const includeForDTO = {
@@ -55,8 +55,8 @@ function toOrderDTO(row: OrderRow): Order {
   };
 }
 
-export async function listOrders(): Promise<Order[]> {
-  const rows = await prisma.order.findMany({ where: { legacyCancelled: false }, include: includeForDTO, orderBy: { orderNumber: 'desc' } });
+export async function listOrders(storeId: string): Promise<Order[]> {
+  const rows = await prisma.order.findMany({ where: { storeId, legacyCancelled: false }, include: includeForDTO, orderBy: { orderNumber: 'desc' } });
   return rows.map(toOrderDTO);
 }
 
@@ -70,18 +70,21 @@ export interface CreateOrderInput {
   initialPayment?: { amount: number; method: string };
 }
 
-export async function createOrder(input: CreateOrderInput, actorId: string): Promise<Order> {
+export async function createOrder(storeId: string, input: CreateOrderInput, actorId: string): Promise<Order> {
   const data = createOrderSchema.parse(input);
 
   const existing = await prisma.order.findUnique({ where: { idempotencyKey: data.idempotencyKey }, include: includeForDTO });
-  if (existing) return toOrderDTO(existing);
+  if (existing) {
+    if (existing.storeId !== storeId) throw new Error('Order not found.');
+    return toOrderDTO(existing);
+  }
 
   if (new Set(data.entries.map(e => e.productId)).size !== data.entries.length) {
     throw new Error('Combine repeated services into one line.');
   }
 
   const products = await prisma.product.findMany({
-    where: { id: { in: data.entries.map(e => e.productId) }, active: true },
+    where: { id: { in: data.entries.map(e => e.productId) }, storeId, active: true },
     include: { slabs: { orderBy: { limit: 'asc' } } },
   });
   const byId = new Map(products.map(p => [p.id, p]));
@@ -99,11 +102,16 @@ export async function createOrder(input: CreateOrderInput, actorId: string): Pro
 
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
   if (data.initialPayment && data.initialPayment.amount > total) throw new Error('Payment must be between zero and the order total.');
+  if (data.initialPayment) {
+    const method = await prisma.storePaymentMethod.findFirst({ where: { storeId, name: data.initialPayment.method, active: true } });
+    if (!method) throw new Error('That payment method is no longer available.');
+  }
 
   const today = parseCalendarDate(todayIST());
 
   const row = await prisma.order.create({
     data: {
+      storeId,
       idempotencyKey: data.idempotencyKey,
       customerName: data.customerName ?? '',
       phone: data.phone,
@@ -121,7 +129,7 @@ export async function createOrder(input: CreateOrderInput, actorId: string): Pro
   return toOrderDTO(row);
 }
 
-export async function updateOrderStatus(orderCode: string, nextStatus: WorkStatus, actorId: string): Promise<Order> {
+export async function updateOrderStatus(storeId: string, orderCode: string, nextStatus: WorkStatus, actorId: string): Promise<Order> {
   const orderNumber = parseOrderCode(orderCode);
   if (orderNumber === null) throw new Error('Order not found.');
   const dbStatus = STATUS_TO_DB[nextStatus];
@@ -129,7 +137,7 @@ export async function updateOrderStatus(orderCode: string, nextStatus: WorkStatu
 
   const row = await prisma.$transaction(async tx => {
     const current = await tx.order.findUnique({ where: { orderNumber } });
-    if (!current || current.legacyCancelled) throw new Error('Order not found.');
+    if (!current || current.legacyCancelled || current.storeId !== storeId) throw new Error('Order not found.');
     if (current.status !== dbStatus) {
       await tx.order.update({
         where: { orderNumber },
@@ -146,21 +154,24 @@ export async function updateOrderStatus(orderCode: string, nextStatus: WorkStatu
   return toOrderDTO(row);
 }
 
-export async function recordPayment(orderCode: string, amount: number, method: string): Promise<Order> {
+export async function recordPayment(storeId: string, orderCode: string, amount: number, methodInput: string): Promise<Order> {
   const orderNumber = parseOrderCode(orderCode);
   if (orderNumber === null) throw new Error('Order not found.');
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('Payment must be a positive amount.');
-  if (!method.trim()) throw new Error('Choose a payment method.');
+  const method = z.string().trim().min(1).max(40).parse(methodInput);
 
   const row = await prisma.$transaction(async tx => {
     // Lock the order row first so a concurrent payment can't read the same
     // stale balance and double-spend it; only after the lock do we read
     // lines/payments, guaranteeing the balance check sees committed state.
-    const locked = await tx.$queryRaw<{ id: string; legacyCancelled: boolean }[]>`
-      SELECT id, "legacyCancelled" FROM orders WHERE "orderNumber" = ${orderNumber} FOR UPDATE
+    const locked = await tx.$queryRaw<{ id: string; storeId: string; legacyCancelled: boolean }[]>`
+      SELECT id, "storeId", "legacyCancelled" FROM orders WHERE "orderNumber" = ${orderNumber} FOR UPDATE
     `;
     const order = locked[0];
-    if (!order || order.legacyCancelled) throw new Error('Order not found.');
+    if (!order || order.legacyCancelled || order.storeId !== storeId) throw new Error('Order not found.');
+
+    const availableMethod = await tx.storePaymentMethod.findFirst({ where: { storeId, name: method, active: true } });
+    if (!availableMethod) throw new Error('That payment method is no longer available.');
 
     const [lines, payments] = await Promise.all([
       tx.orderLine.findMany({ where: { orderId: order.id } }),

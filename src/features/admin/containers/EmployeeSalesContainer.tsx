@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 
-import type { Line, Product } from '../admin.types';
+import type { Line, Product, StorePaymentMethod } from '../admin.types';
 import type { SaleDraft } from '../pos.types';
 import { money, price, today } from '../admin.data';
 import { useAdmin } from './AdminProvider';
@@ -12,10 +12,10 @@ import QuantityForm from '../components/QuantityForm';
 import { Panel } from '../components/Primitives';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 
-const blank = (): SaleDraft => ({ entries: [], phone: '', name: '', due: today(), received: '0', method: 'UPI', notes: '' });
-export default function EmployeeSalesContainer({ products: catalogue }: { products: Product[] }) {
+const blank = (paymentMethods: StorePaymentMethod[]): SaleDraft => ({ entries: [], phone: '', name: '', due: today(), received: '0', method: paymentMethods[0]?.name ?? '', notes: '' });
+export default function EmployeeSalesContainer({ products: catalogue, paymentMethods }: { products: Product[]; paymentMethods: StorePaymentMethod[] }) {
   const { user } = useAdmin();
-  const [draft, setDraft] = useState<SaleDraft>(blank), [ready, setReady] = useState(false), [storageNote, setStorageNote] = useState('');
+  const [draft, setDraft] = useState<SaleDraft>(() => blank(paymentMethods)), [ready, setReady] = useState(false), [storageNote, setStorageNote] = useState('');
   const [query, setQuery] = useState(''), [category, setCategory] = useState('All'), [cartOpen, setCartOpen] = useState(false);
   const [selection, setSelection] = useState<{ product: Product; editing: boolean } | null>(null), [clear, setClear] = useState(false);
   const [error, setError] = useState(''), [saved, setSaved] = useState<string | null>(null), [busy, setBusy] = useState(false), submitted = useRef(false);
@@ -26,11 +26,14 @@ export default function EmployeeSalesContainer({ products: catalogue }: { produc
   useEffect(() => {
     try { const raw = sessionStorage.getItem(key); if (raw) { const value = JSON.parse(raw); if (Array.isArray(value.entries) && typeof value.phone === 'string' && typeof value.due === 'string') {
       // Restore this employee's tab-local draft after navigation or refresh.
+      const restored = { ...blank(paymentMethods), ...value };
+      // Restoring browser storage is the external synchronization performed
+      // by this mount effect.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDraft({ ...blank(), ...value });
+      setDraft({ ...restored, method: paymentMethods.some(method => method.name === restored.method) ? restored.method : paymentMethods[0]?.name ?? '' });
     } } } catch { setStorageNote('Draft recovery is unavailable. Keep this page open until you save.'); }
     setReady(true);
-  }, [key]);
+  }, [key, paymentMethods]);
   useEffect(() => { if (ready) { try { sessionStorage.setItem(key, JSON.stringify(draft)); } catch { /* Keep the in-memory draft usable. */ } } }, [draft, key, ready]);
   const products = catalogue.filter(p => p.active && (p.type === 'item' || p.slabs.length > 0));
   const lines: Line[] = draft.entries.flatMap(entry => { const product = products.find(p => p.id === entry.productId); return product ? [{ productId: product.id, name: product.name, quantity: entry.quantity, unit: product.type === 'weight' ? 'kg' : 'pcs', amount: price(product, entry.quantity) }] : []; });
@@ -61,13 +64,13 @@ export default function EmployeeSalesContainer({ products: catalogue }: { produc
       initialPayment: received ? { amount: received, method: draft.method } : undefined,
     }).then(order => {
       idempotencyKey.current = crypto.randomUUID();
-      setDraft(blank()); setCartOpen(false); setSaved(order.id);
+      setDraft(blank(paymentMethods)); setCartOpen(false); setSaved(order.id);
     }).catch(() => {
       submitted.current = false;
       setError('Could not save the order. Try again.');
     }).finally(() => setBusy(false));
   }
-  const cart = <OrderCart draft={draft} lines={lines} error={error} busy={busy} onChange={change} onEdit={id => { const product = products.find(p => p.id === id); if (product) setSelection({ product, editing: true }); }} onRemove={id => setItemQuantity(id, 0)} onIncrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) + 1)} onDecrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) - 1)} onClear={() => setClear(true)} onSubmit={punchOrder}/>;
+  const cart = <OrderCart draft={draft} lines={lines} paymentMethods={paymentMethods} error={error} busy={busy} onChange={change} onEdit={id => { const product = products.find(p => p.id === id); if (product) setSelection({ product, editing: true }); }} onRemove={id => setItemQuantity(id, 0)} onIncrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) + 1)} onDecrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) - 1)} onClear={() => setClear(true)} onSubmit={punchOrder}/>;
   if (!ready) return <p>Restoring your sale…</p>;
   return <>
     {storageNote && <p className="ad-help">{storageNote}</p>}
@@ -78,7 +81,7 @@ export default function EmployeeSalesContainer({ products: catalogue }: { produc
       const id = selection.product.id, existing = draft.entries.find(e => e.productId === id);
       change({ entries: existing ? draft.entries.map(e => e.productId === id ? { ...e, quantity: selection.editing ? quantity : Math.round((e.quantity + quantity) * 1000) / 1000 } : e) : [...draft.entries, { productId: id, quantity }] }); setSelection(null);
     }}/></Panel>}
-    {clear && <ConfirmationDialog title="Clear this order?" description="The selected services and customer details will be removed from this draft." confirmLabel="Clear order" onCancel={() => setClear(false)} onConfirm={() => { idempotencyKey.current = crypto.randomUUID(); setDraft(blank()); setError(''); setClear(false); }}/>}
+    {clear && <ConfirmationDialog title="Clear this order?" description="The selected services and customer details will be removed from this draft." confirmLabel="Clear order" onCancel={() => setClear(false)} onConfirm={() => { idempotencyKey.current = crypto.randomUUID(); setDraft(blank(paymentMethods)); setError(''); setClear(false); }}/>}
     {saved && <div className="ad-toast" role="status">Order {saved} saved · Pending <button aria-label="Dismiss saved notice" onClick={() => setSaved(null)}>×</button></div>}
   </>;
 }

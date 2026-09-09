@@ -1,13 +1,13 @@
 'use client';
 import { useState, useRef } from 'react';
-import type { Product, Line } from '../admin.types';
+import type { Product, Line, StorePaymentMethod } from '../admin.types';
 import { money, price, today } from '../admin.data';
 import { Button, usePanelClose } from '../components/Primitives';
 import type { CreateOrderInput } from '@/server/services/orders';
 
 interface Entry { key: string; id: string; quantity: number }
 const blankEntry = (): Entry => ({ key: crypto.randomUUID(), id: '', quantity: 1 });
-export default function OrderEditorContainer({ products, onSave }: { products: Product[]; onSave: (input: CreateOrderInput) => Promise<void> }) {
+export default function OrderEditorContainer({ products, paymentMethods, onSave }: { products: Product[]; paymentMethods: StorePaymentMethod[]; onSave: (input: CreateOrderInput) => Promise<void> }) {
   const onCancel = usePanelClose();
   const [entries, setEntries] = useState<Entry[]>([]), [error, setError] = useState('');
   // One key per form mount; reused across resubmits of this draft so a
@@ -36,7 +36,7 @@ export default function OrderEditorContainer({ products, onSave }: { products: P
       notes: String(data.get('notes')).trim(),
       entries: entries.map(entry => ({ productId: entry.id, quantity: entry.quantity })),
       initialPayment: received ? { amount: received, method: String(data.get('method')) } : undefined,
-    }).catch(() => { submitted.current = false; });
+    }).catch(() => { submitted.current = false; setError('Could not save the order. Try again.'); });
   }}>
     <div className="ad-form-fields">
       <h3>Customer details</h3><div className="ad-form-grid"><label>Phone number<input name="phone" type="tel" placeholder="10-digit mobile number" required/></label><label>Customer name<input name="name" placeholder="Optional"/></label></div>
@@ -53,7 +53,7 @@ export default function OrderEditorContainer({ products, onSave }: { products: P
       })}
       <Button secondary type="button" data-dirty disabled={entries.length >= available.length} onClick={() => setEntries([...entries, blankEntry()])}>＋ Add service</Button>
       {!available.length && <p className="ad-help">No active services are available. Ask the owner to add a service.</p>}
-      <h3>Delivery & payment</h3><div className="ad-form-grid"><label>Expected delivery<input name="due" type="date" defaultValue={today()} min={today()} required/></label><label>Received now (₹)<input name="received" type="number" min="0" max={sum / 100} step=".01" defaultValue="0" required/></label><label>Payment method<select name="method"><option>UPI</option><option>Cash</option><option>Card</option><option>Other</option></select></label></div>
+      <h3>Delivery & payment</h3><div className="ad-form-grid"><label>Expected delivery<input name="due" type="date" defaultValue={today()} min={today()} required/></label><label>Received now (₹)<input name="received" type="number" min="0" max={sum / 100} step=".01" defaultValue="0" required/></label><label>Payment method<select name="method">{paymentMethods.map(method => <option key={method.id} value={method.name}>{method.name}</option>)}</select></label></div>
       <label>Order notes<textarea name="notes" placeholder="Special care instructions, pickup notes…"/></label>
     </div>
     <div className="ad-form-footer">{error && <p role="alert" className="ad-error">{error}</p>}<span>Order total<strong>{money(sum)}</strong></span><div className="ad-row"><Button secondary type="button" onClick={onCancel}>Cancel</Button><Button type="submit" disabled={!available.length}>Save order ↗</Button></div></div>

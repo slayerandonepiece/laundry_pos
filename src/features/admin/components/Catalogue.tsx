@@ -9,6 +9,7 @@ function Pricing({ product }: { product: Product }) {
 }
 export default function Catalogue({ products, search, view, readOnly = false, onView, onSearch, onEdit, onNew }: Props) {
   const ProductCard = readOnly ? 'article' : 'button';
+  const hasUnitToConfirm = products.some(product => !product.active && needsUnit(product));
   return <section className="ad-card ad-catalogue">
     <div className="ad-card-heading"><div><h2>Service catalogue <span className="ad-count">{products.length}</span></h2><p>{readOnly ? 'Service prices for new orders. Contact the owner for changes.' : 'Manage services and their pricing.'}</p></div>{!readOnly && <Button onClick={onNew}>＋ Add product</Button>}</div>
     <div className="ad-toolbar ad-catalogue-toolbar"><input aria-label="Search products" placeholder="Search by service or category…" value={search} onChange={event => onSearch(event.target.value)}/><div className="ad-view-switch" role="group" aria-label="Product view">{(['grid', 'list'] as const).map(mode => <button key={mode} aria-pressed={view === mode} onClick={() => onView(mode)}><span aria-hidden="true">{mode === 'grid' ? '▦' : '☷'}</span> {mode === 'grid' ? 'Grid' : 'List'}</button>)}</div></div>
@@ -17,6 +18,7 @@ export default function Catalogue({ products, search, view, readOnly = false, on
       <div className="ad-product-title"><small>{product.category} · {product.type === 'weight' ? 'By weight' : needsUnit(product) ? 'Unit to be confirmed' : 'Per item'}</small><h3>{product.name}</h3></div>
       <div className="ad-product-pricing"><Pricing product={product}/></div>{!readOnly && <span className="ad-product-edit">Edit pricing ↗</span>}
     </ProductCard>)}</div>}
-    {!products.length && <Empty/>}<p className="ad-help">Comfort and Dettol need their charging unit confirmed before billing.</p>
+    {!products.length && <Empty text={search ? 'No services match this search.' : readOnly ? 'No services available yet. Ask the owner to add one.' : 'Add your first service to start taking orders.'}/>}
+    {hasUnitToConfirm && <p className="ad-help">Comfort and Dettol need their charging unit confirmed before billing.</p>}
   </section>;
 }

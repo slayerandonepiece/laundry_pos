@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireSession } from '@/server/auth/session';
+import { requireStoreSession } from '@/server/auth/session';
 import { createEmployee, updateEmployee, toggleEmployeeActive } from '@/server/services/employees';
 import { ValidationError } from '@/server/errors';
 import type { Employee } from '../admin.types';
@@ -14,9 +14,9 @@ export interface EmployeeActionResult {
 }
 
 export async function createEmployeeAction(draft: EmployeeDraft): Promise<EmployeeActionResult> {
-  await requireSession('OWNER');
+  const session = await requireStoreSession(undefined, 'OWNER');
   try {
-    const employee = await createEmployee(draft);
+    const employee = await createEmployee(session.storeId, draft);
     revalidatePath('/admin/employees');
     return { ok: true, employee };
   } catch (error) {
@@ -26,9 +26,9 @@ export async function createEmployeeAction(draft: EmployeeDraft): Promise<Employ
 }
 
 export async function updateEmployeeAction(id: string, draft: EmployeeDraft): Promise<EmployeeActionResult> {
-  await requireSession('OWNER');
+  const session = await requireStoreSession(undefined, 'OWNER');
   try {
-    const employee = await updateEmployee({ id, ...draft });
+    const employee = await updateEmployee(session.storeId, { id, ...draft });
     revalidatePath('/admin/employees');
     return { ok: true, employee };
   } catch (error) {
@@ -38,8 +38,8 @@ export async function updateEmployeeAction(id: string, draft: EmployeeDraft): Pr
 }
 
 export async function toggleEmployeeActiveAction(id: string): Promise<Employee> {
-  await requireSession('OWNER');
-  const employee = await toggleEmployeeActive(id);
+  const session = await requireStoreSession(undefined, 'OWNER');
+  const employee = await toggleEmployeeActive(session.storeId, id);
   revalidatePath('/admin/employees');
   return employee;
 }

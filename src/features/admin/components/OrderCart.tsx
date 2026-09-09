@@ -1,12 +1,13 @@
 'use client';
 import { useState } from 'react';
-import type { Line } from '../admin.types';
+import type { Line, StorePaymentMethod } from '../admin.types';
 import type { SaleDraft } from '../pos.types';
 import { money, today } from '../admin.data';
 import { Button } from './Primitives';
 
-export default function OrderCart({ draft, lines, error, busy, onChange, onEdit, onRemove, onIncrement, onDecrement, onClear, onSubmit }: {
+export default function OrderCart({ draft, lines, paymentMethods, error, busy, onChange, onEdit, onRemove, onIncrement, onDecrement, onClear, onSubmit }: {
   draft: SaleDraft; lines: Line[]; error: string; busy: boolean;
+  paymentMethods: StorePaymentMethod[];
   onChange: (patch: Partial<SaleDraft>) => void; onEdit: (id: string) => void; onRemove: (id: string) => void;
   onIncrement: (id: string) => void; onDecrement: (id: string) => void; onClear: () => void; onSubmit: () => void;
 }) {
@@ -32,7 +33,7 @@ export default function OrderCart({ draft, lines, error, busy, onChange, onEdit,
       <div className="ad-cart-payment"><h3>Delivery & payment</h3><div className="ad-form-grid">
         <label>Expected delivery<input type="date" required min={today()} value={draft.due} onChange={e => onChange({ due: e.target.value })}/></label>
         <label>Received now (₹)<input type="number" min="0" max={amount / 100} step=".01" required value={draft.received} onChange={e => onChange({ received: e.target.value })}/></label>
-        <label>Payment method<select value={draft.method} onChange={e => onChange({ method: e.target.value })}>{['UPI', 'Cash', 'Card', 'Other'].map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>Payment method<select value={draft.method} onChange={e => onChange({ method: e.target.value })}>{paymentMethods.map(method => <option key={method.id} value={method.name}>{method.name}</option>)}</select></label>
         <label>Notes<input value={draft.notes} onChange={e => onChange({ notes: e.target.value })} placeholder="Optional"/></label>
       </div></div>
     </div>}

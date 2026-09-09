@@ -6,26 +6,15 @@ import { revokeAllSessionsForUser } from '@/server/auth/session';
 import { ValidationError } from '@/server/errors';
 import type { Profile } from '@/features/admin/admin.types';
 
-// Single-row table: fixed id so get/save always target the same row.
-const STORE_PROFILE_ID = 'main';
+type StoreRow = Awaited<ReturnType<typeof prisma.store.findFirstOrThrow>>;
 
-type StoreProfileRow = Awaited<ReturnType<typeof prisma.storeProfile.findFirstOrThrow>>;
-
-function toDTO(row: StoreProfileRow): Profile {
-  return { name: row.name, phone: row.phone, email: row.email, store: row.store, address: row.address };
+function toDTO(store: StoreRow, ownerName: string): Profile {
+  return { name: ownerName, phone: store.phone, email: store.email, store: store.name, address: store.address };
 }
 
-export async function getStoreProfile(): Promise<Profile> {
-  const existing = await prisma.storeProfile.findUnique({ where: { id: STORE_PROFILE_ID } });
-  if (existing) return toDTO(existing);
-
-  const owner = await prisma.user.findFirst({ where: { role: 'OWNER' } });
-  const created = await prisma.storeProfile.upsert({
-    where: { id: STORE_PROFILE_ID },
-    update: {},
-    create: { id: STORE_PROFILE_ID, name: owner?.name ?? 'Store owner', phone: '', email: '', store: 'Express Laundry', address: '' },
-  });
-  return toDTO(created);
+export async function getStoreProfile(storeId: string, ownerName: string): Promise<Profile> {
+  const store = await prisma.store.findUniqueOrThrow({ where: { id: storeId } });
+  return toDTO(store, ownerName);
 }
 
 const profileSchema = z.object({
@@ -36,15 +25,20 @@ const profileSchema = z.object({
   address: z.string().trim().min(1),
 });
 
-export async function saveStoreProfile(input: unknown, ownerId: string): Promise<Profile> {
+export async function saveStoreProfile(storeId: string, input: unknown, ownerId: string): Promise<Profile> {
   const data = profileSchema.parse(input);
-  const [row] = await prisma.$transaction([
-    prisma.storeProfile.upsert({ where: { id: STORE_PROFILE_ID }, update: data, create: { id: STORE_PROFILE_ID, ...data } }),
+  const [store] = await prisma.$transaction([
+    prisma.store.update({
+      where: { id: storeId },
+      data: { name: data.store, phone: data.phone, email: data.email, address: data.address },
+    }),
     // Keep the owner's login display name in sync with the profile name shown in the UI.
     prisma.user.update({ where: { id: ownerId }, data: { name: data.name } }),
   ]);
-  return toDTO(row);
+  return toDTO(store, data.name);
 }
+
+const newPasswordSchema = z.string().min(8, 'New password must be at least 8 characters.');
 
 export async function changeOwnerPassword(ownerId: string, oldPassword: string, newPassword: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: ownerId } });
@@ -52,6 +46,9 @@ export async function changeOwnerPassword(ownerId: string, oldPassword: string, 
 
   const valid = await verifyPassword(oldPassword, user.passwordHash);
   if (!valid) throw new ValidationError('Current password is incorrect.');
+
+  const result = newPasswordSchema.safeParse(newPassword);
+  if (!result.success) throw new ValidationError(result.error.issues[0].message);
 
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: ownerId }, data: { passwordHash, credentialVersion: { increment: 1 } } });

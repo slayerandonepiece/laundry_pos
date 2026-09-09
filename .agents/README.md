@@ -10,9 +10,13 @@ assumed to be automatically discovered by every tool.
 - This repository is the Express Laundry store workspace. The customer-facing
   website was extracted into the sibling `vendor_websites/express-laundry` folder.
   Do not restore the marketing website into this app or mix the two projects.
-- This is currently a frontend prototype with browser storage. Backend work in
-  `BACKEND-PLAN.md` is planned, not implemented or automatically authorized by
-  reading that file. Implement the portion requested by the user.
+- The core backend migration (Postgres/Prisma, real auth, all screens
+  server-backed) is complete — see `BACKEND-PLAN.md`'s status line and
+  `CURRENT-STATE.md`. The app is now mid-migration to multi-tenancy
+  (StoreOps): schema, auth, and the Super Admin onboarding UI are done;
+  subscription-lock enforcement and invoice generation are not yet built.
+  Treat further phases as planned, not implemented, until `CURRENT-STATE.md`
+  says otherwise.
 - Inspect the current working tree, staged changes, and relevant source before
   editing. Preserve unrelated work and the website extraction. Do not reset or
   overwrite staged changes. Source code wins if these notes have become stale;
@@ -38,7 +42,8 @@ Run from this repository: `npm install`, `npm run dev` (normally localhost:3000)
 Use `npm run lint` and `npx tsc --noEmit` for code changes; use `npm run build`
 for routing/server/dependency changes when appropriate. Do not run a production
 build against a dev server's active `.next` output without coordinating it.
-There is no dedicated automated test script configured yet.
+The focused `npm run test:subscription-payments` integration regression requires
+local PostgreSQL binaries; see `tests/README.md`. No full test suite exists yet.
 
 For route/auth changes, verify signed-out `/` reaches `/login`, owner sign-in
 reaches `/`, reload retains the session, signed-in `/login` returns to the role's
