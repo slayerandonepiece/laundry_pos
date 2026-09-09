@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { StoreOption } from '@/server/auth/session';
 
 // Header store selector (Item 2, .agents/2026-09-brainstorm-plan.md). Only
-// ever rendered when the caller (AdminShell) has more than one store option —
+// ever rendered when the caller (AdminChrome) has more than one store option —
 // a single-store owner or any employee never sees this at all. A plain
 // filter <input> over the option list, not a heavy combobox library — this
 // app has at most a handful of stores per owner in practice, and the spec

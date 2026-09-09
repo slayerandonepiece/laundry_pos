@@ -597,9 +597,14 @@ the real cookie.
 - `src/features/admin/containers/AdminProvider.tsx`: client-side session mirror
   and dashboard date-range UI state only; no data hydration.
 - `src/features/admin/containers/AdminScreenContainer.tsx`: screen routing,
-  guards, and the mutation handlers that call the Server Actions above.
+  guards, and the mutation handlers that call the Server Actions above —
+  renders each screen's own heading + content directly (no shell wrapper;
+  see "Persistent nav shell + route-level loaders" below).
 - Other `containers/`: employee counter, order and product editor state.
-- `src/features/admin/components/`: presentation, forms, tables, charts, dialogs.
+- `src/features/admin/components/`: presentation, forms, tables, charts,
+  dialogs, plus `AdminChrome.tsx` — the persistent sidebar/topbar frame,
+  rendered once from `src/app/(workspace)/layout.tsx` (superseded the old
+  per-page `AdminShell.tsx`).
 - `admin.types.ts`, `pos.types.ts`: client data contracts (also used as the
   service layer's DTO shapes, to avoid a parallel set of types).
 - `admin.data.ts`, `admin.analytics.ts`: pricing/date/summary helpers, reused
@@ -627,10 +632,15 @@ the real cookie.
 - `src/features/super-admin/`: the platform-admin feature slice, parallel to
   `src/features/admin/` — `actions/` (`stores.actions.ts`, `users.actions.ts`,
   `subscription-plans.actions.ts`, `auth.actions.ts`, all
-  `requireSuperAdmin()`-gated), `components/` (`SuperAdminShell` — the app
-  frame: sidebar/topbar/mobile drawer, `hidePhead` escape hatch for pages that
-  render their own header, `Icon` — shared SVG icon set for the `.soa` design
-  system, `RowMenu` — shared row-action dropdown, `SuperAdminLoginForm`,
+  `requireSuperAdmin()`-gated), `components/` (`SuperAdminChrome` — the
+  persistent app frame: sidebar/topbar/mobile drawer, rendered once from
+  `src/app/super-admin/(shell)/layout.tsx` so it stays mounted across
+  navigations (see "Persistent nav shell + route-level loaders" below);
+  `PageHeading` — the small title/subtitle/action block each list/detail
+  page renders itself as the first thing in its own content, now that the
+  chrome no longer takes per-page title/subtitle/action props, `Icon` —
+  shared SVG icon set for the `.soa` design system, `RowMenu` — shared
+  row-action dropdown, `SuperAdminLoginForm`,
   `SuperAdminDashboard`, `StoresDirectory`, `OnboardStoreAction` (Onboard
   store button + `OnboardingWizard` dialog, reused on both the Stores page
   and the Dashboard's Quick actions), `OnboardingWizard`, `StoreDetailShell`
@@ -646,10 +656,13 @@ the real cookie.
   Store Detail), `PlanEditor`, `PlanArchiveDialog`, `ChangePlanDialog`,
   `RecordPaymentDialog`, `SubscriptionsBillingTable`, `InvoiceDetail` (its
   own back-link/header), `SubscriptionsShell`), `containers/`
-  (`SuperAdminPageShell` — passes `title`/`subtitle`/`breadcrumb`/`action`/
-  `hidePhead` through to `SuperAdminShell`, plus the platform-admin logout
-  handler, `StoresScreenContainer`, `UsersScreenContainer`,
-  `PlansScreenContainer`, `BillingScreenContainer`), `types.ts`.
+  (`StoresScreenContainer`, `UsersScreenContainer`, `PlansScreenContainer`,
+  `BillingScreenContainer`), `types.ts`. (`SuperAdminPageShell`, which used
+  to pass `title`/`subtitle`/`breadcrumb`/`action`/`hidePhead` through to a
+  combined shell+heading component and own the logout handler, was removed —
+  see "Persistent nav shell + route-level loaders" below; its logout wiring
+  moved into `SuperAdminChrome` and its heading wiring into each page + the
+  new `PageHeading`.)
   Every Super Admin page renders inside `src/app/super-admin/layout.tsx`'s
   `<div className="soa ad-root">` — `.soa` is the new design-canvas-matched
   system (`src/app/super-admin/super-admin.css`; see the "Super Admin visual
@@ -1070,3 +1083,159 @@ templates now use the shared PDF-safe `pdfMoney()` formatter (`Rs. 25`) while
 the web UI keeps `₹`. The downloaded public invoice was re-rendered as PNG and
 text-extracted: one clean A4 page, no clipping, correct totals, and the inactive
 `QA Card` historical payment present in both summary and payment table.
+
+#### Fresh/wiped database no longer auto-creates a placeholder "Express Laundry" store (2026-09-09)
+
+After wiping the dev Neon branch's tables and redeploying, the app still
+showed a store named "Express Laundry" with a subscription (₹10,000
+deposit / ₹5,000 annual fee) — not stale data, but a **hardcoded fallback
+INSERT inside the historical `20260907173038_multi_tenant` migration**
+(`WHERE NOT EXISTS ... SELECT 'store-express-laundry-01', 'Express Laundry'`,
+plus an unconditional default-subscription INSERT), which unconditionally
+recreates that placeholder store any time the full migration history replays
+against an empty database — exactly what `vercel-build`'s `prisma migrate
+deploy` does after a wipe. `prisma/seed.ts` was confirmed unrelated; it only
+upserts the Super Admin `User` row, never a `Store`. Directly querying the
+live dev DB confirmed the placeholder had 0 products/0 orders/0 memberships —
+a fresh shell, not leftover business data.
+
+Initially fixed with a new, additive migration,
+`20260909140000_remove_empty_placeholder_store`, that deleted the
+`store-express-laundry-01` row only when it had zero products, orders, and
+store memberships. **That migration file no longer exists** — it was folded
+away by the squash below, which removes the placeholder-creating fallback
+entirely rather than cleaning up after it. Superseded, kept here only for
+the root-cause history.
+
+#### Migration history squashed to a single baseline (2026-09-09)
+
+At the user's request, all 13 migrations up to and including the placeholder
+fix above were deleted and replaced with one fresh migration generated from
+the current `prisma/schema.prisma`:
+[prisma/migrations/20260909140443_init_storeops_schema/migration.sql](../prisma/migrations/20260909140443_init_storeops_schema/migration.sql)
+(411 lines — every table/enum/index/constraint in one file, no data-backfill
+statements and no "Express Laundry" fallback of any kind). **Dev branch
+only**, by explicit user choice — production's migration history and schema
+were intentionally left untouched.
+
+Procedure used: deleted every folder under `prisma/migrations/` except
+`migration_lock.toml`; dropped and recreated the dev DB's `public` schema
+(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`, which also removed the
+old `_prisma_migrations` tracking table) for a truly empty starting point;
+ran `npx prisma migrate dev --name init_storeops_schema` against the dev
+branch, which diffed the empty database against `schema.prisma` and
+generated+applied this one migration. Verified: all 18 expected tables exist,
+`stores` has 0 rows, `npx tsc --noEmit` and `npm run lint` are clean.
+
+**Critical caveat for whoever next touches production**: production's
+`_prisma_migrations` table still records the old 13 migration names, which
+no longer exist in this repo's `prisma/migrations/` folder. If `vercel-build`
+(`prisma migrate deploy`) is ever run against production as-is, Prisma will
+try to apply the new `20260909140443_init_storeops_schema` migration there
+too — but production's tables already exist (created by the old history), so
+every `CREATE TABLE`/`CREATE TYPE` in that migration will fail against
+production. **Do not deploy this build to production until production's
+migration tracking is reconciled first**, e.g. by running
+`npx prisma migrate resolve --applied 20260909140443_init_storeops_schema`
+against production's `DIRECT_URL` (marks it as already-satisfied without
+running its SQL — safe, since production's actual schema already matches
+this migration's end state; it was generated from the same `schema.prisma`
+production is already running). This reconciliation was **not** performed as
+part of this change, per the user's explicit "dev only" scope.
+
+### Persistent nav shell + route-level loaders (2026-09-09)
+
+Navigating either app (Super Admin, store workspace) felt slow: clicking any
+nav link showed a blank/frozen moment before the destination screen
+appeared. Root cause: the sidebar/topbar chrome (`SuperAdminShell` /
+`AdminShell`) was rendered *inside* every page's own Server Component tree,
+not in a `layout.tsx`. Since the chrome sat below each page's own data-fetch,
+and the app had exactly one `loading.tsx`/`error.tsx` pair (at the site
+root, `src/app/loading.tsx`/`error.tsx`), that single root boundary was the
+*only* Suspense fallback active for every client-side navigation in the
+entire app — so every navigation blanked the whole visible app (nav
+included) until the destination page's data resolved, then swapped the
+whole tree back in at once.
+
+Fixed by moving the chrome into real Next.js layouts, so it stays mounted
+across navigations, plus adding narrow `loading.tsx` files so only the
+content column shows a lightweight, non-blocking spinner (`.content-loading`
++ the existing `.ad-spinner`/`@keyframes ad-spin` from `globals.css`) while
+a destination page's data is in flight — the sidebar/topbar and their nav
+highlighting/breadcrumb never unmount. `src/app/loading.tsx`/`error.tsx`
+remain as the outer fallback for `/login`, `/super-admin/login`, and
+genuinely top-level failures; they're simply no longer the *active*
+boundary for in-app navigation.
+
+- **Super Admin**: new route group `src/app/super-admin/(shell)/` holds
+  everything except `login/` (dashboard, `stores/**`, `users/**`,
+  `subscriptions/**` — route groups don't appear in the URL, so
+  `/super-admin`, `/super-admin/stores`, etc. are unchanged).
+  `(shell)/layout.tsx` calls `requireSuperAdmin()` once and renders the new
+  `SuperAdminChrome` (`src/features/super-admin/components/SuperAdminChrome.tsx`,
+  adapted from the old `SuperAdminShell` minus its `phead` block) wrapping
+  `{children}`. `(shell)/loading.tsx` is the shared spinner, covering every
+  route in the group. Every page under the group dropped its
+  `SuperAdminPageShell` wrapper and now renders its own heading directly via
+  the new `PageHeading` component (or, for pages with their own custom
+  header — Store Detail, Plan Detail, Invoice Detail — nothing at all, since
+  those already render their own back-link/header as page content).
+  `SuperAdminShell.tsx` and `SuperAdminPageShell.tsx` were deleted (both
+  fully superseded). The chrome's topbar breadcrumb is now purely
+  pathname-derived ("Platform › Stores", etc.) rather than taking a
+  per-page `title`/`breadcrumb` prop, since the chrome no longer receives
+  page props — the small, real navigational context (e.g. a store's actual
+  name) still shows up correctly, just as part of that page's own
+  content (`StoreDetailShell`'s "← Back to stores" header, etc.), not the
+  persistent topbar.
+- **Store workspace**: new route group `src/app/(workspace)/` holds the root
+  dashboard `page.tsx` and the entire `admin/` folder (Sales/Orders/
+  Products/Expenses/Employees/Profile + the compat-redirect routes);
+  `src/app/login/` stays outside, unchanged. `(workspace)/layout.tsx` is a
+  Server Component that calls `resolveStoreSelection(true)` for the
+  store-switcher's own data (a cheap, separate call from each page's own
+  data-fetch — the layout never touches the slow
+  `Promise.all([listOrders, listProducts, ...])` calls, which stay in each
+  page) and renders the new `AdminChrome`
+  (`src/features/admin/components/AdminChrome.tsx`, adapted from the old
+  `AdminShell` minus its `ad-page-heading` block) wrapping `{children}`.
+  `(workspace)/loading.tsx` is the shared spinner. `AdminChrome` derives the
+  active nav item from `usePathname()` instead of a `screen` prop, and reads
+  `name`/`role` directly from the existing client-side `useAdmin()` session
+  context (`AdminProvider`, already mounted at the root layout and spanning
+  every navigation) instead of via props — no new data plumbing needed.
+  `AdminScreenContainer.tsx` no longer renders `AdminShell`; it returns its
+  existing inner JSX directly, with the heading block (title/description/
+  the Sales screen's "+ New sale" button) relocated here from the old shell
+  component — a pure relocation, not a rewrite, since the button's `open()`
+  callback was already local to this component. Every admin `page.tsx` also
+  dropped the `storeName`/`storeOptions`/`selectedStoreId`/
+  `allStoresSelected` props it used to compute and pass down purely for the
+  old shell's display — the chrome now resolves that itself in the layout;
+  each page's own `resolveStoreSelection()` call (needed regardless, to pick
+  which store's data to fetch) is unchanged. `AdminShell.tsx` was deleted
+  (fully superseded).
+- The sidebar's own logout confirmation (a `ConfirmationDialog` + local
+  state) now lives directly in each chrome component (`AdminChrome`,
+  `SuperAdminChrome`), fully self-contained — `AdminScreenContainer` keeps
+  its own separate copy for the Profile screen's in-content logout button,
+  a small deliberate duplication rather than cross-boundary plumbing between
+  a layout-level component and a page-level one.
+- Verified in the browser end-to-end with a disposable test store/owner
+  (created via the onboarding wizard, fully deleted after): logged in as
+  Super Admin and clicked through Dashboard → Stores → a store's Overview/
+  Users/Subscription tabs → an invoice detail → Subscriptions (Plans and
+  Billing tabs) → Users, confirming the sidebar/topbar never unmounted and
+  only the content column updated on every navigation, including onboarding
+  a real store through the wizard (a Server Action + `router.refresh()`,
+  confirming layouts correctly re-render on mutation). Logged in as the new
+  store owner and clicked through Dashboard → Products → Sales (including
+  opening the "+ New sale" panel, confirming the relocated button wiring
+  works) → Employees → Profile, with the same persistent-chrome result.
+  Locked the test store from Super Admin and confirmed the owner's next
+  sign-in shows `AccessBlockedScreen` with the chrome (nav, logout) still
+  fully reachable around it — re-verifying the specific regression
+  `AdminScreenContainer`'s blocked-screen branch was already guarding
+  against, now that the chrome's mount location changed. Logout was
+  verified from both a normal screen and the blocked screen, in both apps.
+  `npx tsc --noEmit` and `npm run lint` are clean.

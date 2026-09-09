@@ -3,10 +3,10 @@ import '@fontsource-variable/dm-sans';
 import '@fontsource-variable/manrope';
 import './globals.css';
 import { AdminProvider } from '@/features/admin/containers/AdminProvider';
-import './admin/admin.css';
-import './admin/pos.css';
-import './admin/counter.css';
-import './admin/tables.css';
+import './(workspace)/admin/admin.css';
+import './(workspace)/admin/pos.css';
+import './(workspace)/admin/counter.css';
+import './(workspace)/admin/tables.css';
 
 export const metadata: Metadata = {
   title: 'Store workspace | Express Laundry',
