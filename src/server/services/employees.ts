@@ -6,14 +6,26 @@ import { revokeAllSessionsForUser } from '@/server/auth/session';
 import { ValidationError } from '@/server/errors';
 import type { Employee } from '@/features/admin/admin.types';
 
-type UserRow = Awaited<ReturnType<typeof prisma.user.findFirstOrThrow>>;
+type MembershipRow = Awaited<ReturnType<typeof findAll>>[number];
 
-function toDTO(row: UserRow): Employee {
-  return { id: row.id, name: row.name, username: row.username, active: row.active, credentialVersion: row.credentialVersion };
+function findAll(storeId: string) {
+  return prisma.storeMembership.findMany({
+    where: { storeId, role: 'EMPLOYEE' },
+    include: { user: true },
+    orderBy: { createdAt: 'asc' },
+  });
 }
 
-export async function listEmployees(): Promise<Employee[]> {
-  const rows = await prisma.user.findMany({ where: { role: 'EMPLOYEE' }, orderBy: { createdAt: 'asc' } });
+// active is the per-store StoreMembership flag, not the global User row —
+// an employee can be deactivated here without touching their access at any
+// other store they may (per stale-membership policy) still hold. See
+// .agents/2026-09-brainstorm-plan.md Item 1.
+function toDTO(row: MembershipRow): Employee {
+  return { id: row.user.id, name: row.user.name, username: row.user.username, active: row.active, credentialVersion: row.user.credentialVersion };
+}
+
+export async function listEmployees(storeId: string): Promise<Employee[]> {
+  const rows = await findAll(storeId);
   return rows.map(toDTO);
 }
 
@@ -30,13 +42,18 @@ const createEmployeeSchema = z.object({
   active: z.boolean(),
 });
 
-export async function createEmployee(input: unknown): Promise<Employee> {
+export async function createEmployee(storeId: string, input: unknown): Promise<Employee> {
   const data = createEmployeeSchema.parse(input);
   const existing = await prisma.user.findUnique({ where: { username: data.username } });
   if (existing) throw new ValidationError('This username is already in use. Choose another.');
 
   const passwordHash = await hashPassword(data.password);
-  const row = await prisma.user.create({ data: { name: data.name, username: data.username, passwordHash, role: 'EMPLOYEE', active: data.active } });
+  const row = await prisma.$transaction(async tx => {
+    // The User row itself is always created active — "active" as entered on
+    // this form is this store's membership flag, not a platform-wide state.
+    const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash } });
+    return tx.storeMembership.create({ data: { role: 'EMPLOYEE', storeId, userId: user.id, active: data.active }, include: { user: true } });
+  });
   return toDTO(row);
 }
 
@@ -48,10 +65,14 @@ const updateEmployeeSchema = z.object({
   active: z.boolean(),
 });
 
-export async function updateEmployee(input: unknown): Promise<Employee> {
+export async function updateEmployee(storeId: string, input: unknown): Promise<Employee> {
   const data = updateEmployeeSchema.parse(input);
-  const current = await prisma.user.findUnique({ where: { id: data.id } });
-  if (!current || current.role !== 'EMPLOYEE') throw new Error('Employee not found.');
+  const membership = await prisma.storeMembership.findUnique({
+    where: { userId_storeId: { userId: data.id, storeId } },
+    include: { user: true },
+  });
+  if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
+  const current = membership.user;
 
   const usernameChanged = data.username !== current.username;
   if (usernameChanged) {
@@ -60,30 +81,48 @@ export async function updateEmployee(input: unknown): Promise<Employee> {
   }
 
   const passwordChanged = Boolean(data.password);
-  const activeChanged = data.active !== current.active;
-  const credentialsChanged = usernameChanged || passwordChanged || activeChanged;
+  // Only username/password are real credential changes — bumping
+  // credentialVersion for those still force-logs-out any live session
+  // everywhere (correct: it's the same login at every store). The active
+  // flag below is store-scoped and deliberately does NOT touch credentials
+  // or sessions at all — see requireStoreSession's live membership check,
+  // which is what actually enforces per-store access now.
+  const credentialsChanged = usernameChanged || passwordChanged;
   const passwordHash = passwordChanged ? await hashPassword(data.password!) : undefined;
 
-  const row = await prisma.user.update({
-    where: { id: data.id },
-    data: {
-      name: data.name,
-      username: data.username,
-      active: data.active,
-      passwordHash,
-      credentialVersion: credentialsChanged ? { increment: 1 } : undefined,
-    },
-  });
+  const [user, updatedMembership] = await prisma.$transaction([
+    prisma.user.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        username: data.username,
+        passwordHash,
+        credentialVersion: credentialsChanged ? { increment: 1 } : undefined,
+      },
+    }),
+    prisma.storeMembership.update({ where: { userId_storeId: { userId: data.id, storeId } }, data: { active: data.active } }),
+  ]);
 
-  if (credentialsChanged) await revokeAllSessionsForUser(row.id);
-  return toDTO(row);
+  if (credentialsChanged) await revokeAllSessionsForUser(user.id);
+  return { id: user.id, name: user.name, username: user.username, active: updatedMembership.active, credentialVersion: user.credentialVersion };
 }
 
-export async function toggleEmployeeActive(id: string): Promise<Employee> {
-  const current = await prisma.user.findUnique({ where: { id } });
-  if (!current || current.role !== 'EMPLOYEE') throw new Error('Employee not found.');
+// Deliberately store-scoped: flips this store's StoreMembership.active only.
+// Does not touch User.active, credentialVersion, or any session — a
+// deactivation here must not affect this person's access at any other store
+// they belong to, and access at *this* store is withheld live by
+// requireStoreSession() checking the membership, not by killing a session.
+export async function toggleEmployeeActive(storeId: string, id: string): Promise<Employee> {
+  const membership = await prisma.storeMembership.findUnique({
+    where: { userId_storeId: { userId: id, storeId } },
+    include: { user: true },
+  });
+  if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
 
-  const row = await prisma.user.update({ where: { id }, data: { active: !current.active, credentialVersion: { increment: 1 } } });
-  await revokeAllSessionsForUser(row.id);
-  return toDTO(row);
+  const updated = await prisma.storeMembership.update({
+    where: { userId_storeId: { userId: id, storeId } },
+    data: { active: !membership.active },
+    include: { user: true },
+  });
+  return toDTO(updated);
 }

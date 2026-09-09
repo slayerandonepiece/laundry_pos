@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireSession } from '@/server/auth/session';
+import { requireStoreSession } from '@/server/auth/session';
 import { saveStoreProfile, changeOwnerPassword } from '@/server/services/profile';
 import { ValidationError } from '@/server/errors';
 import type { Profile } from '../admin.types';
@@ -13,9 +13,9 @@ export interface ProfileActionResult {
 }
 
 export async function saveProfileAction(input: Profile): Promise<ProfileActionResult> {
-  const session = await requireSession('OWNER');
+  const session = await requireStoreSession(undefined, 'OWNER');
   try {
-    const profile = await saveStoreProfile(input, session.id);
+    const profile = await saveStoreProfile(session.storeId, input, session.id);
     revalidatePath('/admin/profile');
     return { ok: true, profile };
   } catch (error) {
@@ -30,7 +30,7 @@ export interface PasswordActionResult {
 }
 
 export async function changePasswordAction(oldPassword: string, newPassword: string): Promise<PasswordActionResult> {
-  const session = await requireSession('OWNER');
+  const session = await requireStoreSession(undefined, 'OWNER');
   try {
     await changeOwnerPassword(session.id, oldPassword, newPassword);
     return { ok: true };

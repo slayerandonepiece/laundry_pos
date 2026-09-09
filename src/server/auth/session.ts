@@ -1,16 +1,36 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { prisma } from '@/server/db';
+import { formatCalendarDate, todayIST } from '@/server/dates';
 import type { Role } from '@/generated/prisma/client';
 
 const COOKIE_NAME = 'el_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// Separate, lightweight cookies for "which store is this owner currently
+// working in" (see Item 2, .agents/2026-09-brainstorm-plan.md). Neither
+// carries any authorization on its own — every read of them here is
+// re-validated against the caller's live, active StoreMembership rows before
+// being trusted (see resolveStoreSelection/setSelectedStore below), the same
+// way requireStoreSession() already re-verifies storeId server-side.
+const STORE_SELECT_COOKIE = 'el_selected_store';
+const DASHBOARD_ALL_COOKIE = 'el_dashboard_all_stores';
+const STORE_SELECT_TTL_MS = SESSION_TTL_MS;
+
+// A user's identity only — role is per-store (see StoreSession) and
+// Super Admin access is platform-level, unscoped to any store.
 export interface SessionUser {
   id: string;
   name: string;
   username: string;
-  role: Role;
+  isSuperAdmin: boolean;
+}
+
+// A user's identity plus their role in one specific store.
+export interface StoreSession extends SessionUser {
+  storeId: string;
+  storeName: string;
+  storeRole: Role;
 }
 
 export async function createSession(userId: string, credentialVersion: number): Promise<void> {
@@ -40,7 +60,7 @@ export async function getSession(): Promise<SessionUser | null> {
   if (!session.user.active) return null;
   if (session.credentialVersion !== session.user.credentialVersion) return null;
 
-  return { id: session.user.id, name: session.user.name, username: session.user.username, role: session.user.role };
+  return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
 }
 
 export async function destroySession(): Promise<void> {
@@ -58,15 +78,214 @@ export async function revokeAllSessionsForUser(userId: string): Promise<void> {
   await prisma.session.deleteMany({ where: { userId } });
 }
 
+// Distinguishes *why* store access was withheld — a plain missing/wrong-role
+// membership carries no reason (nothing to explain to the user beyond "no
+// access"), while these four are all things the store workspace UI shows a
+// specific message for (see AdminProvider/AdminScreenContainer). All are
+// "FORBIDDEN" as far as callers checking `instanceof AuthError` are
+// concerned; `reason` is additive.
+export type AccessDeniedReason = 'membership_inactive' | 'store_locked' | 'store_archived' | 'payment_lapsed';
+
 export class AuthError extends Error {
-  constructor(public readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN') {
+  constructor(public readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN', public readonly reason?: AccessDeniedReason) {
     super(code);
   }
 }
 
-export async function requireSession(role?: Role): Promise<SessionUser> {
+export async function requireSuperAdmin(): Promise<SessionUser> {
   const session = await getSession();
   if (!session) throw new AuthError('UNAUTHENTICATED');
-  if (role && session.role !== role) throw new AuthError('FORBIDDEN');
+  if (!session.isSuperAdmin) throw new AuthError('FORBIDDEN');
   return session;
+}
+
+// Resolves the session plus the caller's role in a specific store. If
+// storeId is omitted, falls back to the user's only *active* membership —
+// an employee is constrained (by policy, not schema) to exactly one active
+// membership at a time, so this remains unambiguous for them; an owner with
+// more than one active membership and no storeId gets FORBIDDEN here (the
+// store switcher that disambiguates that case is a separate, later item).
+//
+// Store-level access is fully computed on every call, never cached in a
+// session/cookie: an inactive StoreMembership, an explicitly LOCKED store,
+// an archived store, or a lapsed subscription (paidThroughDate in the past)
+// all deny access live, and — because none of them touch the Session table —
+// access at *other* stores the same person belongs to is unaffected, and
+// access here resumes automatically the moment the underlying condition
+// clears (membership reactivated, store unlocked, renewal recorded).
+export async function requireStoreSession(storeId?: string, role?: Role): Promise<StoreSession> {
+  const session = await getSession();
+  if (!session) throw new AuthError('UNAUTHENTICATED');
+
+  const membership = storeId
+    ? await prisma.storeMembership.findUnique({ where: { userId_storeId: { userId: session.id, storeId } } })
+    : await onlyActiveMembership(session.id);
+
+  if (!membership) throw new AuthError('FORBIDDEN');
+  if (role && membership.role !== role) throw new AuthError('FORBIDDEN');
+  if (!membership.active) throw new AuthError('FORBIDDEN', 'membership_inactive');
+
+  const store = await prisma.store.findUnique({
+    where: { id: membership.storeId },
+    select: { name: true, status: true, deletedAt: true, subscription: { select: { paidThroughDate: true } } },
+  });
+  if (!store) throw new AuthError('FORBIDDEN');
+  if (store.status === 'LOCKED') throw new AuthError('FORBIDDEN', 'store_locked');
+  if (store.deletedAt) throw new AuthError('FORBIDDEN', 'store_archived');
+
+  const paidThroughDate = store.subscription?.paidThroughDate ? formatCalendarDate(store.subscription.paidThroughDate) : undefined;
+  // Only an explicit, past date denies access — a subscription that was
+  // never set (no payment ever recorded) is never auto-locked, matching
+  // paidThroughDate's existing "null means never locked" semantics
+  // (paymentStateFor in stores.ts treats a null date as 'unset', not 'locked').
+  if (paidThroughDate && paidThroughDate < todayIST()) throw new AuthError('FORBIDDEN', 'payment_lapsed');
+
+  return { ...session, storeId: membership.storeId, storeName: store.name, storeRole: membership.role };
+}
+
+async function onlyActiveMembership(userId: string) {
+  const memberships = await prisma.storeMembership.findMany({ where: { userId, active: true } });
+  return memberships.length === 1 ? memberships[0] : null;
+}
+
+export interface StoreOption { storeId: string; storeName: string }
+
+export interface StoreSelection {
+  // The store to actually use for this request — always freshly re-derived
+  // from the caller's own live active memberships (never trusted from the
+  // cookie alone; see setSelectedStore below for the same rule on write).
+  storeId: string;
+  // True only when the caller holds more than one active StoreMembership —
+  // this is what the header selector's visibility (and everything else in
+  // Item 2) keys off. Per Item 1's design, an employee always has exactly
+  // one, so this is only ever true for owners.
+  multiStore: boolean;
+  options: StoreOption[];
+  // Dashboard-only: true when the owner has explicitly chosen "All stores"
+  // for the dashboard aggregate view. Always false when resolveStoreSelection
+  // is called with dashboard=false (every non-Dashboard screen).
+  allStoresSelected: boolean;
+}
+
+// Resolves which store a signed-in owner is currently working in, for
+// screens that must disambiguate when a person holds more than one active
+// StoreMembership (Item 2). Returns null when there's no session or no
+// active membership at all — callers should fall through to
+// requireStoreSession()'s existing generic-FORBIDDEN handling in that case,
+// exactly as before this item (nothing changes for single-store owners or
+// employees, who always resolve to multiStore: false here).
+export async function resolveStoreSelection(dashboard = false): Promise<StoreSelection | null> {
+  const session = await getSession();
+  if (!session) return null;
+
+  const memberships = await prisma.storeMembership.findMany({
+    where: { userId: session.id, active: true },
+    orderBy: { createdAt: 'asc' },
+    include: { store: { select: { id: true, name: true } } },
+  });
+  if (memberships.length === 0) return null;
+
+  const options: StoreOption[] = memberships.map(membership => ({ storeId: membership.storeId, storeName: membership.store.name }));
+  if (memberships.length === 1) {
+    return { storeId: options[0].storeId, multiStore: false, options, allStoresSelected: false };
+  }
+
+  const cookieStore = await cookies();
+  const requested = cookieStore.get(STORE_SELECT_COOKIE)?.value;
+  const requestedIsValid = Boolean(requested) && options.some(option => option.storeId === requested);
+  // Auto-pick the oldest active membership (first store this person joined)
+  // when there's no prior choice, or the cookie names a store they're no
+  // longer an active member of — never a blocking "choose a store" prompt.
+  const storeId = requestedIsValid ? requested! : options[0].storeId;
+  const allStoresSelected = dashboard && cookieStore.get(DASHBOARD_ALL_COOKIE)?.value === '1';
+
+  return { storeId, multiStore: true, options, allStoresSelected };
+}
+
+// Persists the owner's chosen store for future requests, across reloads.
+// Re-verifies storeId against this session's own active memberships before
+// writing anything — a client-supplied storeId is a request, never an
+// authorization; the actual authorization check still happens independently
+// on every subsequent requireStoreSession() call regardless of this cookie.
+// Explicitly choosing one store also exits Dashboard's "All stores" view,
+// since only Dashboard ever offers that option.
+export async function setSelectedStore(storeId: string): Promise<boolean> {
+  const session = await getSession();
+  if (!session) return false;
+  const membership = await prisma.storeMembership.findUnique({ where: { userId_storeId: { userId: session.id, storeId } } });
+  if (!membership || !membership.active) return false;
+
+  const cookieStore = await cookies();
+  cookieStore.set(STORE_SELECT_COOKIE, storeId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: STORE_SELECT_TTL_MS / 1000,
+  });
+  cookieStore.delete(DASHBOARD_ALL_COOKIE);
+  return true;
+}
+
+// Dashboard-only "All stores" aggregate toggle. Kept as its own cookie
+// (rather than folded into STORE_SELECT_COOKIE) so navigating away from
+// Dashboard's "All stores" view to any other screen still lands on the last
+// specific store chosen, per Item 2's requirement that only Dashboard ever
+// aggregates and every other screen always requires one specific store.
+export async function setDashboardAllStores(allStores: boolean): Promise<void> {
+  const cookieStore = await cookies();
+  if (allStores) {
+    cookieStore.set(DASHBOARD_ALL_COOKIE, '1', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: STORE_SELECT_TTL_MS / 1000,
+    });
+  } else {
+    cookieStore.delete(DASHBOARD_ALL_COOKIE);
+  }
+}
+
+// Days before paidThroughDate that the store workspace should start showing
+// an owner/employee warning banner (see Item 3, .agents/2026-09-brainstorm-plan.md).
+export const PAYMENT_WARNING_DAYS = 7;
+
+export interface StoreAccessStatus {
+  storeId: string;
+  storeRole: Role;
+  // Set when requireStoreSession would currently deny access for this store.
+  blockedReason?: AccessDeniedReason;
+  // The subscription's paidThroughDate (if any), regardless of blocked state —
+  // callers use this to decide whether to show the pre-expiry warning banner.
+  paidThroughDate?: string;
+}
+
+// Non-throwing sibling of requireStoreSession, for UI surfaces (the client
+// session mirror, warning banners) that need to know *why* access is or
+// isn't withheld without treating it as an error. Mirrors the same
+// active-membership resolution and the same blocking checks, live — no
+// cached/stored lock state. storeId is optional and only meaningful for a
+// multi-store owner (see resolveStoreSelection) — when given, it's
+// re-verified as one of the caller's own active memberships here, exactly
+// like requireStoreSession does, rather than trusted as-is.
+export async function getStoreAccessStatus(userId: string, storeId?: string): Promise<StoreAccessStatus | null> {
+  const membership = storeId
+    ? await prisma.storeMembership.findUnique({ where: { userId_storeId: { userId, storeId } } })
+    : await onlyActiveMembership(userId);
+  if (!membership || !membership.active) return null;
+
+  const store = await prisma.store.findUnique({
+    where: { id: membership.storeId },
+    select: { status: true, deletedAt: true, subscription: { select: { paidThroughDate: true } } },
+  });
+  if (!store) return null;
+
+  const paidThroughDate = store.subscription?.paidThroughDate ? formatCalendarDate(store.subscription.paidThroughDate) : undefined;
+  let blockedReason: AccessDeniedReason | undefined;
+  if (store.status === 'LOCKED') blockedReason = 'store_locked';
+  else if (store.deletedAt) blockedReason = 'store_archived';
+  else if (paidThroughDate && paidThroughDate < todayIST()) blockedReason = 'payment_lapsed';
+
+  return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate };
 }

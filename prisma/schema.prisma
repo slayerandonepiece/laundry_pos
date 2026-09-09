@@ -1,6 +1,11 @@
 // Prisma schema for the Express Laundry backend.
 // Money is stored as integer paise. Timestamps are stored in UTC; the app
 // layer interprets dates in Asia/Kolkata to match existing UI semantics.
+//
+// Multi-tenant: every store-scoped table carries a storeId. A User's role is
+// per-store (StoreMembership), not global — the same person can be OWNER of
+// one store and EMPLOYEE of another. Super Admin is a platform-level flag on
+// User, unscoped to any store.
 
 generator client {
   provider = "prisma-client"
@@ -27,19 +32,52 @@ enum WorkStatus {
   COMPLETED
 }
 
+enum StoreStatus {
+  ACTIVE
+  LOCKED
+}
+
+enum SubscriptionPaymentType {
+  DEPOSIT
+  RENEWAL
+}
+
+// Platform subscription billing only. Customer order payments snapshot the
+// owning store's free-text StorePaymentMethod.name into Payment.method.
+enum PaymentMethod {
+  CASH
+  UPI
+}
+
+// Only one value today (start simple, per SUBSCRIPTIONS-IMPLEMENTATION.md —
+// the field exists so a future cycle type doesn't need a schema change).
+enum BillingCycle {
+  ANNUAL
+}
+
 model User {
   id                String   @id @default(cuid())
   name              String
   username          String   @unique
   passwordHash      String
-  role              Role
   active            Boolean  @default(true)
+  // Platform-level access, unscoped to any store. Not the same thing as
+  // owning a store — see StoreMembership for per-store roles.
+  isSuperAdmin      Boolean  @default(false)
   credentialVersion Int      @default(1)
+  // Global to the person (not a store's own contact info — see Store.email/
+  // Store.phone, which represent the store, not the owner). Optional: most
+  // existing users have neither on file yet.
+  email             String?
+  phone             String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  sessions     Session[]
-  statusEvents StatusEvent[]
+  sessions         Session[]
+  statusEvents     StatusEvent[]
+  memberships      StoreMembership[]
+  onboardedStores  Store[]               @relation("StoreOnboardedBy")
+  recordedPayments SubscriptionPayment[] @relation("SubscriptionPaymentRecordedBy")
 
   @@map("users")
 }
@@ -56,8 +94,132 @@ model Session {
   @@map("sessions")
 }
 
+model Store {
+  id            String      @id @default(cuid())
+  name          String
+  address       String      @default("")
+  phone         String      @default("")
+  email         String      @default("")
+  status        StoreStatus @default(ACTIVE)
+  onboardedAt   DateTime    @default(now())
+  onboardedById String?
+  onboardedBy   User?       @relation("StoreOnboardedBy", fields: [onboardedById], references: [id], onDelete: SetNull)
+  // Soft delete — a store is archived, never hard-deleted, so its order and
+  // payment history survives. Null means active/not archived.
+  deletedAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  memberships            StoreMembership[]
+  subscription           Subscription?
+  payments               SubscriptionPayment[]
+  products               Product[]
+  orders                 Order[]
+  orderInvoices          OrderInvoice[]
+  paymentMethods         StorePaymentMethod[]
+  expenses               Expense[]
+  recurringExpenseSeries RecurringExpenseSeries[]
+
+  @@map("stores")
+}
+
+model StoreMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  role      Role
+  // Per-store access flag — an employee can be deactivated at one store
+  // without affecting a membership they still hold at another (see
+  // .agents/2026-09-brainstorm-plan.md Item 1). Deliberately independent of
+  // User.active/credentialVersion: moving between stores never touches
+  // credentials. Defaults true so existing rows (migrated before this
+  // column existed) come in active.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, storeId])
+  @@index([storeId])
+  @@map("store_memberships")
+}
+
+model SubscriptionPlan {
+  id                     String       @id @default(cuid())
+  name                   String
+  depositAmount          Int // paise
+  annualFeeAmount        Int // paise
+  billingCycle           BillingCycle @default(ANNUAL)
+  // When true, onboarding a store on this plan skips the deposit by
+  // default — depositAmount above stays on file as the "charge anyway"
+  // amount, used if the onboarding admin explicitly overrides the waiver.
+  depositWaivedByDefault Boolean      @default(false)
+  notes                  String       @default("")
+  // Archived, never hard-deleted — plans can be in use by active
+  // subscriptions (see archivePlan()'s reassign-or-detach flow).
+  archivedAt             DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id      String            @id @default(cuid())
+  storeId String            @unique
+  store   Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  // Nullable — a subscription can be fully custom/negotiated with no plan
+  // attached (e.g. a waived deposit), not every store needs a library plan.
+  planId  String?
+  plan    SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  depositAmount   Int // paise
+  depositPaidAt   DateTime? @db.Date
+  annualFeeAmount Int // paise
+  // Manual per-store discount, independent of any plan's list price.
+  discountAmount  Int       @default(0) // paise
+  // Null until a first payment is recorded. Only an explicit, past date locks
+  // the store — a never-set subscription is never auto-locked.
+  paidThroughDate DateTime? @db.Date
+  notes           String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("subscriptions")
+}
+
+model SubscriptionPayment {
+  id           String                  @id @default(cuid())
+  storeId      String
+  store        Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  invoiceSeq   Int                     @unique @default(autoincrement())
+  type         SubscriptionPaymentType
+  amount       Int // paise
+  // Nullable — payments recorded before this column existed have no known
+  // method on file.
+  method       PaymentMethod?
+  paidAt       DateTime                @db.Date
+  coversFrom   DateTime?               @db.Date
+  coversTo     DateTime?               @db.Date
+  notes        String                  @default("")
+  // Free-text payment reference (e.g. a UPI transaction ID), optional.
+  reference    String                  @default("")
+  // Which Super Admin was logged in when this payment was recorded. Nullable
+  // since payments recorded before this column existed have no known actor.
+  recordedById String?
+  recordedBy   User?                   @relation("SubscriptionPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime                @default(now())
+
+  @@index([storeId])
+  @@map("subscription_payments")
+}
+
 model Product {
   id        String        @id @default(cuid())
+  storeId   String
+  store     Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
   name      String
   category  String
   type      ProductType
@@ -70,6 +232,7 @@ model Product {
 
   orderLines OrderLine[]
 
+  @@index([storeId])
   @@map("products")
 }
 
@@ -86,6 +249,8 @@ model ProductSlab {
 
 model Order {
   id              String     @id @default(cuid())
+  storeId         String
+  store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   orderNumber     Int        @unique @default(autoincrement())
   idempotencyKey  String?    @unique
   customerName    String
@@ -104,10 +269,51 @@ model Order {
   lines        OrderLine[]
   payments     Payment[]
   statusEvents StatusEvent[]
+  invoice      OrderInvoice?
 
+  @@index([storeId])
   @@index([status])
   @@index([dueDate])
   @@map("orders")
+}
+
+// A store's customer-facing invoice for a laundry order — entirely separate
+// from SubscriptionPayment.invoiceSeq (platform -> store owner billing).
+// Deliberately thin: no snapshotted line items/amounts of its own — it just
+// pins a stable, never-reassigned invoice number to an order and always
+// reads the order's own (already-immutable) lines/payments for content, so
+// there's nothing here to drift out of sync with the order it documents.
+// Created lazily — get-or-create on first view/download/print/share, not at
+// order-creation time — so no invoice (and no consumed number) exists for an
+// order nobody ever asked to see the invoice for.
+model OrderInvoice {
+  id          String   @id @default(cuid())
+  invoiceSeq  Int      @unique @default(autoincrement())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  accessToken String   @unique
+  generatedAt DateTime @default(now())
+
+  @@index([storeId])
+  @@map("order_invoices")
+}
+
+// Payment choices configured independently by each store owner. Payment rows
+// copy `name` as an immutable snapshot, so rename/deactivation never rewrites
+// historical order receipts.
+model StorePaymentMethod {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, name])
+  @@index([storeId, active])
+  @@map("store_payment_methods")
 }
 
 model OrderLine {
@@ -126,12 +332,12 @@ model OrderLine {
 }
 
 model Payment {
-  id      String   @id @default(cuid())
+  id      String        @id @default(cuid())
   orderId String
-  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   amount  Int // paise
   method  String
-  paidAt  DateTime @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
+  paidAt  DateTime      @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
 
   @@index([orderId])
   @@map("payments")
@@ -152,6 +358,8 @@ model StatusEvent {
 
 model RecurringExpenseSeries {
   id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   title     String
   category  String
   amount    Int // paise
@@ -161,11 +369,14 @@ model RecurringExpenseSeries {
 
   occurrences Expense[]
 
+  @@index([storeId])
   @@map("recurring_expense_series")
 }
 
 model Expense {
   id          String                  @id @default(cuid())
+  storeId     String
+  store       Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   title       String
   category    String
   amount      Int // paise
@@ -181,18 +392,7 @@ model Expense {
   updatedAt   DateTime                @updatedAt
 
   @@unique([seriesId, periodMonth])
+  @@index([storeId])
   @@index([dueDate])
   @@map("expenses")
-}
-
-// Single-row table: the store's own profile/contact details.
-model StoreProfile {
-  id      String @id @default(cuid())
-  name    String
-  phone   String
-  email   String
-  store   String
-  address String
-
-  @@map("store_profile")
 }
