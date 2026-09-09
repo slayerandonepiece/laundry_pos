@@ -6,7 +6,6 @@ import { paid, paymentStatus, rangeFor, today, total, within } from '../admin.da
 import { dashboardData } from '../admin.analytics';
 import { canAccess, homeFor } from '../admin.permissions';
 import type { Employee, Expense, Order, Product, Screen, StorePaymentMethod, WorkStatus } from '../admin.types';
-import AdminShell from '../components/AdminShell';
 import Login from '../components/Login';
 import Dashboard from '../components/Dashboard';
 import Catalogue, { type CatalogueView } from '../components/Catalogue';
@@ -29,12 +28,10 @@ import { createOrderAction, recordPaymentAction, updateOrderStatusAction } from 
 import { createExpenseAction, markExpensePaidAction } from '../actions/expenses.actions';
 import { createEmployeeAction, toggleEmployeeActiveAction, updateEmployeeAction } from '../actions/employees.actions';
 import { changePasswordAction, saveProfileAction } from '../actions/profile.actions';
-import { selectStoreAction, selectDashboardAllStoresAction } from '@/server/auth/actions';
-import type { StoreOption } from '@/server/auth/session';
 import type { Profile as ProfileType } from '../admin.types';
 
 type Modal = { type: 'order'; id: string } | { type: 'newOrder' } | { type: 'product'; product?: Product } | { type: 'expense' } | { type: 'employee'; employee?: Employee } | null;
-export default function AdminScreenContainer({ screen, serverProducts, serverOrders, serverExpenses, serverEmployees, serverProfile, serverPaymentMethods, ownerUsername, storeName, storeOptions, selectedStoreId, allStoresSelected }: { screen: Screen; serverProducts?: Product[]; serverOrders?: Order[]; serverExpenses?: Expense[]; serverEmployees?: Employee[]; serverProfile?: ProfileType; serverPaymentMethods?: StorePaymentMethod[]; ownerUsername?: string; storeName?: string; storeOptions?: StoreOption[]; selectedStoreId?: string; allStoresSelected?: boolean }) {
+export default function AdminScreenContainer({ screen, serverProducts, serverOrders, serverExpenses, serverEmployees, serverProfile, serverPaymentMethods, ownerUsername }: { screen: Screen; serverProducts?: Product[]; serverOrders?: Order[]; serverExpenses?: Expense[]; serverEmployees?: Employee[]; serverProfile?: ProfileType; serverPaymentMethods?: StorePaymentMethod[]; ownerUsername?: string }) {
   const { period, setPeriod, range, setRange, ready, user, blockedReason, blockedPaidThroughDate, paymentWarning, login, logout } = useAdmin();
   const router = useRouter();
   const [delivery, setDelivery] = useState('all');
@@ -117,24 +114,17 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
     } });
   }
   const title = modal?.type === 'order' ? selected?.id || 'Order' : modal?.type === 'newOrder' ? (isOwner ? 'New sale' : 'New order') : modal?.type === 'product' ? (modal.product ? 'Edit service' : 'Add service') : modal?.type === 'employee' ? (modal.employee ? 'Edit employee' : 'Add employee') : 'Add expense';
-  // Header store switcher (Item 2): only ever rendered for an owner with more
-  // than one active StoreMembership — a single-store owner or any employee
-  // gets no storeOptions from the page at all, so this stays inert for them.
-  // "All stores" is only ever offered on the Dashboard screen.
-  function selectStore(storeId: string) {
-    selectStoreAction(storeId).then(result => { if (result.ok) router.refresh(); });
-  }
-  function selectAllStores() {
-    selectDashboardAllStoresAction().then(result => { if (result.ok) router.refresh(); });
-  }
-  return <AdminShell screen={screen} name={user.name} role={user.role} storeName={storeName ?? 'Your store'} storeOptions={storeOptions} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} onSelectStore={selectStore} onSelectAllStores={screen === 'dashboard' ? selectAllStores : undefined} onLogout={exit} onNew={() => open({ type: 'newOrder' })}>
+  return <>
+    <div className="ad-page-heading"><div><p className="ad-eyebrow">EXPRESS LAUNDRY WORKSPACE</p><h1>{screen.charAt(0).toUpperCase() + screen.slice(1)}</h1><p>{screen === 'dashboard' ? 'Your orders, sales and upcoming deliveries.' : { products: isOwner ? 'Manage your services and prices.' : 'View the services available for orders.', sales: !isOwner ? 'Choose services, add customer details and punch an order.' : 'Track orders from drop-off to handover.', orders: 'Find orders and update their progress.', expenses: 'Track bills and payments.', employees: 'Manage your team and their access.', profile: 'Your account and store details.' }[screen as 'products']}</p></div>{screen === 'sales' && isOwner && <button className="ad-button" onClick={() => open({ type: 'newOrder' })}>＋ New sale</button>}</div>
+    <div className="ad-screen-content">
     {notice && <div className="ad-toast" role="status">✓ {notice}</div>}
     {blockedReason ? (
       // Access withheld (admin lock, archived store, this membership
       // deactivated, or the subscription lapsing) — the normal screens are
       // replaced entirely rather than rendering their now-empty server data
       // next to a small banner (see .agents/2026-09-brainstorm-plan.md Items
-      // 1 and 3). Logout/navigation stay reachable via AdminShell.
+      // 1 and 3). Logout/navigation stay reachable via the persistent
+      // AdminChrome sidebar/topbar.
       <AccessBlockedScreen reason={blockedReason} isOwner={isOwner} paidThroughDate={blockedPaidThroughDate}/>
     ) : (<>
       {paymentWarning && <PaymentWarningBanner isOwner={isOwner} paidThroughDate={paymentWarning.paidThroughDate}/>}
@@ -155,5 +145,6 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
       </Panel>}
     </>)}
     {confirmation && <ConfirmationDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation.onConfirm; setConfirmation(null); action(); }}/>}
-  </AdminShell>;
+    </div>
+  </>;
 }

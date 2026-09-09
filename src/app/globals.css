@@ -98,3 +98,4 @@ h1,h2,h3,p,address,a,span,strong,small{overflow-wrap:anywhere}
 .ad-spinner{width:34px;height:34px;border-radius:50%;border:3px solid #dbe4f3;border-top-color:#0758d6;animation:ad-spin .7s linear infinite}
 @keyframes ad-spin{to{transform:rotate(360deg)}}
 .ad-route-error-title{font-size:22px;margin:0;color:#061b3a}
+.content-loading{display:grid;place-content:center;padding:96px 0;background:transparent}
