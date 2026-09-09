@@ -32,4 +32,4 @@ entry files referencing the same guidance. Tools that do not load repository
 instructions automatically should be directed to `AGENTS.md` explicitly.
 
 Components render UI; containers own state and behavior. For code changes run
-`npm run lint` and `npx tsc --noEmit`; see the agent guidance for behavioral checks.
+`npm run lint` and `npx tsc --noEmit`; see the agent guidance for behavioral checks. 
