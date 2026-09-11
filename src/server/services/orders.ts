@@ -17,8 +17,19 @@ export function parseOrderCode(code: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-const STATUS_TO_DB = { Pending: 'PENDING', 'In Progress': 'IN_PROGRESS', Completed: 'COMPLETED' } as const;
-const STATUS_FROM_DB: Record<string, WorkStatus> = { PENDING: 'Pending', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed' };
+const STATUS_TO_DB = {
+  Pending: 'PENDING',
+  'In Progress': 'IN_PROGRESS',
+  Ready: 'READY',
+  Delivered: 'DELIVERED',
+} as const;
+const STATUS_FROM_DB: Record<string, WorkStatus> = {
+  PENDING: 'Pending',
+  IN_PROGRESS: 'In Progress',
+  READY: 'Ready',
+  DELIVERED: 'Delivered',
+  COMPLETED: 'Delivered',
+};
 
 const entrySchema = z.object({ productId: z.string().min(1), quantity: z.number().positive() });
 const createOrderSchema = z.object({
@@ -58,6 +69,17 @@ function toOrderDTO(row: OrderRow): Order {
 export async function listOrders(storeId: string): Promise<Order[]> {
   const rows = await prisma.order.findMany({ where: { storeId, legacyCancelled: false }, include: includeForDTO, orderBy: { orderNumber: 'desc' } });
   return rows.map(toOrderDTO);
+}
+
+export async function getOrder(storeId: string, orderCode: string): Promise<Order | null> {
+  const orderNumber = parseOrderCode(orderCode);
+  if (orderNumber === null) return null;
+  const row = await prisma.order.findUnique({
+    where: { orderNumber },
+    include: includeForDTO,
+  });
+  if (!row || row.storeId !== storeId || row.legacyCancelled) return null;
+  return toOrderDTO(row);
 }
 
 export interface CreateOrderInput {
@@ -143,7 +165,7 @@ export async function updateOrderStatus(storeId: string, orderCode: string, next
         where: { orderNumber },
         data: {
           status: dbStatus,
-          completedAt: dbStatus === 'COMPLETED' ? parseCalendarDate(todayIST()) : null,
+          completedAt: dbStatus === 'DELIVERED' ? parseCalendarDate(todayIST()) : null,
           statusEvents: { create: [{ status: dbStatus, byUserId: actorId }] },
         },
       });

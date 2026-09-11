@@ -6,7 +6,7 @@ import OrderDeliveryDetails from './OrderDeliveryDetails';
 import OrderPaymentSummary from './OrderPaymentSummary';
 import OrderInvoiceActions from './OrderInvoiceActions';
 
-const statuses: WorkStatus[] = ['Pending', 'In Progress', 'Completed'];
+const statuses: WorkStatus[] = ['Pending', 'In Progress', 'Ready', 'Delivered'];
 export default function OrderDetails({ order, paymentMethods, onStatus, onPayment, error, canRecordPayment = true }: { canRecordPayment?: boolean; order: Order; paymentMethods: StorePaymentMethod[]; onStatus: (status: WorkStatus) => void; onPayment: (amount: number, method: string) => void; error: string }) {
   const close = usePanelClose();
   return <div className="ad-order-detail">

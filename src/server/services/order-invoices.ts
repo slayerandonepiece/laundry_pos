@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@/server/db';
 import { randomBytes } from 'node:crypto';
 import { formatCalendarDate } from '@/server/dates';
+import { ValidationError } from '@/server/errors';
 import { parseOrderCode, toOrderCode } from './orders';
 import type { Prisma } from '@/generated/prisma/client';
 
@@ -76,6 +77,19 @@ export async function getOrCreateOrderInvoice(storeId: string, orderCode: string
     include: { lines: true, payments: { orderBy: { paidAt: 'asc' } }, store: true },
   });
   if (!order || order.storeId !== storeId) throw new Error('Order not found.');
+
+  const total = order.lines.reduce((sum, line) => sum + line.amount, 0);
+  const paid = order.payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const isDelivered = order.status === 'DELIVERED' || (order.status as string) === 'COMPLETED';
+  const isPaidInFull = paid >= total;
+
+  const existing = await prisma.orderInvoice.findUnique({ where: { orderId: order.id } });
+  if (!existing && (!isPaidInFull || !isDelivered)) {
+    if (!isPaidInFull) {
+      throw new ValidationError('Invoice cannot be generated until the order is paid in full.');
+    }
+    throw new ValidationError('Invoice cannot be generated until the order is delivered.');
+  }
 
   // Lazy, get-or-create: no invoice (and no consumed invoice number) exists
   // until someone actually asks to view/print/download/share one. `upsert`

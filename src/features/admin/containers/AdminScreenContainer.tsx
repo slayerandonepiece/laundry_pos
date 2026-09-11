@@ -68,21 +68,21 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
     if (!isOwner && next && !['order', 'newOrder'].includes(next.type)) return;
     setError(''); setModal(next);
   };
-  const orders = allOrders.filter(order => !order.legacyCancelled && (delivery !== 'all' ? order.status !== 'Completed' && (delivery === 'today' ? order.due === current : order.due < current) : attentionOnly ? order.status !== 'Completed' && order.due <= current : within(order.date, range)));
+  const orders = allOrders.filter(order => !order.legacyCancelled && (delivery !== 'all' ? order.status !== 'Delivered' && (order.status as string) !== 'Completed' && (delivery === 'today' ? order.due === current : order.due < current) : attentionOnly ? order.status !== 'Delivered' && (order.status as string) !== 'Completed' && order.due <= current : within(order.date, range)));
   const matching = orders.filter(order => (order.name + ' ' + order.phone + ' ' + order.id).toLowerCase().includes(search) && (status === 'All' || order.status === status) && (payment === 'All' || paymentStatus(order) === payment));
   const selected = modal?.type === 'order' ? allOrders.find(order => order.id === modal.id && !order.legacyCancelled) : undefined;
   const selectOrder = (order: Order) => open({ type: 'order', id: order.id });
   const exit = () => setConfirmation({ title: 'Log out?', description: 'You can sign back in any time.', confirmLabel: 'Log out', onConfirm: () => { logout(); router.replace('/login'); } });
   const complete = (message: string) => { setModal(null); setError(''); setNotice(message); };
   function updateStatus(next: WorkStatus) {
-    if (!selected || next === selected.status || !['Pending', 'In Progress', 'Completed'].includes(next)) return;
+    if (!selected || next === selected.status || !['Pending', 'In Progress', 'Ready', 'Delivered'].includes(next)) return;
     const id = selected.id;
     setConfirmation({ title: 'Update order status?', description: `Change ${id} from ${selected.status} to ${next}.`, confirmLabel: 'Update status', onConfirm: () => {
       updateOrderStatusAction(id, next).then(() => { router.refresh(); setNotice('Order status updated'); setError(''); }).catch(() => setError('Could not update the status. Try again.'));
     } });
   }
   function recordPayment(amount: number, method: string) {
-    if (!isOwner || !selected) return;
+    if (!selected) return;
     if (!Number.isFinite(amount) || amount <= 0 || amount > total(selected) - paid(selected)) return setError('Payment must be positive and no more than the balance.');
     recordPaymentAction(selected.id, amount, method).then(() => { router.refresh(); setNotice('Payment recorded'); setError(''); }).catch(() => setError('Could not record the payment. Try again.'));
   }
@@ -137,7 +137,7 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
       {isOwner && screen === 'expenses' && <Expenses expenses={allExpenses.filter(expense => within(expense.due, range) && (expense.title + expense.category).toLowerCase().includes(search))} search={query} onSearch={setQuery} paidTotal={allExpenses.filter(expense => expense.paid && within(expense.paid, range)).reduce((sum, expense) => sum + expense.amount, 0)} dueTotal={allExpenses.filter(expense => !expense.paid && within(expense.due, range)).reduce((sum, expense) => sum + expense.amount, 0)} onNew={() => open({ type: 'expense' })} onPaid={id => { if (!isOwner) return; setConfirmation({ title: 'Mark expense paid?', description: 'Record this bill as paid today.', confirmLabel: 'Mark paid', onConfirm: () => { markExpensePaidAction(id).then(() => { router.refresh(); setNotice('Expense marked paid'); }).catch(() => setError('Could not mark this expense paid. Try again.')); } }); }}/>}
       {isOwner && screen === 'profile' && <Profile profile={allProfile} paymentMethods={serverPaymentMethods ?? []} username={ownerUsername} onLogout={exit} error={error} onSave={profile => { if (!isOwner) return; saveProfileAction(profile).then(result => { if (!result.ok) return setError(result.error || 'Could not save your profile. Try again.'); router.refresh(); setError(''); setNotice('Profile updated'); }).catch(() => setError('Could not save your profile. Try again.')); }} onPassword={async (old, next, confirm) => { if (!isOwner) return false; if (next !== confirm || next === old || next.length < 8) { setError('Use a different password of at least 8 characters and confirm it exactly.'); return false; } try { const result = await changePasswordAction(old, next); if (!result.ok) { setError(result.error || 'Could not update your password. Try again.'); return false; } setError(''); setNotice('Password updated — signing you out for security.'); logout(); router.replace('/login'); return true; } catch { setError('Could not update your password. Try again.'); return false; } }}/>}
       {modal && <Panel key={modal.type + (modal.type === 'order' ? modal.id : '')} title={title} headerContent={selected ? <OrderDetailsHeader order={selected}/> : undefined} variant={modal.type === 'order' ? 'details' : 'default'} onClose={() => setModal(null)} warnOnChanges={modal.type !== 'order'}>
-        {selected && <OrderDetails order={selected} paymentMethods={serverPaymentMethods ?? []} canRecordPayment={isOwner} error={error} onStatus={updateStatus} onPayment={recordPayment}/>}
+        {selected && <OrderDetails order={selected} paymentMethods={serverPaymentMethods ?? []} canRecordPayment={true} error={error} onStatus={updateStatus} onPayment={recordPayment}/>}
         {modal.type === 'newOrder' && <OrderEditorContainer products={allProducts} paymentMethods={serverPaymentMethods ?? []} onSave={input => createOrderAction(input).then(order => { router.refresh(); open({ type: 'order', id: order.id }); setNotice('Order saved'); })}/>}
         {isOwner && modal.type === 'product' && <ProductEditorContainer product={modal.product} error={error} onSave={product => { if (!isOwner) return; saveProductAction(product).then(() => { router.refresh(); complete('Service saved'); }).catch(() => setError('Could not save the service. Try again.')); }}/>}
         {isOwner && modal.type === 'expense' && <ExpenseEditor error={error} onSave={addExpense}/>}

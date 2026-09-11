@@ -1,6 +1,6 @@
 # Implemented state
 
-Last reviewed: 2026-09-08. Describes the working tree; it does not assert these
+Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
 changes are deployed to production.
 
 ## Multi-tenant foundation (StoreOps): schema, auth and Super Admin UI built
@@ -1239,3 +1239,71 @@ boundary for in-app navigation.
   against, now that the chrome's mount location changed. Logout was
   verified from both a normal screen and the blocked screen, in both apps.
   `npx tsc --noEmit` and `npm run lint` are clean.
+
+## Mobile HTTP API (`/api/v1/**`): MyShop Flutter app surface built and tested
+
+Phase 1 of the mobile app foundation (`.agents/MOBILE-API-TASKS.md`) is built and
+verified against an isolated PostgreSQL integration test cluster.
+
+- **Schema changes (B1)**:
+  - `Session.token`: Unique 32-byte base64url string (43 characters), indexed for fast lookup (`prisma/migrations/20260911051700_add_session_tokens_and_password_flag`). Existing sessions backfilled with secure random base64url tokens via PostgreSQL `pgcrypto`.
+  - `User.mustChangePassword`: Boolean flag default `false`. Automatically set to `true` on initial creation of employees, admin-reset passwords, or owner password reset. Cleared when user completes set/change password.
+  - `WorkStatus` extended: Added `READY` and `DELIVERED` to the database enum (`prisma/migrations/20260911052200_extend_work_status`). Existing `COMPLETED` records migrated to `DELIVERED`. The full lifecycle now exposes 4 states: `Pending`, `In Progress`, `Ready`, and `Delivered`.
+- **Auth Infrastructure (B2)**:
+  - `src/server/auth/token.ts`: Crypto-secure 32-byte base64url token generator (`generateSessionToken`) and format validator.
+  - `src/server/auth/throttle.ts`: In-memory sliding-window rate limiter (5 failed attempts per 15-minute window per IP / normalized username). Blocks brute-force login attempts with `429 Too Many Requests`.
+  - `src/server/auth/session.ts`: Dual auth support — bearer token (`Authorization: Bearer <token>`) on HTTP API routes, with graceful cookie fallback (`el_session`) for browser requests. Added `getSessionFromRequest`, `requireApiAuth`, `requireApiStoreSession`, and `requireSuperAdminFromRequest`.
+- **API Handler & Response Envelope (B3)**:
+  - `src/server/api/handler.ts`: Unified wrapper for JSON envelopes, error translation (`AuthError` 401/403 with structured `reason`, `ValidationError`/`ZodError` 400, unhandled 500 without leaking internals), `X-Store-Id` header resolution, and mandatory `Cache-Control: private, no-store` on all API responses.
+- **API Route Handlers (B4)**:
+  - **Auth**:
+    - `POST /api/v1/auth/login`: Authenticates owner or employee, issues 30-day token, enforces login throttle.
+    - `POST /api/v1/auth/logout`: Revokes active session.
+    - `GET /api/v1/auth/status`: Returns current user, store role, active store, and `mustChangePassword` flag.
+    - `POST /api/v1/auth/change-password`: Verifies current password, updates hash, clears `mustChangePassword`, revokes old sessions.
+    - `POST /api/v1/auth/set-password`: Allows initial password setup when `mustChangePassword` is active.
+  - **Store Memberships**:
+    - `GET /api/v1/memberships`: Returns caller's active stores for mobile store-switcher.
+  - **Products**:
+    - `GET /api/v1/products`: Lists store catalog (ITEM and WEIGHT products with slabs).
+    - `POST /api/v1/products`: Creates product with validation (OWNER only).
+  - **Orders**:
+    - `GET /api/v1/orders`: Lists store orders.
+    - `POST /api/v1/orders`: Creates order with server-side price recomputation (`src/server/pricing.ts`) and client idempotency key pass-through.
+    - `GET /api/v1/orders/[orderCode]`: Detailed order view with status history, payments, and invoice status (`exists`, `canGenerate`, `accessToken`, `invoiceSeq`).
+    - `PATCH /api/v1/orders/[orderCode]/status`: Updates work status (`Pending`, `In Progress`, `Ready`, `Delivered`).
+    - `POST /api/v1/orders/[orderCode]/payments`: Records order payment with transaction-level `SELECT ... FOR UPDATE` row lock, preventing concurrent overpayment. Allowed for both `OWNER` and `EMPLOYEE`.
+    - `GET /api/v1/orders/[orderCode]/invoice`: Get-or-create customer invoice. Refuses generation unless order is paid in full and delivered.
+    - `GET /api/v1/orders/[orderCode]/invoice/pdf`: Streams customer invoice PDF binary with `Content-Type: application/pdf`.
+  - **Payment Methods**:
+    - `GET /api/v1/payment-methods`: Lists active payment choices configured by store.
+    - `POST /api/v1/payment-methods`: Creates custom payment method (OWNER only).
+    - `PATCH /api/v1/payment-methods/[id]`: Renames or activates/deactivates method.
+  - **Expenses**:
+    - `GET /api/v1/expenses`: Lists store expenses.
+    - `POST /api/v1/expenses`: Records new expense (OWNER only).
+    - `POST /api/v1/expenses/[id]/pay`: Marks expense as paid.
+  - **Employees**:
+    - `GET /api/v1/employees`: Lists store employees (OWNER only).
+    - `POST /api/v1/employees`: Creates employee user and membership with `mustChangePassword: true`.
+    - `PUT /api/v1/employees/[id]`: Updates employee name/phone/password.
+    - `POST /api/v1/employees/[id]/toggle-active`: Activates or deactivates employee and revokes active sessions immediately.
+  - **Profile**:
+    - `GET /api/v1/profile`: Returns user profile details.
+    - `PUT /api/v1/profile`: Updates user name/phone.
+  - **Dashboard**:
+    - `GET /api/v1/dashboard`: Reuses server aggregation `dashboardData()` without duplicating metrics.
+- **Architectural & Design Decisions Resolved (B0)**:
+  - **B0.1 (WorkStatus vocabulary)**: Extended enum to 4 statuses (`Pending`, `In Progress`, `Ready`, `Delivered`). Migrated legacy `COMPLETED` to `DELIVERED`. Web workspace and mobile API aligned.
+  - **B0.2 (Employee balance collection)**: Relaxed `recordPaymentAction` and `/api/v1/orders/[orderCode]/payments` to allow `EMPLOYEE` role alongside `OWNER`.
+  - **B5.1 (Invoice settlement gate)**: `getOrCreateOrderInvoice` refuses invoice creation unless the order is both paid in full and marked `DELIVERED`.
+- **Integration Test Verification (B6)**:
+  - `tests/mobile-api.integration.test.ts` added to the test suite (`scripts/test-subscription-payments.mjs`).
+  - 12 integration tests run against a real, isolated PostgreSQL cluster, covering:
+    - B6.1: Auth matrix (no token, expired token, revoked token, deactivated user, stale credentialVersion, wrong store, wrong role).
+    - B6.2: 403 `FORBIDDEN` reason codes (`membership_inactive`, `store_locked`, `store_archived`, `payment_lapsed`).
+    - B6.3: Idempotent order creation (same idempotencyKey returns identical order, creates only 1 DB row).
+    - B6.4: Concurrency control (`SELECT ... FOR UPDATE` row locking prevents overpayment).
+    - B6.5: Invoice settlement enforcement (400 when unpaid/undelivered; 200 when paid in full and delivered).
+    - B6.6: Cross-store tenant isolation (tokens cannot read or mutate other stores' data, even when spoofing `X-Store-Id`).
+

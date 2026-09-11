@@ -45,8 +45,9 @@ test('public invoice token is stable, resolves without auth, and rejects tamperi
   const order = await orders.createOrder(store.id, {
     idempotencyKey: 'invoice-order', customerName: 'Invoice Customer', phone: '9876543210',
     dueDate: '2100-03-05', entries: [{ productId: product.id, quantity: 2 }],
-    initialPayment: { amount: 5_000, method: 'Cash' },
+    initialPayment: { amount: 25_000, method: 'Cash' },
   }, user.id);
+  await orders.updateOrderStatus(store.id, order.id, 'Delivered', user.id);
 
   const first = await invoices.getOrCreateOrderInvoice(store.id, order.id);
   const second = await invoices.getOrCreateOrderInvoice(store.id, order.id);

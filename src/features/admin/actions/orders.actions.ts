@@ -22,7 +22,7 @@ export async function updateOrderStatusAction(orderCode: string, nextStatus: Wor
 }
 
 export async function recordPaymentAction(orderCode: string, amount: number, method: string): Promise<Order> {
-  const session = await requireStoreSession(undefined, 'OWNER');
+  const session = await requireStoreSession();
   const order = await recordPayment(session.storeId, orderCode, amount, method);
   revalidatePath('/admin/sales');
   revalidatePath('/admin/orders');
