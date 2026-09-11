@@ -9,7 +9,15 @@ import type { Profile } from '@/features/admin/admin.types';
 type StoreRow = Awaited<ReturnType<typeof prisma.store.findFirstOrThrow>>;
 
 function toDTO(store: StoreRow, ownerName: string): Profile {
-  return { name: ownerName, phone: store.phone, email: store.email, store: store.name, address: store.address };
+  return {
+    name: ownerName,
+    phone: store.phone,
+    email: store.email,
+    store: store.name,
+    address: store.address,
+    status: store.status,
+    isLocked: store.status === 'LOCKED',
+  };
 }
 
 export async function getStoreProfile(storeId: string, ownerName: string): Promise<Profile> {

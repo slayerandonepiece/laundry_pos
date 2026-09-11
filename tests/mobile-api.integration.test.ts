@@ -43,6 +43,7 @@ let orderStatusRoute: typeof import("../src/app/api/v1/orders/[orderCode]/status
 let orderInvoiceRoute: typeof import("../src/app/api/v1/orders/[orderCode]/invoice/route");
 let employeesRoute: typeof import("../src/app/api/v1/employees/route");
 let paymentMethodsRoute: typeof import("../src/app/api/v1/payment-methods/route");
+let profileRoute: typeof import("../src/app/api/v1/profile/route");
 let parseOrderCode: (code: string) => number | null;
 
 before(async () => {
@@ -57,6 +58,7 @@ before(async () => {
     orderInvoiceRoute,
     employeesRoute,
     paymentMethodsRoute,
+    profileRoute,
   ] = await Promise.all([
     import("../src/app/api/v1/orders/route"),
     import("../src/app/api/v1/orders/[orderCode]/route"),
@@ -65,6 +67,7 @@ before(async () => {
     import("../src/app/api/v1/orders/[orderCode]/invoice/route"),
     import("../src/app/api/v1/employees/route"),
     import("../src/app/api/v1/payment-methods/route"),
+    import("../src/app/api/v1/profile/route"),
   ]);
 });
 
@@ -607,4 +610,108 @@ test("B6.6: Cross-store isolation blocks unauthorized store access and data leak
   });
   assert.equal(crossDetailRes.status, 404);
   assert.equal((await crossDetailRes.json()).error, "Order not found.");
+});
+
+// Task A: Paginate/limit orders list endpoint
+test("Task A: GET /api/v1/orders supports limit and sort query parameters", async () => {
+  const fixture = await createTestFixture("orders-limit-sort");
+
+  // Create 3 orders with distinct idempotency keys
+  for (let i = 1; i <= 3; i++) {
+    const createRes = await ordersRoute.POST(
+      createReq("http://localhost/api/v1/orders", {
+        token: fixture.token,
+        storeId: fixture.store.id,
+        body: {
+          idempotencyKey: `idemp-limit-sort-${i}`,
+          customerName: `Customer ${i}`,
+          phone: "9876543210",
+          dueDate: "2100-01-20",
+          entries: [{ productId: fixture.product.id, quantity: 1 }],
+        },
+      }),
+    );
+    assert.equal(createRes.status, 201);
+  }
+
+  // 1. Without params: returns all 3 orders, newest first
+  const allReq = createReq("http://localhost/api/v1/orders", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const allRes = await ordersRoute.GET(allReq);
+  assert.equal(allRes.status, 200);
+  const allOrders = await allRes.json();
+  assert.equal(allOrders.length, 3);
+  assert.equal(allOrders[0].name, "Customer 3");
+
+  // 2. With limit=2 and sort=recent: returns 2 orders, newest first
+  const limitReq = createReq("http://localhost/api/v1/orders?limit=2&sort=recent", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const limitRes = await ordersRoute.GET(limitReq);
+  assert.equal(limitRes.status, 200);
+  const limitOrders = await limitRes.json();
+  assert.equal(limitOrders.length, 2);
+  assert.equal(limitOrders[0].name, "Customer 3");
+  assert.equal(limitOrders[1].name, "Customer 2");
+
+  // 3. With limit=1: returns 1 order (newest)
+  const singleReq = createReq("http://localhost/api/v1/orders?limit=1", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const singleRes = await ordersRoute.GET(singleReq);
+  assert.equal(singleRes.status, 200);
+  const singleOrders = await singleRes.json();
+  assert.equal(singleOrders.length, 1);
+  assert.equal(singleOrders[0].name, "Customer 3");
+
+  // 4. Invalid limit (negative or non-numeric): ignored, returns all 3 orders
+  const invalidReq = createReq("http://localhost/api/v1/orders?limit=-5", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const invalidRes = await ordersRoute.GET(invalidReq);
+  assert.equal(invalidRes.status, 200);
+  const invalidOrders = await invalidRes.json();
+  assert.equal(invalidOrders.length, 3);
+});
+
+// Task B: Employee profile read access
+test("Task B: Employee can read store profile, but cannot update it", async () => {
+  const fixture = await createTestFixture("employee-profile", {
+    role: Role.EMPLOYEE,
+  });
+
+  // 1. Employee GET /api/v1/profile -> 200 OK with store details
+  const getReq = createReq("http://localhost/api/v1/profile", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const getRes = await profileRoute.GET(getReq);
+  assert.equal(getRes.status, 200);
+  const profile = await getRes.json();
+  assert.equal(profile.name, fixture.user.name);
+  assert.equal(profile.store, fixture.store.name);
+  assert.ok("phone" in profile);
+  assert.ok("email" in profile);
+  assert.ok("address" in profile);
+
+  // 2. Employee PUT /api/v1/profile -> 403 Forbidden (owner-only)
+  const putReq = createReq("http://localhost/api/v1/profile", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+    body: {
+      name: "Attempted Hack",
+      phone: "9876543210",
+      email: "test@example.com",
+      store: "Hacked Store",
+      address: "123 Street",
+    },
+  });
+  const putRes = await profileRoute.PUT(putReq);
+  assert.equal(putRes.status, 403);
+  assert.equal((await putRes.json()).error, "Forbidden");
 });

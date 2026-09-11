@@ -26,10 +26,13 @@ export async function GET(req: NextRequest) {
     const stores = await Promise.all(
       memberships.map(async m => {
         const access = await getStoreAccessStatus(user.id, m.storeId);
+        const isLocked = access?.blockedReason === 'store_locked' || m.store.status === 'LOCKED';
         return {
           storeId: m.storeId,
           storeName: m.store.name,
           role: m.role,
+          status: m.store.status,
+          isLocked,
           blockedReason: access?.blockedReason ?? null,
           paidThroughDate: access?.paidThroughDate ?? null,
         };

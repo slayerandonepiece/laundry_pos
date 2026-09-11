@@ -66,9 +66,91 @@ function toOrderDTO(row: OrderRow): Order {
   };
 }
 
-export async function listOrders(storeId: string): Promise<Order[]> {
-  const rows = await prisma.order.findMany({ where: { storeId, legacyCancelled: false }, include: includeForDTO, orderBy: { orderNumber: 'desc' } });
+export interface ListOrdersOptions {
+  limit?: number;
+  sort?: 'recent' | 'default';
+}
+
+export async function listOrders(storeId: string, options?: ListOrdersOptions): Promise<Order[]> {
+  const rows = await prisma.order.findMany({
+    where: { storeId, legacyCancelled: false },
+    include: includeForDTO,
+    orderBy: { orderNumber: 'desc' },
+    ...(options?.limit ? { take: options.limit } : {}),
+  });
   return rows.map(toOrderDTO);
+}
+
+/**
+ * Returning-customer lookup for the new-order flow's phone step: the most
+ * recent order's customer name for this phone at this store, or null if
+ * this phone has never ordered here (or every past order left the name
+ * blank). Store-scoped like everything else — a phone number is not a
+ * unique identity across stores.
+ */
+export async function findCustomerNameByPhone(storeId: string, phone: string): Promise<string | null> {
+  const row = await prisma.order.findFirst({
+    where: { storeId, phone, customerName: { not: '' } },
+    orderBy: { orderDate: 'desc' },
+    select: { customerName: true },
+  });
+  return row?.customerName ?? null;
+}
+
+export interface OrderSyncCursor {
+  updatedAt: Date;
+  orderNumber: number;
+}
+
+export function parseSyncCursor(raw: string): OrderSyncCursor {
+  const idx = raw.lastIndexOf('_');
+  if (idx <= 0) throw new Error('Invalid sync cursor.');
+  const updatedAt = new Date(raw.slice(0, idx));
+  const orderNumber = Number(raw.slice(idx + 1));
+  if (Number.isNaN(updatedAt.getTime()) || !Number.isInteger(orderNumber)) {
+    throw new Error('Invalid sync cursor.');
+  }
+  return { updatedAt, orderNumber };
+}
+
+function toSyncCursor(row: { updatedAt: Date; orderNumber: number }): string {
+  return `${row.updatedAt.toISOString()}_${row.orderNumber}`;
+}
+
+/**
+ * Delta sync: returns only orders changed after `cursor`, oldest-first, in
+ * pages of `limit`. Ordered by (updatedAt, orderNumber) so pagination stays
+ * correct even when two rows share the same updatedAt millisecond. A
+ * cancelled order is still returned (with `deleted: true`) rather than
+ * filtered out, so a device that already cached it can remove it locally —
+ * dropping it here would leave a stale ghost order on other devices forever.
+ */
+export async function listOrdersSince(
+  storeId: string,
+  cursor: OrderSyncCursor | null,
+  limit: number,
+): Promise<{ orders: (Order & { deleted: boolean })[]; nextCursor: string | null }> {
+  const rows = await prisma.order.findMany({
+    where: {
+      storeId,
+      ...(cursor
+        ? {
+            OR: [
+              { updatedAt: { gt: cursor.updatedAt } },
+              { updatedAt: cursor.updatedAt, orderNumber: { gt: cursor.orderNumber } },
+            ],
+          }
+        : {}),
+    },
+    include: includeForDTO,
+    orderBy: [{ updatedAt: 'asc' }, { orderNumber: 'asc' }],
+    take: limit,
+  });
+
+  const orders = rows.map(row => ({ ...toOrderDTO(row), deleted: row.legacyCancelled }));
+  const last = rows[rows.length - 1];
+  const nextCursor = rows.length === limit && last ? toSyncCursor(last) : null;
+  return { orders, nextCursor };
 }
 
 export async function getOrder(storeId: string, orderCode: string): Promise<Order | null> {
@@ -176,6 +258,104 @@ export async function updateOrderStatus(storeId: string, orderCode: string, next
   return toOrderDTO(row);
 }
 
+const bulkCreateActionSchema = z.object({
+  type: z.literal('create_order'),
+  clientActionId: z.string().min(1),
+  offlineCode: z.string().min(1),
+  payload: createOrderSchema,
+});
+const bulkStatusActionSchema = z.object({
+  type: z.literal('update_status'),
+  clientActionId: z.string().min(1),
+  orderRef: z.string().min(1),
+  status: z.custom<WorkStatus>(val => typeof val === 'string' && val.trim().length > 0, 'Status is required'),
+});
+const bulkPaymentActionSchema = z.object({
+  type: z.literal('record_payment'),
+  clientActionId: z.string().min(1),
+  orderRef: z.string().min(1),
+  amount: z.number().int().positive('Payment must be a positive amount'),
+  method: z.string().trim().min(1, 'Payment method is required'),
+});
+const bulkSyncActionSchema = z.discriminatedUnion('type', [
+  bulkCreateActionSchema,
+  bulkStatusActionSchema,
+  bulkPaymentActionSchema,
+]);
+export const bulkSyncRequestSchema = z.object({
+  actions: z.array(bulkSyncActionSchema).min(1).max(200),
+});
+
+export type BulkSyncAction = z.infer<typeof bulkSyncActionSchema>;
+
+export interface BulkSyncResult {
+  clientActionId: string;
+  type: BulkSyncAction['type'];
+  status: 'success' | 'failed' | 'skipped';
+  order?: Order;
+  error?: string;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unexpected error.';
+}
+
+/**
+ * Replays a device's offline action queue in one request, in the order the
+ * actions were queued. An update_status/record_payment action queued against
+ * an order that was itself created offline (and hasn't synced before) carries
+ * that order's offlineCode as orderRef — this resolves it against the
+ * create_order results earlier in the SAME batch before applying the update,
+ * so "create then update the same order while still offline" works in one
+ * sync pass without a network round trip in between.
+ */
+export async function bulkSyncOrders(storeId: string, actions: BulkSyncAction[], actorId: string): Promise<BulkSyncResult[]> {
+  const codeMap = new Map<string, string>(); // offlineCode -> confirmed order code, this batch only
+  const failedOffline = new Set<string>(); // offlineCode whose create_order failed this batch
+  const results: BulkSyncResult[] = [];
+
+  for (const action of actions) {
+    if (action.type === 'create_order') {
+      try {
+        const order = await createOrder(storeId, action.payload, actorId);
+        codeMap.set(action.offlineCode, order.id);
+        results.push({ clientActionId: action.clientActionId, type: action.type, status: 'success', order });
+      } catch (err) {
+        failedOffline.add(action.offlineCode);
+        results.push({ clientActionId: action.clientActionId, type: action.type, status: 'failed', error: errorMessage(err) });
+      }
+      continue;
+    }
+
+    let resolvedRef: string;
+    if (codeMap.has(action.orderRef)) {
+      resolvedRef = codeMap.get(action.orderRef)!;
+    } else if (failedOffline.has(action.orderRef)) {
+      results.push({ clientActionId: action.clientActionId, type: action.type, status: 'skipped', error: 'Referenced order failed to create in this batch.' });
+      continue;
+    } else if (parseOrderCode(action.orderRef) !== null) {
+      resolvedRef = action.orderRef;
+    } else {
+      results.push({ clientActionId: action.clientActionId, type: action.type, status: 'skipped', error: 'Referenced order was not created yet.' });
+      continue;
+    }
+
+    try {
+      if (action.type === 'update_status') {
+        const order = await updateOrderStatus(storeId, resolvedRef, action.status, actorId);
+        results.push({ clientActionId: action.clientActionId, type: action.type, status: 'success', order });
+      } else {
+        const order = await recordPayment(storeId, resolvedRef, action.amount, action.method);
+        results.push({ clientActionId: action.clientActionId, type: action.type, status: 'success', order });
+      }
+    } catch (err) {
+      results.push({ clientActionId: action.clientActionId, type: action.type, status: 'failed', error: errorMessage(err) });
+    }
+  }
+
+  return results;
+}
+
 export async function recordPayment(storeId: string, orderCode: string, amount: number, methodInput: string): Promise<Order> {
   const orderNumber = parseOrderCode(orderCode);
   if (orderNumber === null) throw new Error('Order not found.');
@@ -204,6 +384,11 @@ export async function recordPayment(storeId: string, orderCode: string, amount: 
     if (amount > total - paid) throw new Error('Payment must be no more than the outstanding balance.');
 
     await tx.payment.create({ data: { orderId: order.id, amount, method, paidAt: parseCalendarDate(todayIST()) } });
+    // Touch the order row itself so its `updatedAt` advances — a payment only
+    // inserts a child row, and delta sync (listOrdersSince) filters on the
+    // parent order's updatedAt, so without this a payment would be invisible
+    // to other devices until some other field on the order changed too.
+    await tx.order.update({ where: { orderNumber }, data: { updatedAt: new Date() } });
     return tx.order.findUniqueOrThrow({ where: { orderNumber }, include: includeForDTO });
   });
 

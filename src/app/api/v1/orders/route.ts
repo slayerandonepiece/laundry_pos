@@ -7,7 +7,21 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
     const session = await requireApiStoreSession(req);
-    const orders = await listOrders(session.storeId);
+    const searchParams = req.nextUrl?.searchParams ?? new URL(req.url).searchParams;
+    const limitParam = searchParams.get('limit');
+    const sortParam = searchParams.get('sort');
+
+    let limit: number | undefined;
+    if (limitParam !== null) {
+      const parsed = parseInt(limitParam, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        limit = Math.min(Math.max(parsed, 1), 100);
+      }
+    }
+
+    const sort = sortParam === 'recent' ? 'recent' : 'default';
+
+    const orders = await listOrders(session.storeId, { limit, sort });
     return jsonResponse(orders);
   });
 }

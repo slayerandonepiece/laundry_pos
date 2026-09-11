@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
-    const session = await requireApiStoreSession(req, 'OWNER');
+    const session = await requireApiStoreSession(req);
     const profile = await getStoreProfile(session.storeId, session.name);
     return jsonResponse(profile);
   });
