@@ -335,12 +335,13 @@ model OrderLine {
 }
 
 model Payment {
-  id      String        @id @default(cuid())
-  orderId String
-  order   Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  amount  Int // paise
-  method  String
-  paidAt  DateTime      @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
+  id             String   @id @default(cuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount         Int // paise
+  method         String
+  paidAt         DateTime @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
+  clientActionId String?  @unique
 
   @@index([orderId])
   @@map("payments")
