@@ -15,5 +15,5 @@ export interface Payment { id: string; amount: number; date: string; method: Pay
 export interface StatusEvent { status: WorkStatus; at: string; by: string }
 export interface Order { history?: StatusEvent[]; id: string; name: string; phone: string; date: string; due: string; completed?: string; legacyCancelled?: boolean; status: WorkStatus; lines: Line[]; payments: Payment[]; notes: string }
 export interface Expense { id: string; title: string; category: string; amount: number; due: string; paid?: string; monthly: boolean; seriesId?: string }
-export interface Profile { name: string; phone: string; email: string; store: string; address: string }
+export interface Profile { name: string; phone: string; email: string; store: string; address: string; status?: string; isLocked?: boolean }
 export interface DateRange { from: string; to: string }
