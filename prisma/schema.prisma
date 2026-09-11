@@ -29,7 +29,8 @@ enum ProductType {
 enum WorkStatus {
   PENDING
   IN_PROGRESS
-  COMPLETED
+  READY
+  DELIVERED
 }
 
 enum StoreStatus {
@@ -65,6 +66,7 @@ model User {
   // owning a store — see StoreMembership for per-store roles.
   isSuperAdmin      Boolean  @default(false)
   credentialVersion Int      @default(1)
+  mustChangePassword Boolean  @default(false)
   // Global to the person (not a store's own contact info — see Store.email/
   // Store.phone, which represent the store, not the owner). Optional: most
   // existing users have neither on file yet.
@@ -84,6 +86,7 @@ model User {
 
 model Session {
   id                String   @id @default(cuid())
+  token             String   @unique
   userId            String
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   credentialVersion Int

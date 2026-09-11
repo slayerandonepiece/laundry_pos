@@ -51,7 +51,7 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
   const row = await prisma.$transaction(async tx => {
     // The User row itself is always created active — "active" as entered on
     // this form is this store's membership flag, not a platform-wide state.
-    const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash } });
+    const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash, mustChangePassword: true } });
     return tx.storeMembership.create({ data: { role: 'EMPLOYEE', storeId, userId: user.id, active: data.active }, include: { user: true } });
   });
   return toDTO(row);
@@ -98,6 +98,7 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
         username: data.username,
         passwordHash,
         credentialVersion: credentialsChanged ? { increment: 1 } : undefined,
+        mustChangePassword: passwordChanged ? true : undefined,
       },
     }),
     prisma.storeMembership.update({ where: { userId_storeId: { userId: data.id, storeId } }, data: { active: data.active } }),

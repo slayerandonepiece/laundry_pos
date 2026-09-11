@@ -67,3 +67,7 @@ re-read whole files.
 After big code changes, refresh the graph with `graft build` (deterministic,
 no API key, $0).
 <!-- graft:end -->
+
+5. [.agents/MOBILE-API-TASKS.md](.agents/MOBILE-API-TASKS.md) — the mobile HTTP API
+   task list (Phase 1 of the Flutter app work). No API exists today; read
+   this before adding any route handler.

@@ -162,7 +162,7 @@ export async function resetUserPassword(userId: string, input: ResetPasswordInpu
 
   const password = data.mode === 'auto' ? generatePassword() : data.password;
   const passwordHash = await hashPassword(password);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash, credentialVersion: { increment: 1 } } });
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash, credentialVersion: { increment: 1 }, mustChangePassword: true } });
   await revokeAllSessionsForUser(userId);
 
   return data.mode === 'auto' ? { password } : {};

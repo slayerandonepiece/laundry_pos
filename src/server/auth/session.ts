@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { prisma } from '@/server/db';
 import { formatCalendarDate, todayIST } from '@/server/dates';
 import type { Role } from '@/generated/prisma/client';
+import { generateSessionToken, isValidSessionToken } from './token';
 
 const COOKIE_NAME = 'el_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -33,25 +34,53 @@ export interface StoreSession extends SessionUser {
   storeRole: Role;
 }
 
-export async function createSession(userId: string, credentialVersion: number): Promise<void> {
+export async function createSessionRow(userId: string, credentialVersion: number): Promise<{ id: string; token: string; expiresAt: Date }> {
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  const session = await prisma.session.create({ data: { userId, credentialVersion, expiresAt } });
+  const token = generateSessionToken();
+  const session = await prisma.session.create({ data: { userId, credentialVersion, expiresAt, token } });
+  return { id: session.id, token: session.token, expiresAt };
+}
 
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, session.id, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    expires: expiresAt,
-  });
+export async function createSession(userId: string, credentialVersion: number): Promise<{ id: string; token: string }> {
+  const session = await createSessionRow(userId, credentialVersion);
+
+  try {
+    const cookieStore = await cookies();
+    cookieStore.set(COOKIE_NAME, session.id, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      expires: session.expiresAt,
+    });
+  } catch {
+    // cookies() unavailable in non-request contexts
+  }
+
+  return { id: session.id, token: session.token };
+}
+
+export async function getSessionFromToken(token: string): Promise<SessionUser | null> {
+  if (!isValidSessionToken(token)) return null;
+  const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
+  if (!session) return null;
+  if (session.expiresAt < new Date()) return null;
+  if (!session.user.active) return null;
+  if (session.credentialVersion !== session.user.credentialVersion) return null;
+
+  return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
 }
 
 // Returns null for any invalid session (missing cookie, expired, deactivated
 // user, or stale credentialVersion after a password change/deactivation).
 export async function getSession(): Promise<SessionUser | null> {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get(COOKIE_NAME)?.value;
+  let sessionId: string | undefined;
+  try {
+    const cookieStore = await cookies();
+    sessionId = cookieStore.get(COOKIE_NAME)?.value;
+  } catch {
+    return null;
+  }
   if (!sessionId) return null;
 
   const session = await prisma.session.findUnique({ where: { id: sessionId }, include: { user: true } });
@@ -63,13 +92,48 @@ export async function getSession(): Promise<SessionUser | null> {
   return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
 }
 
-export async function destroySession(): Promise<void> {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get(COOKIE_NAME)?.value;
-  if (sessionId) {
-    await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
+export async function getSessionFromRequest(req: Request): Promise<SessionUser | null> {
+  const authHeader = req.headers.get('authorization') ?? req.headers.get('Authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    return getSessionFromToken(token);
   }
-  cookieStore.delete(COOKIE_NAME);
+
+  const cookieHeader = req.headers.get('cookie') ?? req.headers.get('Cookie');
+  if (cookieHeader) {
+    const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
+    const sessionId = match ? decodeURIComponent(match[1]) : null;
+    if (sessionId) {
+      const session = await prisma.session.findUnique({ where: { id: sessionId }, include: { user: true } });
+      if (!session) return null;
+      if (session.expiresAt < new Date()) return null;
+      if (!session.user.active) return null;
+      if (session.credentialVersion !== session.user.credentialVersion) return null;
+
+      return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
+    }
+  }
+
+  return getSession();
+}
+
+export async function destroySession(): Promise<void> {
+  try {
+    const cookieStore = await cookies();
+    const sessionId = cookieStore.get(COOKIE_NAME)?.value;
+    if (sessionId) {
+      await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
+    }
+    cookieStore.delete(COOKIE_NAME);
+  } catch {
+    // Ignore if cookies() fails
+  }
+}
+
+export async function destroySessionByToken(token: string): Promise<void> {
+  if (isValidSessionToken(token)) {
+    await prisma.session.delete({ where: { token } }).catch(() => undefined);
+  }
 }
 
 // Call when a user is deactivated or their credentialVersion is bumped
@@ -92,11 +156,17 @@ export class AuthError extends Error {
   }
 }
 
-export async function requireSuperAdmin(): Promise<SessionUser> {
-  const session = await getSession();
+export async function requireSuperAdmin(sessionOverride?: SessionUser): Promise<SessionUser> {
+  const session = sessionOverride ?? (await getSession());
   if (!session) throw new AuthError('UNAUTHENTICATED');
   if (!session.isSuperAdmin) throw new AuthError('FORBIDDEN');
   return session;
+}
+
+export async function requireSuperAdminFromRequest(req: Request): Promise<SessionUser> {
+  const session = await getSessionFromRequest(req);
+  if (!session) throw new AuthError('UNAUTHENTICATED');
+  return requireSuperAdmin(session);
 }
 
 // Resolves the session plus the caller's role in a specific store. If
@@ -113,8 +183,8 @@ export async function requireSuperAdmin(): Promise<SessionUser> {
 // access at *other* stores the same person belongs to is unaffected, and
 // access here resumes automatically the moment the underlying condition
 // clears (membership reactivated, store unlocked, renewal recorded).
-export async function requireStoreSession(storeId?: string, role?: Role): Promise<StoreSession> {
-  const session = await getSession();
+export async function requireStoreSession(storeId?: string, role?: Role, sessionOverride?: SessionUser): Promise<StoreSession> {
+  const session = sessionOverride ?? (await getSession());
   if (!session) throw new AuthError('UNAUTHENTICATED');
 
   const membership = storeId
@@ -141,6 +211,12 @@ export async function requireStoreSession(storeId?: string, role?: Role): Promis
   if (paidThroughDate && paidThroughDate < todayIST()) throw new AuthError('FORBIDDEN', 'payment_lapsed');
 
   return { ...session, storeId: membership.storeId, storeName: store.name, storeRole: membership.role };
+}
+
+export async function requireStoreSessionFromRequest(req: Request, storeId?: string, role?: Role): Promise<StoreSession> {
+  const session = await getSessionFromRequest(req);
+  if (!session) throw new AuthError('UNAUTHENTICATED');
+  return requireStoreSession(storeId, role, session);
 }
 
 async function onlyActiveMembership(userId: string) {

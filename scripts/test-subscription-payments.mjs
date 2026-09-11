@@ -28,6 +28,7 @@ try {
   const result = spawnSync(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--test',
     'tests/subscription-payments.integration.test.ts',
     'tests/customer-invoices-and-payment-methods.integration.test.ts',
+    'tests/mobile-api.integration.test.ts',
   ], {
     cwd: root,
     stdio: 'inherit',

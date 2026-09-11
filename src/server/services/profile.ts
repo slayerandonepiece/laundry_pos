@@ -40,8 +40,8 @@ export async function saveStoreProfile(storeId: string, input: unknown, ownerId:
 
 const newPasswordSchema = z.string().min(8, 'New password must be at least 8 characters.');
 
-export async function changeOwnerPassword(ownerId: string, oldPassword: string, newPassword: string): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { id: ownerId } });
+export async function changeUserPassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error('User not found.');
 
   const valid = await verifyPassword(oldPassword, user.passwordHash);
@@ -51,8 +51,23 @@ export async function changeOwnerPassword(ownerId: string, oldPassword: string, 
   if (!result.success) throw new ValidationError(result.error.issues[0].message);
 
   const passwordHash = await hashPassword(newPassword);
-  await prisma.user.update({ where: { id: ownerId }, data: { passwordHash, credentialVersion: { increment: 1 } } });
-  // Invalidates the current session too — the caller should sign the owner
-  // out and send them back to /login after this succeeds.
-  await revokeAllSessionsForUser(ownerId);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash, credentialVersion: { increment: 1 }, mustChangePassword: false } });
+  await revokeAllSessionsForUser(userId);
+}
+
+export async function changeOwnerPassword(ownerId: string, oldPassword: string, newPassword: string): Promise<void> {
+  return changeUserPassword(ownerId, oldPassword, newPassword);
+}
+
+export async function setUserPassword(userId: string, newPassword: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('User not found.');
+  if (!user.mustChangePassword) throw new ValidationError('Password change not required.');
+
+  const result = newPasswordSchema.safeParse(newPassword);
+  if (!result.success) throw new ValidationError(result.error.issues[0].message);
+
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash, credentialVersion: { increment: 1 }, mustChangePassword: false } });
+  await revokeAllSessionsForUser(userId);
 }

@@ -6,7 +6,7 @@ export interface Employee { id: string; name: string; username: string; active: 
 // HttpOnly session independently.
 export interface Session { id: string; role: Role; name: string }
 export interface AdminUser { id: string; name: string; role: Role }
-export type WorkStatus = 'Pending' | 'In Progress' | 'Completed';
+export type WorkStatus = 'Pending' | 'In Progress' | 'Ready' | 'Delivered';
 export type Product = { id: string; name: string; category: string; active: boolean } & ({ type: 'item'; price: number } | { type: 'weight'; slabs: { limit: number; price: number }[]; extra: number });
 export interface Line { productId: string; name: string; quantity: number; unit: string; amount: number }
 export type PaymentMethod = string;
