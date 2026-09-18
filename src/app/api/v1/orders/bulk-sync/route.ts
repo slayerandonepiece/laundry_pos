@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server';
 import { bulkSyncOrders, bulkSyncRequestSchema } from '@/server/services/orders';
-import { handleApiRoute, jsonResponse, requireApiStoreSession } from '@/server/api/handler';
+import {
+  handleApiRoute,
+  jsonResponse,
+  requireApiStoreSession,
+  resolveOutletIdFromRequest,
+} from '@/server/api/handler';
+import { requireOutletSession, AuthError } from '@/server/auth/session';
 
 export const runtime = 'nodejs';
 
@@ -9,7 +15,26 @@ export async function POST(req: NextRequest) {
     const session = await requireApiStoreSession(req);
     const body = await req.json();
     const { actions } = bulkSyncRequestSchema.parse(body);
-    const results = await bulkSyncOrders(session.storeId, actions, session.id);
+
+    let defaultOutletId: string | undefined;
+    if (session.storeRole === 'EMPLOYEE') {
+      const requestedOutletId = resolveOutletIdFromRequest(req);
+      if (!requestedOutletId) throw new AuthError('FORBIDDEN');
+      await requireOutletSession(session.storeId, requestedOutletId, 'EMPLOYEE', session);
+      defaultOutletId = requestedOutletId;
+
+      for (const action of actions) {
+        if (action.type === 'create_order') {
+          if (action.payload.outletId && action.payload.outletId !== defaultOutletId) {
+            throw new AuthError('FORBIDDEN');
+          }
+        }
+      }
+    } else {
+      defaultOutletId = resolveOutletIdFromRequest(req);
+    }
+
+    const results = await bulkSyncOrders(session.storeId, actions, session.id, defaultOutletId);
     return jsonResponse({ results });
   });
 }

@@ -9,6 +9,13 @@ import {
 } from "@/server/dates";
 import type { Order, WorkStatus } from "@/features/admin/admin.types";
 import type { Prisma } from "@/generated/prisma/client";
+import { resolveActivePaymentMethod } from "@/server/services/platform-payment-methods";
+import { assertStoreWritable } from "@/server/auth/session";
+import {
+  applyOrderCreationRollup,
+  applyPaymentRollup,
+  applyOrderStatusCompletedRollup,
+} from "@/server/services/dashboard-rollups";
 
 const ORDER_CODE_PREFIX = "EL-";
 
@@ -46,6 +53,7 @@ const createOrderSchema = z.object({
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().trim().default(""),
   entries: z.array(entrySchema).min(1),
+  outletId: z.string().trim().optional(),
   initialPayment: z
     .object({
       amount: z.number().int().nonnegative(),
@@ -65,6 +73,7 @@ type OrderRow = Prisma.OrderGetPayload<{ include: typeof includeForDTO }>;
 function toOrderDTO(row: OrderRow): Order {
   return {
     id: toOrderCode(row.orderNumber),
+    outletId: row.outletId ?? undefined,
     name: row.customerName,
     phone: row.phone,
     date: formatCalendarDate(row.orderDate),
@@ -98,6 +107,7 @@ function toOrderDTO(row: OrderRow): Order {
 export interface ListOrdersOptions {
   limit?: number;
   sort?: "recent" | "default";
+  outletId?: string;
 }
 
 export async function listOrders(
@@ -105,7 +115,11 @@ export async function listOrders(
   options?: ListOrdersOptions,
 ): Promise<Order[]> {
   const rows = await prisma.order.findMany({
-    where: { storeId, legacyCancelled: false },
+    where: {
+      storeId,
+      legacyCancelled: false,
+      ...(options?.outletId ? { outletId: options.outletId } : {}),
+    },
     include: includeForDTO,
     orderBy: { orderNumber: "desc" },
     ...(options?.limit ? { take: options.limit } : {}),
@@ -164,6 +178,7 @@ export async function listOrdersSince(
   storeId: string,
   cursor: OrderSyncCursor | null,
   limit: number,
+  outletId?: string,
 ): Promise<{
   orders: (Order & { deleted: boolean })[];
   nextCursor: string | null;
@@ -171,6 +186,7 @@ export async function listOrdersSince(
   const rows = await prisma.order.findMany({
     where: {
       storeId,
+      ...(outletId ? { outletId } : {}),
       ...(cursor
         ? {
             OR: [
@@ -219,13 +235,16 @@ export interface CreateOrderInput {
   notes?: string;
   entries: { productId: string; quantity: number }[];
   initialPayment?: { amount: number; method: string };
+  outletId?: string;
 }
 
 export async function createOrder(
   storeId: string,
   input: CreateOrderInput,
   actorId: string,
+  explicitOutletId?: string,
 ): Promise<Order> {
+  await assertStoreWritable(storeId);
   const data = createOrderSchema.parse(input);
 
   const existing = await prisma.order.findUnique({
@@ -282,40 +301,96 @@ export async function createOrder(
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
   if (data.initialPayment && data.initialPayment.amount > total)
     throw new Error("Payment must be between zero and the order total.");
+  let initialPaymentMethodName: string | undefined;
+  let initialPlatformPaymentMethodId: string | null = null;
   if (data.initialPayment) {
-    const method = await prisma.storePaymentMethod.findFirst({
-      where: { storeId, name: data.initialPayment.method, active: true },
-    });
-    if (!method) throw new Error("That payment method is no longer available.");
+    const paymentCheck = await resolveActivePaymentMethod(
+      storeId,
+      data.initialPayment.method,
+      { allowLegacy: !data.outletId && !explicitOutletId },
+    );
+    if (!paymentCheck.valid) {
+      throw new Error(paymentCheck.error);
+    }
+    initialPaymentMethodName = paymentCheck.name;
+    initialPlatformPaymentMethodId = paymentCheck.platformPaymentMethodId;
   }
 
   const today = parseCalendarDate(todayIST());
 
-  const row = await prisma.order.create({
-    data: {
-      storeId,
-      idempotencyKey: data.idempotencyKey,
-      customerName: data.customerName ?? "",
-      phone: data.phone,
-      orderDate: today,
-      dueDate: parseCalendarDate(data.dueDate),
-      status: "PENDING",
-      notes: data.notes ?? "",
-      lines: { create: lines },
-      payments: data.initialPayment
-        ? {
-            create: [
-              {
-                amount: data.initialPayment.amount,
-                method: data.initialPayment.method,
-                paidAt: today,
-              },
-            ],
-          }
-        : undefined,
-      statusEvents: { create: [{ status: "PENDING", byUserId: actorId }] },
-    },
-    include: includeForDTO,
+  let resolvedOutletId: string | null = explicitOutletId ?? data.outletId ?? null;
+  if (resolvedOutletId) {
+    const outlet = await prisma.outlet.findUnique({ where: { id: resolvedOutletId } });
+    if (!outlet || outlet.storeId !== storeId || outlet.status !== "ACTIVE") {
+      throw new Error("Invalid outlet.");
+    }
+  } else {
+    const defaultOutlet = await prisma.outlet.findFirst({
+      where: { storeId, status: "ACTIVE" },
+      orderBy: { createdAt: "asc" },
+    });
+    resolvedOutletId = defaultOutlet?.id ?? null;
+  }
+
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.order.create({
+      data: {
+        storeId,
+        outletId: resolvedOutletId,
+        idempotencyKey: data.idempotencyKey,
+        customerName: data.customerName ?? "",
+        phone: data.phone,
+        orderDate: today,
+        dueDate: parseCalendarDate(data.dueDate),
+        status: "PENDING",
+        notes: data.notes ?? "",
+        lines: { create: lines },
+        payments: data.initialPayment
+          ? {
+              create: [
+                {
+                  amount: data.initialPayment.amount,
+                  method: initialPaymentMethodName ?? data.initialPayment.method,
+                  platformPaymentMethodId: initialPlatformPaymentMethodId,
+                  paidAt: today,
+                  storeId,
+                  outletId: resolvedOutletId,
+                },
+              ],
+            }
+          : undefined,
+        statusEvents: {
+          create: [
+            {
+              status: "PENDING",
+              byUserId: actorId,
+              storeId,
+              outletId: resolvedOutletId,
+            },
+          ],
+        },
+      },
+      include: includeForDTO,
+    });
+
+    if (resolvedOutletId) {
+      await applyOrderCreationRollup(tx, {
+        storeId,
+        outletId: resolvedOutletId,
+        orderDate: today,
+        lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, amount: l.amount })),
+      });
+      if (data.initialPayment && data.initialPayment.amount > 0) {
+        await applyPaymentRollup(tx, {
+          storeId,
+          outletId: resolvedOutletId,
+          paidAt: today,
+          amount: data.initialPayment.amount,
+        });
+      }
+    }
+
+    return created;
   });
 
   return toOrderDTO(row);
@@ -327,6 +402,7 @@ export async function updateOrderStatus(
   nextStatus: WorkStatus,
   actorId: string,
 ): Promise<Order> {
+  await assertStoreWritable(storeId);
   const orderNumber = parseOrderCode(orderCode);
   if (orderNumber === null) throw new Error("Order not found.");
   const dbStatus = STATUS_TO_DB[nextStatus];
@@ -337,15 +413,42 @@ export async function updateOrderStatus(
     if (!current || current.legacyCancelled || current.storeId !== storeId)
       throw new Error("Order not found.");
     if (current.status !== dbStatus) {
+      const previousCompletedAt = current.status === "DELIVERED" ? current.completedAt : null;
+      const completedDate =
+        dbStatus === "DELIVERED" ? parseCalendarDate(todayIST()) : null;
       await tx.order.update({
         where: { orderNumber },
         data: {
           status: dbStatus,
-          completedAt:
-            dbStatus === "DELIVERED" ? parseCalendarDate(todayIST()) : null,
-          statusEvents: { create: [{ status: dbStatus, byUserId: actorId }] },
+          completedAt: completedDate,
+          statusEvents: {
+            create: [
+              {
+                status: dbStatus,
+                byUserId: actorId,
+                storeId,
+                outletId: current.outletId ?? null,
+              },
+            ],
+          },
         },
       });
+
+      if (dbStatus === "DELIVERED" && current.outletId && completedDate) {
+        await applyOrderStatusCompletedRollup(tx, {
+          storeId,
+          outletId: current.outletId,
+          completedAt: completedDate,
+        });
+      }
+      if (current.status === "DELIVERED" && dbStatus !== "DELIVERED" && current.outletId && previousCompletedAt) {
+        await applyOrderStatusCompletedRollup(tx, {
+          storeId,
+          outletId: current.outletId,
+          completedAt: previousCompletedAt,
+          delta: -1,
+        });
+      }
     }
     return tx.order.findUniqueOrThrow({
       where: { orderNumber },
@@ -414,7 +517,9 @@ export async function bulkSyncOrders(
   storeId: string,
   actions: BulkSyncAction[],
   actorId: string,
+  defaultOutletId?: string,
 ): Promise<BulkSyncResult[]> {
+  await assertStoreWritable(storeId);
   const codeMap = new Map<string, string>(); // offlineCode -> confirmed order code, this batch only
   const failedOffline = new Set<string>(); // offlineCode whose create_order failed this batch
   const results: BulkSyncResult[] = [];
@@ -422,7 +527,12 @@ export async function bulkSyncOrders(
   for (const action of actions) {
     if (action.type === "create_order") {
       try {
-        const order = await createOrder(storeId, action.payload, actorId);
+        const order = await createOrder(
+          storeId,
+          action.payload,
+          actorId,
+          defaultOutletId,
+        );
         codeMap.set(action.offlineCode, order.id);
         results.push({
           clientActionId: action.clientActionId,
@@ -514,6 +624,7 @@ export async function recordPayment(
   methodInput: string,
   clientActionId?: string,
 ): Promise<Order> {
+  await assertStoreWritable(storeId);
   const orderNumber = parseOrderCode(orderCode);
   if (orderNumber === null) throw new Error("Order not found.");
   if (!Number.isInteger(amount) || amount <= 0)
@@ -537,19 +648,25 @@ export async function recordPayment(
     // stale balance and double-spend it; only after the lock do we read
     // lines/payments, guaranteeing the balance check sees committed state.
     const locked = await tx.$queryRaw<
-      { id: string; storeId: string; legacyCancelled: boolean }[]
+      {
+        id: string;
+        storeId: string;
+        outletId: string | null;
+        legacyCancelled: boolean;
+      }[]
     >`
-      SELECT id, "storeId", "legacyCancelled" FROM orders WHERE "orderNumber" = ${orderNumber} FOR UPDATE
+      SELECT id, "storeId", "outletId", "legacyCancelled" FROM orders WHERE "orderNumber" = ${orderNumber} FOR UPDATE
     `;
     const order = locked[0];
     if (!order || order.legacyCancelled || order.storeId !== storeId)
       throw new Error("Order not found.");
 
-    const availableMethod = await tx.storePaymentMethod.findFirst({
-      where: { storeId, name: method, active: true },
+    const paymentCheck = await resolveActivePaymentMethod(storeId, method, {
+      allowLegacy: !order.outletId,
     });
-    if (!availableMethod)
-      throw new Error("That payment method is no longer available.");
+    if (!paymentCheck.valid) {
+      throw new Error(paymentCheck.error);
+    }
 
     const [lines, payments] = await Promise.all([
       tx.orderLine.findMany({ where: { orderId: order.id } }),
@@ -560,15 +677,29 @@ export async function recordPayment(
     if (amount > total - paid)
       throw new Error("Payment must be no more than the outstanding balance.");
 
+    const paymentDate = parseCalendarDate(todayIST());
     await tx.payment.create({
       data: {
         orderId: order.id,
+        storeId,
+        outletId: order.outletId ?? null,
         amount,
-        method,
-        paidAt: parseCalendarDate(todayIST()),
+        method: paymentCheck.name,
+        platformPaymentMethodId: paymentCheck.platformPaymentMethodId,
+        paidAt: paymentDate,
         clientActionId: clientActionId ?? null,
       },
     });
+
+    if (order.outletId) {
+      await applyPaymentRollup(tx, {
+        storeId,
+        outletId: order.outletId,
+        paidAt: paymentDate,
+        amount,
+      });
+    }
+
     // Touch the order row itself so its `updatedAt` advances — a payment only
     // inserts a child row, and delta sync (listOrdersSince) filters on the
     // parent order's updatedAt, so without this a payment would be invisible

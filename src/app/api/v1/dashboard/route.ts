@@ -12,9 +12,10 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
     const session = await requireApiStoreSession(req, 'OWNER');
+    const outletId = req.nextUrl.searchParams.get('outletId') ?? undefined;
     const [orders, expenses, products] = await Promise.all([
-      listOrders(session.storeId),
-      listExpenses(session.storeId),
+      listOrders(session.storeId, { outletId }),
+      listExpenses(session.storeId, { outletId }),
       listProducts(session.storeId),
     ]);
 

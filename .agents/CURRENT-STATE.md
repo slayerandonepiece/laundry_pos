@@ -3,6 +3,59 @@
 Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
 changes are deployed to production.
 
+## Multi-outlet rollout: Tasks B1–B6 completed and verified
+
+The approved organization → outlet rollout is tracked task-by-task in
+[`MULTI-OUTLET-RUNBOOK.md`](MULTI-OUTLET-RUNBOOK.md). Tasks B1 through B6 are
+fully implemented and verified:
+- **B1**: Additive schema foundation (`Outlet`, `OutletMembership`, `PlatformPaymentMethod`, `OrganizationPaymentMethod`, `AuditLog`, `Subscription.trialEndsAt`).
+- **B2**: Auth, login context, and organization/outlet authorization (`requireOutletSession`, `resolveAllowedOutlets`, single active organization rule for employees).
+- **B3**: Operational ownership (`outletId` on `Order`, `Payment`, `Expense`, `RecurringExpenseSeries`, `OrderInvoice`, `StatusEvent`).
+- **B4**: Global payment catalogue and organization enablement (`PlatformPaymentMethod`, `OrganizationPaymentMethod`, checkout validation).
+- **B5**: Organization trial/subscription restriction (`assertStoreWritable`, `allowRestricted` read access, expiring subscription queries).
+- **B6**: Daily outlet summaries (`DailyOutletSummary`) and service sales breakdown (`DailyOutletServiceSummary`), transactional incremental updates on order creation, status completion, payments, and expenses, idempotent retries, query APIs, and audited protected reconciliation (`reconcileDailyOutletRollups`).
+
+Independent verification (`npm run test:subscription-payments` against a disposable local Postgres cluster) found and fixed two regressions before signing off B1–B6:
+- B4's stricter outlet-payment rule (legacy `StorePaymentMethod` cannot pay outlet-owned orders) was correct by design (see test `B4.4`), but the B3 test fixtures predated it and never created/enabled a `PlatformPaymentMethod`, so every outlet order in `tests/outlet-operational.integration.test.ts` failed with "That payment method is no longer available." Fixed by adding the missing platform-method setup to that fixture — this is a real operational requirement, not just a test gap: **any organization must have a super-admin-created and owner-enabled platform payment method before its outlets can take any payment.**
+- `getStoreAccessStatus` reused `PAYMENT_WARNING_DAYS` (30 days) for the trial-ending banner threshold, which contradicted `subscription-restrictions.integration.test.ts`'s expectation that a trial 14 days from expiry still reads `TRIAL`. Added a separate `TRIAL_WARNING_DAYS = 7` constant in `src/server/auth/session.ts`.
+
+All 37 integration tests pass, `tsc --noEmit` and `eslint .` are clean. Task B7 (staging reset) is blocked awaiting explicit user approval. W1 and W2 are done and browser-verified end-to-end against staging (see below); M1/M2 are deferred per user direction.
+
+## Multi-outlet W2: Next.js owner/employee outlet-aware screens implemented
+
+- `OutletSwitcher` wired into `AdminChrome`'s topbar for both owner and employee. Owner sees every active outlet plus an "All outlets" option (Dashboard only); employee sees only their granted, active outlets and no "All outlets" option.
+- Dashboard, Orders, and Expenses read `resolveOutletSelection` and filter `listOrders`/`listExpenses` by the selected outlet; Dashboard additionally supports the all-outlets aggregate via `outletId: undefined`.
+- New: owner-facing employee outlet assignment on `/admin/employees` — a per-employee "Outlets (N)" disclosure lists every active outlet with a checkbox (grant/revoke via `setEmployeeOutletAccessAction`) and a "Make default" action (`setEmployeeDefaultOutletAction`), calling the existing `assignEmployeeToOutlet`/`assignDefaultOutlet`/new `removeEmployeeFromOutlet` service functions. Hidden entirely for stores with zero outlets.
+- Payment methods and subscription/trial banners (`AccessNotices.tsx`, `PaymentMethodsSettings.tsx`) already reflected the B4/B5 backend contract from Gemini's earlier pass; verified working live.
+
+**Staging migrations applied**: the 4 pending B1–B6 migrations had never been deployed to the actual staging Neon database (only to the disposable local test cluster) — `npx prisma migrate deploy` was run against staging with explicit user approval. All additive, zero destructive operations.
+
+**Live browser walkthrough** (super admin → owner → employee) against staging, end to end:
+1. Super admin onboarded a new organization "One Wash Laundry", created outlets `OBLRCHN01` (Chinnapanahalli) and `OBLRMTH01` (Marathahalli), and created the global "Cash" platform payment method.
+2. Owner logged in, saw "All outlets" by default on Dashboard, enabled "Cash" for the organization, added a service ("Wash & Fold", org-wide catalogue confirmed), created an employee, and granted that employee both outlets with Chinnapanahalli as default via the new Outlets disclosure.
+3. Employee logged in, defaulted to their designated outlet, switched to Marathahalli via the switcher, and punched a real order with Cash payment (order `EL-73`) — this exercised the exact `resolveActivePaymentMethod`/outlet-ownership code path fixed above, confirming the fix is correct in the live app, not just in tests.
+4. Outlet isolation confirmed: the Marathahalli order is invisible when the (single-outlet) Orders view is scoped to Chinnapanahalli, and correctly aggregates into the owner's "All outlets" Dashboard (₹100, 1 order).
+5. Authorization confirmed: the employee was redirected away when navigating directly to the owner-only `/admin/employees` route.
+
+**Gaps found during the walkthrough (not yet fixed):**
+- The "All outlets" option only appears on the Dashboard screen (`showAllOutletsOption={screen === 'dashboard' && role === 'owner'}` in `AdminChrome.tsx`). Orders and Expenses restrict the owner to one outlet at a time, which is narrower than the original brief ("Outlet filter across Dashboard, Orders/Sales, Expenses, Staff, and reporting").
+- The selected-outlet cookie (`el_selected_outlet`) is not reset on login/logout, so a fresh owner login can inherit the last-viewed outlet from a different user's session in the same browser instead of defaulting to "All outlets". Not a security issue (server-side authorization is always re-checked against the current session's memberships), but a UX inconsistency worth fixing.
+
+## Multi-outlet W1: Super Admin controls implemented
+
+- Store (organization) detail now has an **Outlets** tab at
+  `/super-admin/stores/[storeId]/outlets`. Super Admin can create an outlet
+  using its globally unique, immutable manually assigned code, display name,
+  address, and phone. The page shows existing outlet codes and lifecycle status.
+- `/super-admin/payment-methods` manages the global payment catalogue. Super
+  Admin can create methods, rename their display name without changing the
+  immutable code, and activate/deactivate a method. Store owners configure
+  organization-wide enablement separately; no outlet-specific payment setting
+  or QR credential is introduced.
+- W1 uses server actions that repeat Super Admin authorization and revalidate
+  affected pages; it does not add migrations, reset data, or change subscription
+  billing decisions. Verified with TypeScript, ESLint, and a production build.
+
 ## Multi-tenant foundation (StoreOps): schema, auth and Super Admin UI built
 
 The app is being turned into a multi-tenant platform — see the StoreOps product
@@ -1307,3 +1360,30 @@ verified against an isolated PostgreSQL integration test cluster.
     - B6.5: Invoice settlement enforcement (400 when unpaid/undelivered; 200 when paid in full and delivered).
     - B6.6: Cross-store tenant isolation (tokens cannot read or mutate other stores' data, even when spoofing `X-Store-Id`).
 
+## Multi-Outlet & Organization Foundation (Backend Task B1)
+
+- **Architecture context**: `Store` is a temporary code and database model/table name serving as the organization-level tenant during the outlet rollout. Current memberships, subscriptions, and operational records remain attached to `Store`.
+- **Schema-only foundation**: Migration `20260914005500_add_outlet_and_payment_foundation` adds backward-compatible, strictly additive schema definitions:
+  - `OutletStatus` enum (`ACTIVE`, `CLOSED`, `RELOCATED`)
+  - `Outlet` model (mapped to `outlets`, belongs to `Store`, indexed on `storeId`, unique `outletCode`)
+  - `OutletMembership` model (mapped to `outlet_memberships`, links `User` and `Outlet`, unique `[userId, outletId]`)
+  - `PlatformPaymentMethod` model (mapped to `platform_payment_methods`, unique `code`)
+  - `OrganizationPaymentMethod` model (mapped to `organization_payment_methods`, links `Store` and `PlatformPaymentMethod`, unique `[storeId, platformPaymentMethodId]`)
+  - `AuditLog` model (mapped to `audit_logs`, nullable relations to `Store`, `Outlet`, and `User`, indexed by entity and timestamp)
+  - `Subscription.trialEndsAt`: Nullable `@db.Date` column added to `subscriptions` table.
+- **Current status**: Outlets and new payment/audit models are schema-only in this batch. They are NOT yet used for authorization, operational queries, reports, or UI. Multi-outlet behavior is not implemented in this phase.
+
+## Organization & Outlet Access Context (Backend Task B2)
+
+- **Access model & helpers (`src/server/auth/session.ts`)**:
+  - Added `OutletSession`, `AllowedOutlet`, and `SubscriptionAccessState` (`ACTIVE`, `TRIAL`, `TRIAL_ENDING`, `SUBSCRIPTION_ENDING`, `RESTRICTED`).
+  - Added `requireOutletSession` and `requireOutletSessionFromRequest`: enforces live active organization membership, verifies outlet belongs to organization and is `ACTIVE`, permits `OWNER` across all store outlets, and requires `EMPLOYEE` to hold an active `OutletMembership`.
+  - Added `resolveAllowedOutlets` to derive permitted outlets and designated default outlet per user per organization.
+- **Request resolution (`src/server/api/handler.ts`)**:
+  - Added `resolveOutletIdFromRequest` (`X-Outlet-Id` header and `outletId` query param) and `requireApiOutletSession`.
+- **Additive login context (`POST /api/v1/auth/login`)**:
+  - Response extended with `organizations` array (including `id`, `name`, `role`, `status`, `isLocked`, `blockedReason`, `paidThroughDate`, `trialEndsAt`, `subscriptionState`, `allowedOutlets`, and `defaultOutletId`), while maintaining backward compatibility with `stores`.
+- **Employee constraints (`src/server/services/employees.ts`, `src/server/services/outlets.ts`)**:
+  - Enforced single-organization active restriction for employees in `updateEmployee` and `toggleEmployeeActive`.
+  - Added transactional `assignDefaultOutlet` and `assignEmployeeToOutlet` ensuring exactly one default outlet per employee per organization.
+- **Verification**: Verified via 5 dedicated integration tests in `tests/outlet-auth.integration.test.ts` (19/19 test suite pass, zero lint warnings, clean `tsc --noEmit`).

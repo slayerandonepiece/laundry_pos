@@ -405,3 +405,101 @@ export async function getCollectedThisYearStats(): Promise<CollectedThisYearStat
 
   return { amount, fyLabel: current.label, previousYearAmount, deltaPercent };
 }
+
+export async function setStoreTrial(
+  storeId: string,
+  trialEndsAt: string,
+): Promise<{ trialEndsAt: string; storeId: string }> {
+  const store = await prisma.store.findUnique({ where: { id: storeId } });
+  if (!store || store.deletedAt) {
+    throw new ValidationError('Store not found.');
+  }
+
+  const parsedDate = parseCalendarDate(trialEndsAt);
+  await prisma.subscription.upsert({
+    where: { storeId },
+    create: {
+      storeId,
+      depositAmount: 0,
+      annualFeeAmount: 0,
+      trialEndsAt: parsedDate,
+    },
+    update: {
+      trialEndsAt: parsedDate,
+    },
+  });
+
+  return { storeId, trialEndsAt };
+}
+
+export interface ExpiringSubscriptionItem {
+  storeId: string;
+  storeName: string;
+  phone: string;
+  email: string | null;
+  paidThroughDate: string | null;
+  trialEndsAt: string | null;
+  daysRemaining: number;
+  type: 'TRIAL' | 'SUBSCRIPTION';
+}
+
+export async function listExpiringSubscriptions(withinDays = 30): Promise<ExpiringSubscriptionItem[]> {
+  const today = todayIST();
+  const todayDate = parseCalendarDate(today);
+  const horizonDate = parseCalendarDate(addDays(today, withinDays));
+
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      store: { deletedAt: null },
+      OR: [
+        {
+          trialEndsAt: {
+            lte: horizonDate,
+          },
+        },
+        {
+          paidThroughDate: {
+            lte: horizonDate,
+          },
+        },
+      ],
+    },
+    include: {
+      store: { select: { id: true, name: true, phone: true, email: true } },
+    },
+  });
+
+  const results: ExpiringSubscriptionItem[] = [];
+  for (const s of subscriptions) {
+    const trialDate = s.trialEndsAt ? formatCalendarDate(s.trialEndsAt) : null;
+    const paidDate = s.paidThroughDate ? formatCalendarDate(s.paidThroughDate) : null;
+
+    if (trialDate && !paidDate) {
+      const days = Math.round((parseCalendarDate(trialDate).getTime() - todayDate.getTime()) / 86400000);
+      results.push({
+        storeId: s.store.id,
+        storeName: s.store.name,
+        phone: s.store.phone,
+        email: s.store.email,
+        paidThroughDate: null,
+        trialEndsAt: trialDate,
+        daysRemaining: days,
+        type: 'TRIAL',
+      });
+    } else if (paidDate) {
+      const days = Math.round((parseCalendarDate(paidDate).getTime() - todayDate.getTime()) / 86400000);
+      results.push({
+        storeId: s.store.id,
+        storeName: s.store.name,
+        phone: s.store.phone,
+        email: s.store.email,
+        paidThroughDate: paidDate,
+        trialEndsAt: trialDate,
+        daysRemaining: days,
+        type: 'SUBSCRIPTION',
+      });
+    }
+  }
+
+  return results.sort((a, b) => a.daysRemaining - b.daysRemaining);
+}

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
 import { archiveStore, lookupOwnerByUsername, onboardStore, recordSubscriptionPayment, setStoreStatus, updateStore } from '@/server/services/stores';
 import { ValidationError } from '@/server/errors';
+import { createOutlet, type OutletDTO } from '@/server/services/outlets';
 import type { OnboardStoreInput, OwnerLookupResult, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '../types';
 
 export interface OnboardStoreResult {
@@ -111,6 +112,31 @@ export async function recordSubscriptionPaymentAction(storeId: string, input: Re
     revalidatePath(`/super-admin/stores/${storeId}/subscription`);
     revalidatePath('/super-admin/subscriptions/billing');
     return { ok: true, invoice };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
+export interface CreateOutletResult {
+  ok: boolean;
+  error?: string;
+  outlet?: OutletDTO;
+}
+
+/** Super-admin-only outlet provisioning. Outlet codes are immutable once created. */
+export async function createOutletAction(storeId: string, input: {
+  outletCode: string;
+  displayName: string;
+  address?: string;
+  phone?: string;
+}): Promise<CreateOutletResult> {
+  const session = await requireSuperAdmin();
+  try {
+    const outlet = await createOutlet({ storeId, createdById: session.id, ...input });
+    revalidatePath(`/super-admin/stores/${storeId}`);
+    revalidatePath(`/super-admin/stores/${storeId}/outlets`);
+    return { ok: true, outlet };
   } catch (error) {
     if (error instanceof ValidationError) return { ok: false, error: error.message };
     throw error;
