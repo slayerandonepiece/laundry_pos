@@ -11,10 +11,10 @@ export default function OnboardStoreAction({ plans, variant = 'default' }: { pla
   const [open, setOpen] = useState(false);
 
   return <>
-    <button type="button" className={variant === 'block' ? 'btn outline block' : 'btn'} style={variant === 'block' ? { justifyContent: 'flex-start' } : undefined} onClick={() => setOpen(true)}><Icon name="plus" size="s" />Onboard store</button>
+    <button type="button" className={variant === 'block' ? 'btn outline block' : 'btn'} style={variant === 'block' ? { justifyContent: 'flex-start' } : undefined} onClick={() => setOpen(true)}><Icon name="plus" size="s" />Onboard organization</button>
     {open && (
-      <Dialog title="Onboard a store" description="Create the store, owner access, and subscription." size="wide" onClose={() => setOpen(false)} warnOnChanges>
-        <OnboardingWizard plans={plans.filter(p => !p.archivedAt)} onSaved={() => { setOpen(false); router.refresh(); }} />
+      <Dialog title="Onboard organization" description="Create the organization, owner access, and subscription." size="wide" onClose={() => setOpen(false)} warnOnChanges>
+        <OnboardingWizard plans={plans.filter(p => !p.archivedAt)} onSaved={() => router.refresh()} />
       </Dialog>
     )}
   </>;

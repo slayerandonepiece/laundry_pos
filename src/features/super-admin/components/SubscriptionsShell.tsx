@@ -11,7 +11,7 @@ export default function SubscriptionsShell({ planCount, storeCount, children }: 
   const pathname = usePathname();
   const tabs: [string, string, number][] = [
     ['/super-admin/subscriptions', 'Plans', planCount],
-    ['/super-admin/subscriptions/billing', 'Billing by store', storeCount],
+    ['/super-admin/subscriptions/billing', 'Billing by organization', storeCount],
   ];
   return <>
     <div className="tabs">

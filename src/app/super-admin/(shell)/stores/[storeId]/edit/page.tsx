@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { requireSuperAdmin, AuthError } from '@/server/auth/session';
 import { getStore } from '@/server/services/stores';
-import PageHeading from '@/features/super-admin/components/PageHeading';
+import { getOrgLifecycleFacts, getArchiveEligibility } from '@/server/services/store-lifecycle';
+import Icon from '@/features/super-admin/components/Icon';
 import StoreEditFull from '@/features/super-admin/components/StoreEditFull';
 
 export default async function Page({ params }: { params: Promise<{ storeId: string }> }) {
@@ -15,16 +16,19 @@ export default async function Page({ params }: { params: Promise<{ storeId: stri
   }
   const store = await getStore(storeId);
   if (!store) notFound();
+  const [lifecycle, eligibility] = await Promise.all([
+    getOrgLifecycleFacts(storeId),
+    getArchiveEligibility(storeId),
+  ]);
   return (
     <>
-      <PageHeading icon="store" title={store.name} subtitle="Edit store" />
-      <section className="ad-card">
-        <div className="ad-card-heading">
-          <div><h2>Edit store</h2><p>Update {store.name}&apos;s contact details.</p></div>
-          <Link className="ad-button ad-secondary" href={`/super-admin/stores/${store.id}`}>← Back to store</Link>
+      <Link className="backlink" href={`/super-admin/stores/${store.id}`}><Icon name="arrowLeft" size="s" />Back to {store.name}</Link>
+      <div className="phead">
+        <div className="phead-l">
+          <div><h1>Edit organization</h1><p>Update {store.name}&apos;s contact details.</p></div>
         </div>
-        <StoreEditFull store={store} />
-      </section>
+      </div>
+      <StoreEditFull store={store} lifecycle={lifecycle} eligibility={eligibility} />
     </>
   );
 }

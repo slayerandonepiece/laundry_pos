@@ -16,7 +16,7 @@ export default async function Page() {
   const [stores, plans] = await Promise.all([listStores(), listPlans()]);
   return (
     <>
-      <PageHeading icon="store" title="Stores" subtitle="Every store onboarded onto the platform." action={<OnboardStoreAction plans={plans} />} />
+      <PageHeading icon="store" title="Organizations" subtitle="Every tenant on the platform, its outlets and its billing standing." action={<OnboardStoreAction plans={plans} />} />
       <StoresScreenContainer stores={stores} />
     </>
   );

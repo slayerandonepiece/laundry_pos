@@ -1,6 +1,6 @@
 'use client';
 import { createPortal } from 'react-dom';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import Icon, { type IconName } from './Icon';
 
 export interface RowMenuItem {
@@ -21,11 +21,26 @@ export default function RowMenu({ items, trigger }: { items: RowMenuItem[]; trig
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const reposition = () => {
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setPosition({ top: rect.bottom + 4, left: Math.max(8, rect.right - 186) });
-  };
+  const reposition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuEl = menuRef.current;
+    const menuHeight = menuEl ? menuEl.offsetHeight : (items.length * 38 + 16);
+    const menuWidth = menuEl ? menuEl.offsetWidth : 190;
+
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openUpwards = spaceBelow < menuHeight + 12 && spaceAbove > menuHeight;
+
+    const top = openUpwards
+      ? Math.max(8, rect.top - menuHeight - 4)
+      : Math.min(window.innerHeight - menuHeight - 8, rect.bottom + 4);
+
+    const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth));
+
+    setPosition({ top, left });
+  }, [items.length]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -36,7 +51,14 @@ export default function RowMenu({ items, trigger }: { items: RowMenuItem[]; trig
     // all of this component's styling (and fall back to an unrelated
     // global .menu rule from the marketing site's leftover CSS).
     setPortalTarget(triggerRef.current?.closest('.soa') ?? document.body);
-  }, [open]);
+  }, [open, reposition]);
+
+  const menuCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    menuRef.current = node;
+    if (node) {
+      reposition();
+    }
+  }, [reposition]);
 
   useEffect(() => {
     if (!open) return;
@@ -56,14 +78,14 @@ export default function RowMenu({ items, trigger }: { items: RowMenuItem[]; trig
       window.removeEventListener('scroll', reposition, true);
       window.removeEventListener('resize', reposition);
     };
-  }, [open]);
+  }, [open, reposition]);
 
   return <>
     <button ref={triggerRef} type="button" className="icon-btn" aria-label="Row actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
       {trigger ?? <Icon name="moreVertical" />}
     </button>
     {open && position && portalTarget && createPortal(
-      <div ref={menuRef} className="menu" style={{ top: position.top, left: position.left }} role="menu">
+      <div ref={menuCallbackRef} className="menu" style={{ top: position.top, left: position.left }} role="menu">
         {items.map(item => (
           <button key={item.label} type="button" className={item.danger ? 'danger' : ''} role="menuitem" onClick={() => { setOpen(false); item.onClick(); }}>
             <Icon name={item.icon} />{item.label}

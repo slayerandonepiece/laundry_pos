@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@/server/db';
 import { ValidationError } from '@/server/errors';
 import type { OutletMembership, OutletStatus } from '@/generated/prisma/client';
+import type { OutletDetail, OutletListItem } from '@/features/super-admin/types';
 
 export interface OutletDTO {
   id: string;
@@ -188,5 +189,104 @@ export async function removeEmployeeFromOutlet(
   return prisma.outletMembership.update({
     where: { userId_outletId: { userId, outletId } },
     data: { active: false, isDefault: false },
+  });
+}
+
+// --- Super Admin-facing queries and mutations below. Authorization
+// (requireSuperAdmin) is the caller's responsibility, in the Server Action
+// layer, matching stores.ts's pattern. ---
+
+function toOutletListItem(outlet: OutletDTO): OutletListItem {
+  return {
+    id: outlet.id,
+    storeId: outlet.storeId,
+    outletCode: outlet.outletCode,
+    displayName: outlet.displayName,
+    address: outlet.address,
+    phone: outlet.phone,
+    status: outlet.status,
+    openedAt: outlet.openedAt.toISOString(),
+    closedAt: outlet.closedAt ? outlet.closedAt.toISOString() : undefined,
+  };
+}
+
+export async function listOutletsForStoreAdmin(storeId: string): Promise<OutletListItem[]> {
+  const outlets = await listOutletsForStore(storeId);
+  return outlets.map(toOutletListItem);
+}
+
+export async function getOutletDetailForAdmin(outletId: string, storeId: string): Promise<OutletDetail | null> {
+  const outlet = await getOutlet(outletId);
+  if (!outlet || outlet.storeId !== storeId) return null;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [staffCount, orders30d, collectedAggregate] = await Promise.all([
+    prisma.outletMembership.count({ where: { outletId, active: true } }),
+    prisma.order.count({ where: { outletId, createdAt: { gte: thirtyDaysAgo } } }),
+    prisma.payment.aggregate({ where: { outletId, paidAt: { gte: thirtyDaysAgo } }, _sum: { amount: true } }),
+  ]);
+  return {
+    ...toOutletListItem(outlet),
+    staffCount,
+    orders30d,
+    collected30d: collectedAggregate._sum.amount ?? 0,
+  };
+}
+
+export interface UpdateOutletInput {
+  displayName: string;
+  address: string;
+  phone: string;
+}
+
+/** Updates an outlet's editable details. The outlet code is immutable and not accepted here. */
+export async function updateOutlet(outletId: string, storeId: string, input: UpdateOutletInput): Promise<OutletDTO> {
+  const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
+  if (!outlet || outlet.storeId !== storeId) throw new ValidationError('Outlet not found.');
+  if (!input.displayName.trim()) throw new ValidationError('Enter an outlet name.');
+
+  return prisma.outlet.update({
+    where: { id: outletId },
+    data: {
+      displayName: input.displayName.trim(),
+      address: input.address.trim(),
+      phone: input.phone.trim(),
+    },
+  });
+}
+
+/** Same outlet, same code — only the address changes. Marks the outlet RELOCATED. */
+export async function relocateOutlet(outletId: string, storeId: string, address: string): Promise<OutletDTO> {
+  const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
+  if (!outlet || outlet.storeId !== storeId) throw new ValidationError('Outlet not found.');
+  if (outlet.status === 'CLOSED') throw new ValidationError('Reopen this outlet before relocating it.');
+  if (!address.trim()) throw new ValidationError('Enter the new address.');
+
+  return prisma.outlet.update({
+    where: { id: outletId },
+    data: { address: address.trim(), status: 'RELOCATED' },
+  });
+}
+
+/** Hides the outlet from staff switchers. Order and payment history is kept; the code cannot be reused. */
+export async function closeOutlet(outletId: string, storeId: string): Promise<OutletDTO> {
+  const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
+  if (!outlet || outlet.storeId !== storeId) throw new ValidationError('Outlet not found.');
+  if (outlet.status === 'CLOSED') return outlet;
+
+  return prisma.outlet.update({
+    where: { id: outletId },
+    data: { status: 'CLOSED', closedAt: new Date() },
+  });
+}
+
+/** Reverses closeOutlet — restores ACTIVE status and clears closedAt. */
+export async function reopenOutlet(outletId: string, storeId: string): Promise<OutletDTO> {
+  const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
+  if (!outlet || outlet.storeId !== storeId) throw new ValidationError('Outlet not found.');
+  if (outlet.status !== 'CLOSED') return outlet;
+
+  return prisma.outlet.update({
+    where: { id: outletId },
+    data: { status: 'ACTIVE', closedAt: null },
   });
 }

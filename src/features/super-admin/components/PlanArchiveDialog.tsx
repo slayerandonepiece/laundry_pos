@@ -54,10 +54,10 @@ export default function PlanArchiveDialog({ plan, otherPlans, onDone, onDeleted,
   return <dialog ref={ref} className="ad-root ad-confirm-dialog" aria-labelledby={id} aria-describedby={id + '-description'} onCancel={event => { event.preventDefault(); onCancel(); }}>
     <h2 id={id}>Archive {plan.name}?</h2>
     <p id={id + '-description'}>
-      Archiving is safe and reversible — it only removes the plan from the &quot;select a plan&quot; list for new onboardings. Nothing changes for stores already using it.
+      Archiving is safe and reversible — it only removes the plan from the &quot;select a plan&quot; list for new onboardings. Nothing changes for organizations already using it.
     </p>
     {plan.storeCount > 0 && <>
-      <p>Currently used by {plan.storeCount} store{plan.storeCount === 1 ? '' : 's'}:</p>
+      <p>Currently used by {plan.storeCount} organization{plan.storeCount === 1 ? '' : 's'}:</p>
       {stores === null ? <p className="ad-help">Loading…</p> : (
         <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 13 }}>
           {stores.map(s => <li key={s.id}>{s.name} — {s.ownerName}</li>)}
@@ -74,12 +74,12 @@ export default function PlanArchiveDialog({ plan, otherPlans, onDone, onDeleted,
     {error && <p className="ad-error" role="alert">{error}</p>}
     <div className="ad-confirm-actions" style={{ justifyContent: 'space-between' }}>
       {plan.storeCount === 0 ? (
-        <button className="ad-order-link danger" onClick={confirmDelete} disabled={busy} title="Only possible once zero stores reference this plan">
+        <button className="ad-order-link danger" onClick={confirmDelete} disabled={busy} title="Only possible once zero organizations reference this plan">
           Delete plan instead
         </button>
       ) : (
-        <span className="ad-help" style={{ margin: 0 }} title="Delete is only possible once zero stores reference this plan">
-          Delete needs 0 stores attached (move the {plan.storeCount} above first)
+        <span className="ad-help" style={{ margin: 0 }} title="Delete is only possible once zero organizations reference this plan">
+          Delete needs 0 organizations attached (move the {plan.storeCount} above first)
         </span>
       )}
       <div style={{ display: 'flex', gap: 10 }}>

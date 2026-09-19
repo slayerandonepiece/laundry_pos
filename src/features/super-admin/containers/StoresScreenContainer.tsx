@@ -20,7 +20,7 @@ export default function StoresScreenContainer({ stores }: { stores: StoreListIte
     {notice && <div className="ad-toast" role="status">✓ {notice}</div>}
     <StoresDirectory stores={stores} search={search} onSearch={setSearch} onEdit={setEditingStore} onLockToggle={setLockingStore} onDelete={setDeletingStore} />
     {editingStore && (
-      <Dialog title="Edit store" description="Changes apply immediately and are recorded for this store." onClose={() => setEditingStore(null)} warnOnChanges>
+      <Dialog title="Edit organization" description="Changes apply immediately and are recorded for this organization." onClose={() => setEditingStore(null)} warnOnChanges>
         <StoreEditDialog store={editingStore} onSaved={store => { setEditingStore(null); setNotice(`${store.name} updated`); router.refresh(); setTimeout(() => setNotice(''), 4000); }} />
       </Dialog>
     )}
@@ -36,7 +36,7 @@ export default function StoresScreenContainer({ stores }: { stores: StoreListIte
       <DeleteStoreDialog
         store={deletingStore}
         onCancel={() => setDeletingStore(null)}
-        onDone={() => { setNotice(`${deletingStore.name} deleted`); setDeletingStore(null); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
+        onDone={() => { setNotice(`${deletingStore.name} archived`); setDeletingStore(null); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
       />
     )}
   </>;

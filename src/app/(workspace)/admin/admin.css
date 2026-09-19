@@ -119,6 +119,9 @@
 .ad-pdf-viewer{height:100%;min-height:0;display:flex;flex-direction:column}
 .ad-pdf-toolbar{flex-shrink:0;display:flex;gap:10px;padding:14px 20px;border-bottom:1px solid #e5e9ee}
 .ad-pdf-frame{flex:1;min-height:0;width:100%;border:0}
+.ad-dialog.ad-dialog-modal{position:fixed;inset:0;margin:auto;width:min(880px,calc(100vw - 32px));max-width:min(880px,calc(100vw - 32px));height:min(88vh,850px);max-height:min(88vh,850px);border-radius:16px;border:1px solid #dce2e9;box-shadow:0 24px 80px #061b3a33;display:none;flex-direction:column;overflow:hidden}
+.ad-dialog.ad-dialog-modal[open]{display:flex}
+.ad-dialog.ad-dialog-modal>header{border-radius:16px 16px 0 0}
 .ad-order-invoice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
 .ad-order-invoice-actions .ad-button{min-height:36px;padding:8px 12px;font-size:12.5px}
 .ad-form-fields{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:16px 20px;display:flex;flex-direction:column;gap:14px}

@@ -16,6 +16,7 @@ function findAllStores() {
     include: {
       subscription: { include: { plan: true } },
       memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } },
+      _count: { select: { outlets: true } },
     },
     orderBy: { onboardedAt: 'desc' },
   });
@@ -68,6 +69,7 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     status: row.status,
     lastInvoiceSeq: lastInvoice?.invoiceSeq,
     lastInvoiceAt: lastInvoice ? formatCalendarDate(lastInvoice.paidAt) : undefined,
+    outletCount: row._count.outlets,
   };
 }
 
@@ -97,6 +99,7 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
     include: {
       subscription: { include: { plan: true } },
       memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } },
+      _count: { select: { outlets: true } },
     },
   });
   if (!row) return null;
@@ -154,13 +157,47 @@ export async function archiveStore(storeId: string, confirmName: string): Promis
   await prisma.store.update({ where: { id: storeId }, data: { deletedAt: new Date() } });
 }
 
-export async function lookupOwnerByUsername(username: string): Promise<OwnerLookupResult | null> {
-  const normalized = username.trim().toLowerCase();
-  if (!normalized) return null;
-  const user = await prisma.user.findUnique({ where: { username: normalized }, include: { _count: { select: { memberships: true } } } });
-  if (!user || user.isSuperAdmin) return null;
-  return { id: user.id, name: user.name, username: user.username, storeCount: user._count.memberships };
+export async function lookupOwner(query: string): Promise<OwnerLookupResult | null> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  const normalizedUsername = trimmed.toLowerCase();
+
+  const user = await prisma.user.findFirst({
+    where: {
+      isSuperAdmin: false,
+      OR: [
+        { username: normalizedUsername },
+        ...(digitsOnly.length >= 7 ? [
+          { phone: { contains: digitsOnly.slice(-10) } },
+          { memberships: { some: { role: 'OWNER' as const, store: { phone: { contains: digitsOnly.slice(-10) }, deletedAt: null } } } },
+        ] : trimmed.length >= 7 ? [
+          { phone: { contains: trimmed } },
+          { memberships: { some: { role: 'OWNER' as const, store: { phone: { contains: trimmed }, deletedAt: null } } } },
+        ] : []),
+      ],
+    },
+    include: {
+      _count: { select: { memberships: { where: { store: { deletedAt: null } } } } },
+      memberships: {
+        where: { store: { deletedAt: null } },
+        include: { store: { select: { name: true } } },
+      },
+    },
+  });
+
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    phone: user.phone ?? undefined,
+    storeCount: user._count.memberships,
+    storeNames: user.memberships.map((m: { store: { name: string } }) => m.store.name),
+  };
 }
+
+export const lookupOwnerByUsername = lookupOwner;
 
 const usernameSchema = z
   .string()

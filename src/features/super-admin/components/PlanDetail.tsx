@@ -10,11 +10,7 @@ import PlanEditor from './PlanEditor';
 import PlanArchiveDialog from './PlanArchiveDialog';
 import { duplicatePlanAction, deletePlanAction } from '../actions/subscription-plans.actions';
 import type { SubscriptionPlanDetail, SubscriptionPlanListItem } from '../types';
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || name.slice(0, 2).toUpperCase();
-}
+import { initials } from '../utils';
 
 export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPlanDetail; otherPlans: SubscriptionPlanListItem[] }) {
   const router = useRouter();
@@ -80,17 +76,17 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
         </div>
 
         <div className="card">
-          <div className="card-head"><div><h2><Icon name="store" />Stores on this plan</h2><p>{plan.stores.length} store{plan.stores.length === 1 ? '' : 's'} — deposit shown reflects any per-store override</p></div></div>
+          <div className="card-head"><div><h2><Icon name="store" />Organizations on this plan</h2><p>{plan.stores.length} organization{plan.stores.length === 1 ? '' : 's'} — deposit shown reflects any per-organization override</p></div></div>
           {!plan.stores.length ? (
             <div className="card-body"><div className="empty">
               <span className="ic l"><Icon name="store" size="l" /></span>
-              <h3>No stores yet</h3>
-              <p>Attach this plan when onboarding a store, or move an existing one onto it.</p>
+              <h3>No organizations yet</h3>
+              <p>Attach this plan when onboarding an organization, or move an existing one onto it.</p>
             </div></div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table>
-                <thead><tr><th>Store</th><th>Owner</th><th>Onboarded</th><th className="right">Deposit charged</th><th>Status</th></tr></thead>
+                <thead><tr><th>Organization</th><th>Owner</th><th>Onboarded</th><th className="right">Deposit charged</th><th>Status</th></tr></thead>
                 <tbody>
                   {plan.stores.map(store => (
                     <tr key={store.id}>
@@ -112,7 +108,7 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
         <div className="card">
           <div className="card-head"><h3>At a glance</h3></div>
           <div className="card-body">
-            <div className="kv"><span>Stores using it</span><strong className="num">{plan.stores.length}</strong></div>
+            <div className="kv"><span>Organizations using it</span><strong className="num">{plan.stores.length}</strong></div>
             <div className="kv"><span>Deposits held</span><strong className="num">{money(depositsHeld)}</strong></div>
             <div className="kv"><span>Annual revenue</span><strong className="num">{money(plan.annualFeeAmount * plan.stores.length)}</strong></div>
             <div className="kv"><span>Last used</span><strong className="num">{plan.lastUsedAt ? dateLabel(plan.lastUsedAt) : '—'}</strong></div>
@@ -122,7 +118,7 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
     </div>
 
     {editing && (
-      <Dialog title={`Edit ${plan.name}`} description="Changes apply to stores using this plan at their next renewal." onClose={() => setEditing(false)} warnOnChanges>
+      <Dialog title={`Edit ${plan.name}`} description="Changes apply to organizations using this plan at their next renewal." onClose={() => setEditing(false)} warnOnChanges>
         <PlanEditor plan={plan} onSaved={updated => { setEditing(false); setNotice(`${updated.name} updated`); router.refresh(); setTimeout(() => setNotice(''), 4000); }} />
       </Dialog>
     )}
@@ -138,7 +134,7 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
     {deleting && (
       <ConfirmationDialog
         title={`Delete ${plan.name}?`}
-        description="This permanently removes the plan. Only possible because zero stores currently reference it — this can't be undone."
+        description="This permanently removes the plan. Only possible because zero organizations currently reference it — this can't be undone."
         confirmLabel="Delete plan"
         onCancel={() => setDeleting(false)}
         onConfirm={confirmDelete}

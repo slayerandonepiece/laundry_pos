@@ -1,21 +1,13 @@
 'use client';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { money, dateLabelFull } from '@/features/admin/admin.data';
 import Icon from './Icon';
+import RowMenu from './RowMenu';
+import InvoicePdfViewer from './InvoicePdfViewer';
 import type { CollectedThisYearStats, StoreListItem } from '../types';
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || name.slice(0, 2).toUpperCase();
-}
-
-const STATUS_BADGE: Record<StoreListItem['paymentState'], { label: string; cls: string }> = {
-  active: { label: 'Active', cls: 'good' },
-  expiring: { label: 'Expiring', cls: 'warm' },
-  locked: { label: 'Locked', cls: 'bad' },
-  unset: { label: 'Terms not set', cls: 'gray' },
-};
+import { initials, PAYMENT_STATE_BADGE } from '../utils';
 
 type Filter = 'all' | StoreListItem['paymentState'];
 
@@ -26,7 +18,9 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
   onSearch: (value: string) => void;
   onRecordPayment: (store: StoreListItem) => void;
 }) {
+  const router = useRouter();
   const [filter, setFilter] = useState<Filter>('all');
+  const [viewingInvoiceSeq, setViewingInvoiceSeq] = useState<number | null>(null);
 
   const counts = useMemo(() => ({
     active: stores.filter(s => s.paymentState === 'active').length,
@@ -43,10 +37,10 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
   const hasActiveFilter = filter !== 'all' || search.trim().length > 0;
 
   function exportCsv() {
-    const header = ['Store', 'Owner', 'Plan', 'Deposit', 'Annual fee', 'Paid through', 'Status', 'Last invoice'];
+    const header = ['Organization', 'Owner', 'Plan', 'Deposit', 'Annual fee', 'Paid through', 'Status', 'Last invoice'];
     const rows = filtered.map(s => [
       s.name, s.ownerName, s.planName ?? 'No plan yet', String(s.depositAmount / 100), String(s.annualFeeAmount / 100),
-      s.paidThroughDate ?? '', STATUS_BADGE[s.paymentState].label, s.lastInvoiceSeq ? `INV-${String(s.lastInvoiceSeq).padStart(6, '0')}` : '',
+      s.paidThroughDate ?? '', PAYMENT_STATE_BADGE[s.paymentState].label, s.lastInvoiceSeq ? `INV-${String(s.lastInvoiceSeq).padStart(6, '0')}` : '',
     ]);
     const csv = [header, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -60,12 +54,12 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
 
   if (!stores.length) return <div className="card"><div className="empty">
     <span className="ic l"><Icon name="card" size="l" /></span>
-    <h3>No stores yet</h3>
-    <p>Once a store is onboarded, its billing shows up here.</p>
+    <h3>No organizations yet</h3>
+    <p>Once an organization is onboarded, its billing shows up here.</p>
   </div></div>;
 
   return <>
-    <div className="stats" style={{ gridTemplateColumns: 'repeat(5,minmax(0,1fr))' }}>
+    <div className="stats cols-5">
       <div className="stat">
         <div className="stat-top"><span>Collected this year</span><span className="stat-ic"><Icon name="card" size="s" /></span></div>
         <strong className="num">{money(collectedThisYear.amount)}</strong>
@@ -82,11 +76,11 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
       </div>
       <div className="stat">
         <div className="stat-top"><span>Due in 30 days</span><span className="stat-ic" style={{ background: 'var(--warm-bg)', color: 'var(--warm-fg)' }}><Icon name="clock" size="s" /></span></div>
-        <strong className="num">{money(dueSoonAmount)}</strong><small>across {counts.expiring.length} store{counts.expiring.length === 1 ? '' : 's'}</small>
+        <strong className="num">{money(dueSoonAmount)}</strong><small>across {counts.expiring.length} organization{counts.expiring.length === 1 ? '' : 's'}</small>
       </div>
       <div className="stat">
         <div className="stat-top"><span>Overdue</span><span className="stat-ic" style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)' }}><Icon name="alertTriangle" size="s" /></span></div>
-        <strong className="num">{money(overdueAmount)}</strong><small>across {counts.locked.length} store{counts.locked.length === 1 ? '' : 's'}</small>
+        <strong className="num">{money(overdueAmount)}</strong><small>across {counts.locked.length} organization{counts.locked.length === 1 ? '' : 's'}</small>
       </div>
       <div className="stat">
         <div className="stat-top"><span>Terms not set</span><span className="stat-ic"><Icon name="filter" size="s" /></span></div>
@@ -99,7 +93,7 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
         <button key={value} type="button" className={'fpill' + (filter === value ? ' on' : '')} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>
       ))}
       <span className="ftools">
-        <span className="fsearch"><Icon name="search" size="s" /><input aria-label="Search store or owner" value={search} onChange={e => onSearch(e.target.value)} placeholder="Search store or owner…" style={{ border: 0, background: 'transparent', padding: 0, height: 'auto', color: 'var(--ink)' }} /></span>
+        <span className="fsearch"><Icon name="search" size="s" /><input aria-label="Search organization or owner" value={search} onChange={e => onSearch(e.target.value)} placeholder="Search organization or owner…" style={{ border: 0, background: 'transparent', padding: 0, height: 'auto', color: 'var(--ink)' }} /></span>
         <button type="button" className="btn outline sm" onClick={exportCsv}><Icon name="download" size="s" />Export</button>
       </span>
     </div>
@@ -108,36 +102,63 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
       <div className="card"><div className="empty">
         <span className="ic l"><Icon name="card" size="l" /></span>
         <h3>No matches{search.trim() ? ` for "${search.trim()}"` : ''}</h3>
-        <p>No stores match this search or filter.</p>
+        <p>No organizations match this search or filter.</p>
         {hasActiveFilter && <button type="button" className="btn outline sm" onClick={() => { setFilter('all'); onSearch(''); }}>Clear filters</button>}
       </div></div>
     ) : (
       <div className="tablecard">
-        <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead><tr><th>Store</th><th>Owner</th><th>Plan</th><th className="right">Deposit</th><th className="right">Annual fee</th><th>Paid through</th><th>Last invoice</th><th>Status</th><th className="right">Actions</th></tr></thead>
-            <tbody>
-              {filtered.map(store => {
-                const badge = STATUS_BADGE[store.paymentState];
-                return <tr key={store.id}>
-                  <td><div className="who"><span className="av sq">{initials(store.name)}</span><Link href={`/super-admin/stores/${store.id}/subscription`}><strong>{store.name}</strong></Link></div></td>
-                  <td>{store.ownerName}</td>
-                  <td>{store.planName ? <span className="chip">{store.planName}</span> : <span className="chip" style={{ color: 'var(--faint)' }}>No plan yet</span>}</td>
-                  <td className="right num">{money(store.depositAmount)}{!store.depositPaidAt && <small> · unpaid</small>}</td>
-                  <td className="right num">{money(store.annualFeeAmount)}</td>
-                  <td className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</td>
-                  <td className="num">{store.lastInvoiceSeq ? <Link href={`/super-admin/subscriptions/invoices/${store.lastInvoiceSeq}`}>INV-{String(store.lastInvoiceSeq).padStart(6, '0')}</Link> : '—'}</td>
-                  <td><span className={'badge ' + badge.cls}>{badge.label}</span></td>
-                  <td><div className="rowacts">
-                    <Link className="btn outline sm" href={`/super-admin/stores/${store.id}/subscription`}><Icon name="eye" size="s" />Invoices</Link>
-                    <button type="button" className="btn outline sm" onClick={() => onRecordPayment(store)}><Icon name="card" size="s" />Record payment</button>
-                  </div></td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
+        <table>
+          <thead><tr><th>Organization</th><th>Owner</th><th>Plan</th><th className="right">Deposit</th><th className="right">Annual fee</th><th>Paid through</th><th>Last invoice</th><th>Status</th><th className="right">Actions</th></tr></thead>
+          <tbody>
+            {filtered.map(store => {
+              const badge = PAYMENT_STATE_BADGE[store.paymentState];
+              return <tr key={store.id}>
+                <td><div className="who"><span className="av sq">{initials(store.name)}</span><Link href={`/super-admin/stores/${store.id}/subscription`}><strong>{store.name}</strong></Link></div></td>
+                <td>{store.ownerName}</td>
+                <td>{store.planName ? <span className="chip">{store.planName}</span> : <span className="chip" style={{ color: 'var(--faint)' }}>No plan yet</span>}</td>
+                <td className="right num">{money(store.depositAmount)}{!store.depositPaidAt && <small> · unpaid</small>}</td>
+                <td className="right num">{money(store.annualFeeAmount)}</td>
+                <td className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</td>
+                <td className="num">
+                  {store.lastInvoiceSeq ? (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => setViewingInvoiceSeq(store.lastInvoiceSeq ?? null)}
+                      title="View invoice PDF in dialog"
+                    >
+                      INV-{String(store.lastInvoiceSeq).padStart(6, '0')}
+                    </button>
+                  ) : '—'}
+                </td>
+                <td><span className={'badge ' + badge.cls}>{badge.label}</span></td>
+                <td>
+                  <div className="rowacts">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label={`Record payment for ${store.name}`}
+                      title="Record payment"
+                      onClick={() => onRecordPayment(store)}
+                    >
+                      <Icon name="card" />
+                    </button>
+                    <RowMenu items={[
+                      { label: 'Record payment', icon: 'card', onClick: () => onRecordPayment(store) },
+                      ...(store.lastInvoiceSeq ? [{ label: 'View last invoice', icon: 'eye' as const, onClick: () => setViewingInvoiceSeq(store.lastInvoiceSeq!) }] : []),
+                      { label: 'View subscription', icon: 'subscriptions', onClick: () => router.push(`/super-admin/stores/${store.id}/subscription`) },
+                      { label: 'View organization', icon: 'building', onClick: () => router.push(`/super-admin/stores/${store.id}`) },
+                    ]} />
+                  </div>
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
       </div>
+    )}
+    {viewingInvoiceSeq !== null && (
+      <InvoicePdfViewer invoiceSeq={viewingInvoiceSeq} onClose={() => setViewingInvoiceSeq(null)} />
     )}
   </>;
 }

@@ -22,6 +22,7 @@ export interface StoreListItem {
   status: 'ACTIVE' | 'LOCKED';
   lastInvoiceSeq?: number;
   lastInvoiceAt?: string;
+  outletCount: number;
 }
 
 // "Collected this year" — financial-year (Apr 1 - Mar 31) revenue aggregate
@@ -59,7 +60,9 @@ export interface OwnerLookupResult {
   id: string;
   name: string;
   username: string;
+  phone?: string;
   storeCount: number;
+  storeNames?: string[];
 }
 
 export interface OnboardStoreInput {
@@ -175,3 +178,49 @@ export interface UpdateUserInput {
 }
 
 export type ResetPasswordInput = { mode: 'auto' } | { mode: 'manual'; password: string };
+
+export type OutletStatus = 'ACTIVE' | 'CLOSED' | 'RELOCATED';
+
+export interface OutletListItem {
+  id: string;
+  storeId: string;
+  outletCode: string;
+  displayName: string;
+  address: string;
+  phone: string;
+  status: OutletStatus;
+  openedAt: string;
+  closedAt?: string;
+}
+
+export interface OutletDetail extends OutletListItem {
+  staffCount: number;
+  orders30d?: number;
+  collected30d?: number;
+}
+
+// A single AuditLog row for a store's Activity tab. Deliberately close to
+// the raw AuditLog shape (action/entityType/beforeJson/afterJson) rather
+// than a pre-rendered sentence, since the AuditLog table only carries a
+// handful of distinct `action` values today and new ones will need mapping
+// in the UI as they're added — better than baking rendered strings into the
+// service layer.
+export interface ActivityEntry {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  actorName?: string;
+  outletId?: string;
+  createdAt: string; // ISO timestamp
+  beforeJson?: unknown;
+  afterJson?: unknown;
+}
+
+export interface PlatformActivityEntry extends ActivityEntry {
+  actorUsername?: string;
+  storeId?: string;
+  storeName?: string;
+  outletName?: string;
+  outletCode?: string;
+}

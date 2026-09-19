@@ -1,9 +1,10 @@
 import { redirect, notFound } from 'next/navigation';
 import { requireSuperAdmin, AuthError } from '@/server/auth/session';
 import { getStore } from '@/server/services/stores';
+import { describeLifecycleState, getOrgLifecycleFacts } from '@/server/services/store-lifecycle';
 import { listStoreMembers } from '@/server/services/platform-users';
-import StoreDetailShell from '@/features/super-admin/components/StoreDetailShell';
-import StoreOverviewTab from '@/features/super-admin/components/StoreOverviewTab';
+import { listStoreActivity } from '@/server/services/activity';
+import StoreDetailHub from '@/features/super-admin/components/StoreDetailHub';
 
 export default async function Page({ params }: { params: Promise<{ storeId: string }> }) {
   const { storeId } = await params;
@@ -15,10 +16,19 @@ export default async function Page({ params }: { params: Promise<{ storeId: stri
   }
   const store = await getStore(storeId);
   if (!store) notFound();
-  const members = await listStoreMembers(storeId);
+  const [members, lifecycle, activity] = await Promise.all([
+    listStoreMembers(storeId),
+    getOrgLifecycleFacts(storeId),
+    listStoreActivity(storeId, 3),
+  ]);
+  if (!lifecycle) notFound();
   return (
-    <StoreDetailShell store={store} memberCount={members.length}>
-      <StoreOverviewTab store={store} members={members} />
-    </StoreDetailShell>
+    <StoreDetailHub
+      store={store}
+      lifecycleBadge={describeLifecycleState(lifecycle.state)}
+      memberCount={members.length}
+      initialTab="overview"
+      initialOverview={{ members, lifecycle, activity }}
+    />
   );
 }

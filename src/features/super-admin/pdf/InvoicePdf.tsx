@@ -1,5 +1,6 @@
 import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer';
 import { dateLabelFull, paymentMethodLabel } from '@/features/admin/admin.data';
+import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 import { pdfMoney } from '@/lib/pdfMoney';
 import type { StoreDetail, StoreInvoice } from '../types';
 
@@ -38,16 +39,17 @@ const styles = StyleSheet.create({
 
 export function InvoicePdf({ invoice, store }: { invoice: StoreInvoice; store: StoreDetail }) {
   const period = invoice.coversFrom && invoice.coversTo ? `${dateLabelFull(invoice.coversFrom)} - ${dateLabelFull(invoice.coversTo)}` : '-';
+  const invoiceTitle = formatInvoiceNumber(invoice.invoiceSeq);
   return (
-    <Document title={`Invoice #${invoice.invoiceSeq}`}>
+    <Document title={invoiceTitle}>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.brand}>Express Laundry</Text>
-            <Text style={styles.brandSub}>StoreOps platform subscription billing</Text>
+            <Text style={styles.brand}>StoreOps</Text>
+            <Text style={styles.brandSub}>Platform subscription billing</Text>
           </View>
           <View>
-            <Text style={styles.invoiceTitle}>Invoice #{invoice.invoiceSeq}</Text>
+            <Text style={styles.invoiceTitle}>{invoiceTitle}</Text>
             <Text style={styles.invoiceSub}>{invoice.type === 'DEPOSIT' ? 'Deposit payment' : 'Annual renewal'} - recorded {dateLabelFull(invoice.paidAt)}</Text>
           </View>
         </View>
