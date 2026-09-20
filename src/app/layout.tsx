@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import './app.css';
 import '@fontsource-variable/dm-sans';
 import '@fontsource-variable/manrope';
 import './globals.css';
