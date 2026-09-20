@@ -14,7 +14,7 @@ Legend: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `REVIEW` · `DONE`
 
 | # | Phase | Status | Agent | Commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Toolchain + baseline | IN_PROGRESS | baseline-p0 | `6667831` | Code done (Tailwind wired, `ui/` committed, orphan script). Screenshot baseline being captured by `baseline-p0` via a disposable Super Admin session — unblocks the BLOCKED note from `foundation-p0`. |
+| 0 | Toolchain + baseline | BLOCKED | baseline-p0 | `bfebfef` | Capture tooling done and proven (`scripts/capture-superadmin-baseline.mjs`, 54 shots, `--compare` gate). Baseline PNGs **not** captured: Phase 0's own Tailwind utilities layer regresses Super Admin (`.outline` collision, F5), so a capture now would freeze a regressed reference. Re-run the script once F5 is fixed. |
 | 1 | Containment (fixes reported symptom) | NOT_STARTED | — | — | |
 | 2 | Icon + Button + Badge | NOT_STARTED | — | — | |
 | 3 | Card, StatTile, KeyValue, PageHeading, Notice | NOT_STARTED | — | — | |
@@ -92,3 +92,30 @@ Anything one agent learns that another needs. Append only.
   `node scripts/check-css-orphans.mjs --self-check` asserts `.pill` (referenced
   only from a backtick template literal in `ui/Pill.tsx`) is not reported
   orphaned. Run it after any change to that script.
+- **F5 · Phase 0 · Tailwind's utilities layer collides with the app's semantic
+  class names.** Found by the coordinator while `baseline-p0` was capturing.
+  Tailwind's source scanner emits a real utility for any bare token in source
+  that is a valid utility name, so `.outline` (used as `className="btn outline"`
+  in 17 Super Admin files) now draws a 1px outline — `.soa .btn.outline` sets no
+  `outline-*` property, so nothing opposes it. That is a freeze violation.
+  `.grid` (`<table className="grid">`, 7 workspace components) is broken the
+  same way. `.block` and `.grow` are safe (checked). **The visual baseline
+  cannot be captured until this is fixed**, or it would enshrine the
+  regression as the reference.
+- **F6 · Phase 0 · The capture gate is a pixel diff, not a SHA match.**
+  Repeat captures of an unchanged UI are byte-identical for ~44/54 screens;
+  the other ~10 drift by a few dozen antialiased glyph-edge pixels (max channel
+  delta 23), which is macOS text rasterisation, not CSS. So run
+  `node scripts/capture-superadmin-baseline.mjs --out <tmp> --ids
+  .agents/css-refactor/baseline/ids.json --compare .agents/css-refactor/baseline`
+  and read its verdict — do not `shasum` the directories and call a mismatch a
+  regression. The tolerance is 0.1% of pixels AND max channel delta 32;
+  anything above either is reported `CHANGED` and exits non-zero. A real
+  regression is far above it: the Next dev-overlay artefact that this script
+  had to strip was 0.18–2.3% of pixels at delta 231.
+- **F7 · Phase 0 · `--ids` is mandatory on every re-capture.** Dynamic routes
+  are captured against real rows from the dev database. The baseline writes
+  `ids.json`; a capture against different ids renders different content and is
+  not a valid diff. `/super-admin/subscriptions/billing` is skipped: it is a
+  redirect-only route with no UI of its own.
+
