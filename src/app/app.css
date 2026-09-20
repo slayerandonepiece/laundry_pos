@@ -27,12 +27,35 @@
 @layer theme, base, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
 
-/* Explicit source root: this file does not use the `tailwindcss` entrypoint,
-   so automatic source detection is not inherited from it. Relative to app.css,
-   `../` is `src/` — every TSX file lives below it. */
-@source "../";
+/* NOTE — the utilities layer and its `@source` scan are deliberately NOT
+ * enabled yet. Tailwind generates a utility for any bare token it finds in
+ * source that happens to be a valid utility name, and several of this app's
+ * *semantic* class names are valid utility names. Enabling utilities in
+ * Phase 0 produced two confirmed regressions:
+ *
+ *   .grid    -> `display:grid`. Seven workspace components render
+ *               `<table className="grid">`, and `table.grid`
+ *               (owner-workspace.css) never declares `display`, so the table
+ *               display model was destroyed — measured on /admin/products,
+ *               the ID header cell was 35px wide against a 306px body column,
+ *               and thead/tbody computed to `display:block`.
+ *   .outline -> `outline-width:1px`. Super Admin uses `btn outline` in 17
+ *               files; `.soa .btn.outline` (super-admin.css:83) sets only
+ *               background/border-color/color, so every outline button gained
+ *               a 1px outline. That breaks the Super Admin freeze.
+ *
+ * Phase 0's contract is zero visual change, and nothing uses a utility
+ * intentionally yet, so the tokens below are the whole useful payload today.
+ * Utilities get switched on in Phase 2, when they are first genuinely needed
+ * and the colliding semantic names are being retired anyway. The durable fix
+ * is a `legacy` cascade layer declared AFTER `utilities`, holding the app's
+ * existing stylesheets so they win regardless of specificity — see
+ * .agents/css-refactor/STATUS.md, cross-phase finding F2.
+ *
+ * @import "tailwindcss/utilities.css" layer(utilities);
+ * @source "../";
+ */
 
 @theme {
   --color-brand: #0758d6;
