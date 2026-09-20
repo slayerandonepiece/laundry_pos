@@ -14,7 +14,7 @@ Legend: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `REVIEW` · `DONE`
 
 | # | Phase | Status | Agent | Commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Toolchain + baseline | IN_PROGRESS | foundation-p0 | — | |
+| 0 | Toolchain + baseline | BLOCKED | foundation-p0 | `6667831` | Code done (Tailwind wired, `ui/` committed, orphan script). **Screenshot baseline not captured — no Super Admin login obtainable.** See P00 Handoff for the 3 ways to unblock. |
 | 1 | Containment (fixes reported symptom) | NOT_STARTED | — | — | |
 | 2 | Icon + Button + Badge | NOT_STARTED | — | — | |
 | 3 | Card, StatTile, KeyValue, PageHeading, Notice | NOT_STARTED | — | — | |
@@ -50,8 +50,15 @@ committing.
 
 | Checkpoint | Total CSS lines | Orphaned selectors |
 | --- | --- | --- |
-| Baseline (pre-Phase 0) | 2044 | not yet measured |
+| Baseline (pre-Phase 0) | 2044 | 152 |
+| After Phase 0 | 2162 | 152 |
 | Target | 150–250 | 0 |
+
+Measured with `node scripts/check-css-orphans.mjs --count`. Phase 0 adds
+`app.css` (118 lines) and deletes nothing, and `app.css` declares no class
+selectors, so the orphan count is unmoved by construction. The script
+over-reports "used" and never invents an orphan, so 152 is a **floor** on the
+real dead-selector count — always confirm with `graft grep` before deleting.
 
 ## Open decisions
 
@@ -63,4 +70,25 @@ committing.
 
 Anything one agent learns that another needs. Append only.
 
-_(none yet)_
+- **F1 · Phase 0 · The gate is red before you start.** `npx tsc --noEmit` reports
+  **8** errors and `npx eslint .` **2** errors on a tree with zero CSS-refactor
+  changes, all from other agents' in-flight uncommitted work (`scratch/*.tsx`,
+  the `OrganizationPaymentMethodDTO` vs `StorePaymentMethod` migration in
+  `profile/page.tsx` + `AdminScreenContainer.tsx`, `orders/page.tsx`,
+  `OutletDetail.tsx`). `npm run build` compiles CSS fine and then fails type
+  checking on those same 8. Diff against these counts; anything above them is
+  yours. Do not "fix" them — that is someone else's live work.
+- **F2 · Phase 0 · Tailwind Preflight is deliberately not imported.** The plan's
+  `@import "tailwindcss"` would apply `*{margin:0;padding:0}` wherever no
+  existing rule sets those, which is a visual change. `app.css` imports the
+  theme + utilities layers only. Full reasoning, and proof that border utilities
+  still work without it, in the P00 Handoff log. Adopt Preflight deliberately in
+  a later phase, against the screenshot baseline.
+- **F3 · Phase 0 · The untracked `scratch/` folder is not a consumer.**
+  `graft grep` indexes it, so it will show hits for classes nothing live uses —
+  `.ad-table-wrap`'s only hit anywhere is `scratch/Catalogue.tsx`.
+  `check-css-orphans.mjs` correctly scans `src/` only.
+- **F4 · Phase 0 · `--self-check` guards the audit's original mistake.**
+  `node scripts/check-css-orphans.mjs --self-check` asserts `.pill` (referenced
+  only from a backtick template literal in `ui/Pill.tsx`) is not reported
+  orphaned. Run it after any change to that script.
