@@ -14,7 +14,7 @@ Legend: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `REVIEW` · `DONE`
 
 | # | Phase | Status | Agent | Commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Toolchain + baseline | BLOCKED | foundation-p0 | `6667831` | Code done (Tailwind wired, `ui/` committed, orphan script). **Screenshot baseline not captured — no Super Admin login obtainable.** See P00 Handoff for the 3 ways to unblock. |
+| 0 | Toolchain + baseline | IN_PROGRESS | baseline-p0 | `6667831` | Code done (Tailwind wired, `ui/` committed, orphan script). Screenshot baseline being captured by `baseline-p0` via a disposable Super Admin session — unblocks the BLOCKED note from `foundation-p0`. |
 | 1 | Containment (fixes reported symptom) | NOT_STARTED | — | — | |
 | 2 | Icon + Button + Badge | NOT_STARTED | — | — | |
 | 3 | Card, StatTile, KeyValue, PageHeading, Notice | NOT_STARTED | — | — | |
