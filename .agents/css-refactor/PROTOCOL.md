@@ -29,6 +29,12 @@ does anything else.
 7. **Append, never rewrite, the Handoff log.** It is the audit trail.
 8. **If blocked, write the blocker into the phase file and set `BLOCKED`.**
    Do not improvise around a blocker, and do not silently narrow scope.
+9. **Commit by explicit path, always: `git commit -- <path> [<path>…]`.**
+   A bare `git commit` commits the *entire index*, including anything someone else
+   staged. On 2026-09-21 commit `caf8f79` ("docs(css-refactor): …", meant to hold one
+   markdown file) swept in 91 files of other people's staged in-flight work this way.
+   Run `git diff --cached --name-only` before committing; if it lists anything that
+   isn't yours, the pathspec form is mandatory, not optional.
 
 ## Search protocol (graft)
 
