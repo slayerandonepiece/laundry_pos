@@ -12,6 +12,8 @@ export default function UserAddDialog({ stores, onSaved }: {
   const onCancel = useDialogClose();
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [storeId, setStoreId] = useState('');
   const [role, setRole] = useState<PlatformRole>('EMPLOYEE');
@@ -23,7 +25,15 @@ export default function UserAddDialog({ stores, onSaved }: {
     if (password.length < 8) return setError('Use a password with at least 8 characters.');
     setBusy(true);
     setError('');
-    createUserAction({ name: name.trim(), username, password, storeId: storeId || undefined, role: storeId ? role : undefined })
+    createUserAction({
+      name: name.trim(),
+      username,
+      password,
+      phone: phone.trim() || undefined,
+      email: email.trim() || undefined,
+      storeId: storeId || undefined,
+      role: storeId ? role : undefined,
+    })
       .then(result => {
         if (!result.ok || !result.user) { setError(result.error || 'Could not add this user. Try again.'); setBusy(false); return; }
         onSaved(result.user);
@@ -34,6 +44,10 @@ export default function UserAddDialog({ stores, onSaved }: {
   return <div className="ad-form">
     <label>Name<input value={name} onChange={e => setName(e.target.value)} required /></label>
     <label>Username<input value={username} onChange={e => setUsername(e.target.value.toLowerCase())} placeholder="letters, numbers, dots, underscores, hyphens" required /></label>
+    <div className="ad-form-grid">
+      <label>Phone (optional)<input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="10-digit mobile number" /></label>
+      <label>Email (optional)<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" /></label>
+    </div>
     <label>Temporary password<input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" required /></label>
     <label>Organization (optional)
       <select value={storeId} onChange={e => setStoreId(e.target.value)}>

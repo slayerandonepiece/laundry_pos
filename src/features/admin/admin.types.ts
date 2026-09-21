@@ -1,6 +1,6 @@
-export type Screen = 'login' | 'dashboard' | 'products' | 'sales' | 'expenses' | 'profile' | 'employees' | 'orders';
+export type Screen = 'login' | 'dashboard' | 'products' | 'sales' | 'expenses' | 'profile' | 'employees' | 'orders' | 'outlets';
 export type Role = 'owner' | 'employee';
-export interface Employee { id: string; name: string; username: string; active: boolean; credentialVersion: number }
+export interface Employee { id: string; name: string; username: string; active: boolean; credentialVersion: number; outlets?: { id: string; name: string }[]; defaultOutletId?: string }
 // Client-side mirror of the server-verified session (see loginAction), used
 // only for routing/display; every Server Action/Component re-checks the real
 // HttpOnly session independently.

@@ -17,7 +17,17 @@ const STATUS_BADGE: Record<OutletStatus, { label: string; cls: string }> = {
   RELOCATED: { label: 'Relocated', cls: 'warm' },
 };
 
-export default function StoreOutletsTab({ storeId, outlets, initialAddOpen = false }: { storeId: string; outlets: OutletListItem[]; initialAddOpen?: boolean }) {
+export default function StoreOutletsTab({
+  storeId,
+  outlets,
+  initialAddOpen = false,
+  onRefresh,
+}: {
+  storeId: string;
+  outlets: OutletListItem[];
+  initialAddOpen?: boolean;
+  onRefresh?: () => void;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(initialAddOpen);
 
@@ -29,7 +39,9 @@ export default function StoreOutletsTab({ storeId, outlets, initialAddOpen = fal
 
     {!outlets.length ? (
       <div className="card"><div className="empty">
-        <span className="ic l"><Icon name="store" size="l" /></span>
+        <div className="empty-icon-wrap" aria-hidden="true">
+          <Icon name="store" size="l" />
+        </div>
         <h3>No outlets yet</h3>
         <p>Create the first outlet before staff begin outlet-scoped work. The owner cannot take orders until at least one outlet exists.</p>
         <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />Add outlet</button>
@@ -61,7 +73,14 @@ export default function StoreOutletsTab({ storeId, outlets, initialAddOpen = fal
 
     {open && (
       <Dialog title="Add outlet" description="Assign the permanent branch code and contact details. Billing and due-date decisions remain manual." onClose={() => setOpen(false)} warnOnChanges>
-        <AddOutletDialog storeId={storeId} onSaved={() => { setOpen(false); router.refresh(); }} />
+        <AddOutletDialog storeId={storeId} onSaved={() => {
+          setOpen(false);
+          try {
+            sessionStorage.removeItem(`storeops_org_tab_cache_${storeId}`);
+          } catch {}
+          onRefresh?.();
+          router.refresh();
+        }} />
       </Dialog>
     )}
   </>;

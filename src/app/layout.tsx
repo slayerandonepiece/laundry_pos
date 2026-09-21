@@ -10,9 +10,9 @@ import './(workspace)/admin/counter.css';
 import './(workspace)/admin/tables.css';
 
 export const metadata: Metadata = {
-  title: 'Store workspace | Express Laundry',
+  title: 'Store workspace',
   robots: { index: false, follow: false },
-  description: 'Express Laundry store workspace.',
+  description: 'Store workspace for laundry business management.',
 };
 
 export const viewport: Viewport = {

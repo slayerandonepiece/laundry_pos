@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Outlet detail — Chinnapanahalli</title>
+<script src="0d881d0e-f3da-43bf-93c4-b425fae1e677"></script>
+<style>:root{
+  --brand:#0758d6;--brand-ink:#064bbb;--tint:#eef3ff;--ink:#102039;--muted:#5b6879;
+  --border:#e4e8ee;--bg:#ffffff;--head-bg:#f6f5f0;--danger:#c0362c;--danger-tint:#fdecea;
+  --success:#1f9254;--radius:10px;--radius-lg:14px;
+  --font-display:'Manrope',sans-serif;--font-body:'DM Sans',sans-serif;--font-mono:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font-body);color:var(--ink);background:var(--bg);}
+h1,h2,h3{font-family:var(--font-display);margin:0;color:var(--ink);}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+
+.app{display:flex;width:100%;height:100%;background:var(--bg);}
+.sidebar{width:212px;flex-shrink:0;border-right:1px solid var(--border);padding:20px 14px;display:flex;flex-direction:column;gap:4px;}
+.sidebar .brand{font-family:var(--font-display);font-weight:800;font-size:16px;padding:6px 10px 18px;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:14px;color:var(--muted);text-decoration:none;font-weight:500;border-left:3px solid transparent;}
+.nav-item.active{background:var(--tint);color:var(--brand-ink);font-weight:700;border-left-color:var(--brand);}
+
+.workspace{flex-grow:1;display:flex;flex-direction:column;min-width:0;}
+.topbar{height:58px;flex-shrink:0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:relative;}
+.crumb{font-size:13px;color:var(--muted);}
+.content{flex-grow:1;overflow:auto;padding:26px 30px;display:flex;flex-direction:column;gap:18px;}
+
+.switcher-trigger{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13.5px;font-weight:700;background:#fff;}
+.switcher-menu{position:absolute;top:46px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(16,32,57,.14);min-width:230px;padding:6px;z-index:20;}
+.switcher-option{display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:7px;font-size:13.5px;color:var(--ink);}
+.switcher-option.active{background:var(--tint);color:var(--brand-ink);font-weight:700;}
+
+.row{display:flex;align-items:center;gap:12px;}
+.stats-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+.stat-tile{border:1px solid var(--border);border-radius:var(--radius-lg);padding:15px 17px;background:#fff;display:flex;flex-direction:column;gap:6px;}
+.stat-tile .label{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.02em;}
+.stat-tile .value{font-family:var(--font-mono);font-size:24px;font-weight:600;}
+
+.card{border:1px solid var(--border);border-radius:var(--radius-lg);background:#fff;padding:19px;display:flex;flex-direction:column;gap:13px;}
+.card-heading{display:flex;align-items:flex-start;justify-content:space-between;}
+.card-heading p{margin:4px 0 0;font-size:12.5px;color:var(--muted);}
+
+.pill{border:1px solid var(--border);border-radius:999px;padding:6px 14px;font-size:12.5px;font-weight:700;color:var(--muted);background:#fff;}
+.pill.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+
+.btn{border-radius:8px;padding:9px 15px;font-size:12.5px;font-weight:700;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:var(--brand);color:#fff;}
+.btn-secondary{background:#fff;color:var(--ink);border-color:var(--border);}
+.btn-danger{background:#fff;color:var(--danger);border-color:#f3c8c4;}
+.btn[disabled]{opacity:.5;}
+
+table.grid{width:100%;border-collapse:collapse;font-size:13px;}
+table.grid th{background:var(--head-bg);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);}
+table.grid td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+table.grid td.num,table.grid th.num{text-align:right;font-family:var(--font-mono);}
+
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;}
+.badge.on{background:#e7f6ec;color:var(--success);}
+.badge.off{background:#f1f2f5;color:var(--muted);}
+.badge.warn{background:#fff3e0;color:#a15c00;}
+
+.outlet-chip{display:inline-flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;font-size:13px;}
+.outlet-chip.selected{border-color:var(--brand);background:var(--tint);font-weight:700;}
+.outlet-chip .default-tag{font-size:10px;color:var(--brand-ink);font-weight:700;background:#fff;border:1px solid var(--brand);border-radius:999px;padding:1px 6px;margin-left:2px;}
+
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:6px;background:#f1f4f9;color:var(--ink);}
+.tag .default-dot{width:5px;height:5px;border-radius:50%;background:var(--brand);}
+
+.dropdown-wrap{position:relative;}
+.dropdown-menu{position:absolute;top:42px;left:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(16,32,57,.14);min-width:230px;padding:8px;z-index:30;}
+.dropdown-check-row{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:7px;font-size:13px;}
+.dropdown-check-row input{width:15px;height:15px;accent-color:var(--brand);}
+.dropdown-menu .dropdown-foot{display:flex;justify-content:space-between;gap:8px;padding:8px 6px 2px;border-top:1px solid var(--border);margin-top:4px;}
+.dropdown-radio-row{display:flex;align-items:center;justify-content:space-between;padding:8px 9px;border-radius:7px;font-size:13px;}
+.dropdown-radio-row.active{background:var(--tint);color:var(--brand-ink);font-weight:700;}
+
+.dialog-scrim{position:absolute;inset:0;background:rgba(16,32,57,.45);display:flex;align-items:center;justify-content:center;z-index:50;}
+.dialog{width:520px;max-width:calc(100% - 48px);max-height:calc(100% - 56px);background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(16,32,57,.3);display:flex;flex-direction:column;overflow:hidden;}
+.dialog.wide{width:760px;}
+.dialog-head{display:flex;align-items:center;justify-content:space-between;padding:17px 21px;border-bottom:1px solid var(--border);}
+.dialog-close{width:29px;height:29px;border-radius:8px;border:1px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.dialog-body{padding:19px 21px;overflow:auto;display:flex;flex-direction:column;gap:15px;}
+.dialog-foot{padding:15px 21px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;}
+
+.field{display:flex;flex-direction:column;gap:6px;}
+.field label{font-size:12px;font-weight:700;color:var(--ink);}
+.field input,.field select{border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13.5px;font-family:var(--font-body);}
+.field .hint{font-size:11.5px;color:var(--muted);}
+.field-error{font-size:11.5px;color:var(--danger);}
+
+.empty-state{border:1px dashed var(--border);border-radius:var(--radius-lg);padding:44px 22px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px;color:var(--muted);}
+.empty-state .icon{width:42px;height:42px;border-radius:12px;background:var(--tint);display:flex;align-items:center;justify-content:center;color:var(--brand-ink);}
+.empty-state h3{font-size:14.5px;color:var(--ink);}
+.empty-state p{margin:0;font-size:12.5px;max-width:320px;}
+
+.error-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #f3c8c4;background:var(--danger-tint);color:#8a2c24;border-radius:10px;padding:11px 15px;font-size:13px;}
+
+@keyframes shimmer-sweep{0%{background-position:-200% 0;}100%{background-position:200% 0;}}
+.shimmer{background:linear-gradient(90deg,#eef0f3 25%,#f7f8fa 37%,#eef0f3 63%);background-size:400% 100%;animation:shimmer-sweep 1.3s ease-in-out infinite;border-radius:8px;}
+.shimmer.line{height:12px;}
+.shimmer.tile{height:74px;}
+.shimmer.row{height:42px;}
+
+.search-input{border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;min-width:210px;}
+
+.pagination{display:flex;align-items:center;justify-content:flex-end;gap:6px;}
+.page-btn{width:31px;height:31px;border-radius:7px;border:1px solid var(--border);background:#fff;font-size:12.5px;font-weight:600;}
+.page-btn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+
+.toggle{width:38px;height:22px;border-radius:999px;background:#e4e8ee;position:relative;flex-shrink:0;}
+.toggle.on{background:var(--brand);}
+.toggle .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(16,32,57,.25);}
+.toggle.on .knob{left:18px;}
+
+.sentinel{display:flex;align-items:center;justify-content:center;gap:8px;padding:15px;color:var(--muted);font-size:12.5px;}
+.spinner{width:15px;height:15px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--brand);}
+
+.avatar{width:31px;height:31px;border-radius:50%;background:var(--tint);color:var(--brand-ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;}
+.section-note{font-size:11px;font-weight:700;color:var(--brand-ink);text-transform:uppercase;letter-spacing:.04em;}
+</style>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("f6d53bb6-a6de-459e-b5b4-5e75d151a3df") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("488bde1c-b7a6-4e6d-8378-63c749eb58cc") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("f6d53bb6-a6de-459e-b5b4-5e75d151a3df") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("488bde1c-b7a6-4e6d-8378-63c749eb58cc") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("f6d53bb6-a6de-459e-b5b4-5e75d151a3df") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("488bde1c-b7a6-4e6d-8378-63c749eb58cc") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("f6d53bb6-a6de-459e-b5b4-5e75d151a3df") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("488bde1c-b7a6-4e6d-8378-63c749eb58cc") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("cecd44c0-7299-4da3-957a-3cff79cf7966") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("8f0f1d99-e943-4a41-a403-cc5ee6a780d3") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("e5afe249-f326-42b4-885f-f33b2c634924") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("447cd2e2-a8ca-42e8-ad1b-73e3274d3d05") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("ec19b709-eebd-4553-ae52-db00dcabf4c0") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("18d968a7-92c4-4d1f-8e44-64ca03641cfc") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("334cbf4c-c854-412b-b5c0-5eb3bbf14b07") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("122fef78-69a3-4eca-95e8-c31866e44f09") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("8ead36b5-c84e-4aa1-8a4b-e28564e6dfa9") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("cfa5f99c-d74b-4682-8317-c2ef4e895d33") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("202fa751-f9d2-4927-a8af-3a51fcdbecd7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("17d454b3-405e-47e3-a343-0e1b920fbc03") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("c41a30f3-a932-45d4-813a-e0e39c9648f9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("ff8b18be-bcf1-45c3-8355-cc8edd73fc80") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("cea14b9d-5dda-4cec-acaf-35b487abf2e4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("f3538790-6f81-499d-b228-ea68cde5d350") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("202fa751-f9d2-4927-a8af-3a51fcdbecd7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("17d454b3-405e-47e3-a343-0e1b920fbc03") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("c41a30f3-a932-45d4-813a-e0e39c9648f9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("ff8b18be-bcf1-45c3-8355-cc8edd73fc80") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("cea14b9d-5dda-4cec-acaf-35b487abf2e4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("f3538790-6f81-499d-b228-ea68cde5d350") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("202fa751-f9d2-4927-a8af-3a51fcdbecd7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("17d454b3-405e-47e3-a343-0e1b920fbc03") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("c41a30f3-a932-45d4-813a-e0e39c9648f9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("ff8b18be-bcf1-45c3-8355-cc8edd73fc80") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("cea14b9d-5dda-4cec-acaf-35b487abf2e4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("f3538790-6f81-499d-b228-ea68cde5d350") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+</helmet>
+<div style="width: 1280px; height: 900px; overflow: hidden;" class="app">
+  <aside class="sidebar">
+    <div class="brand">Express Laundry</div>
+    <a class="nav-item">◧ Dashboard</a>
+    <a class="nav-item">◇ Products</a>
+    <a class="nav-item">▤ Sales</a>
+    <a class="nav-item">▥ Orders</a>
+    <a class="nav-item">₹ Expenses</a>
+    <a class="nav-item">◎ Employees</a>
+    <a class="nav-item active">◫ Outlets</a>
+    <a class="nav-item">◍ Profile</a>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <span class="crumb">Workspace <span style="opacity:.5">/</span> Outlets <span style="opacity:.5">/</span> Chinnapanahalli</span>
+      <div class="row" style="gap:8px;"><span style="font-size:13px;color:var(--muted);">Anita Rao · Owner</span><span class="avatar">A</span></div>
+    </header>
+    <main class="content">
+      <a href="Outlets-List.dc.html" style="font-size:12.5px;color:var(--muted);text-decoration:none;">← Back to outlets</a>
+      <div class="row" style="justify-content:space-between;align-items:flex-start;">
+        <div class="row" style="gap:14px;">
+          <span class="avatar" style="width:46px;height:46px;font-size:16px;border-radius:12px;">C</span>
+          <div>
+            <div class="row" style="gap:8px;"><h1 style="font-size:20px;">Chinnapanahalli</h1><span class="badge on">Active</span></div>
+            <p style="margin:4px 0 0;font-size:12.5px;color:var(--muted);">Code <span class="mono">OBLRCHN01</span> · Opened <span class="mono">14 Mar 2026</span></p>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start;">
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="card">
+            <div class="card-heading"><div><h2 style="font-size:15px;">Today's snapshot</h2><p>This outlet only</p></div></div>
+            <div class="stats-row" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+              <div class="stat-tile"><span class="label">Today's sales</span><span class="value">₹12,400</span></div>
+              <div class="stat-tile"><span class="label">Orders today</span><span class="value">18</span></div>
+              <div class="stat-tile"><span class="label">Pending</span><span class="value">4</span></div>
+              <div class="stat-tile"><span class="label">Items sold today</span><span class="value">142</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-heading"><div><h2 style="font-size:15px;">Earnings vs expenses — this month</h2><p>This outlet only</p></div><span class="badge on">Net ₹1,41,700</span></div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <div>
+                <div class="row" style="justify-content:space-between;font-size:13px;margin-bottom:6px;"><span class="row" style="gap:7px;"><span style="width:9px;height:9px;border-radius:50%;background:#0758d6;display:inline-block;"></span>Earnings</span><strong class="mono">₹1,84,000</strong></div>
+                <div style="height:10px;border-radius:5px;background:#eef0f3;"><div style="height:10px;width:100%;background:#0758d6;border-radius:5px;"></div></div>
+              </div>
+              <div>
+                <div class="row" style="justify-content:space-between;font-size:13px;margin-bottom:6px;"><span class="row" style="gap:7px;"><span style="width:9px;height:9px;border-radius:50%;background:#a8c7f8;display:inline-block;"></span>Expenses</span><strong class="mono">₹42,300</strong></div>
+                <div style="height:10px;border-radius:5px;background:#eef0f3;"><div style="height:10px;width:23%;background:#a8c7f8;border-radius:5px;"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-heading"><div><h2 style="font-size:15px;">Sales trend — last 14 days</h2><p>This outlet only</p></div><span class="pill">14d ▾</span></div>
+            <svg sc-camel-view-box="0 0 640 220" style="width:100%;height:170px;" role="img" aria-label="14-day sales trend for this outlet, vs previous period">
+              <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0758d6" stop-opacity="0.22"></stop><stop offset="100%" stop-color="#0758d6" stop-opacity="0"></stop></linearGradient></defs>
+              <line x1="20" y1="30" x2="620" y2="30" stroke="#e9ebef" stroke-width="1" stroke-dasharray="3 3"></line>
+              <line x1="20" y1="80" x2="620" y2="80" stroke="#e9ebef" stroke-width="1" stroke-dasharray="3 3"></line>
+              <line x1="20" y1="130" x2="620" y2="130" stroke="#e9ebef" stroke-width="1" stroke-dasharray="3 3"></line>
+              <line x1="20" y1="180" x2="620" y2="180" stroke="#e9ebef" stroke-width="1" stroke-dasharray="3 3"></line>
+              <text x="626" y="34" font-size="10.5" fill="#98a2b0" font-family="IBM Plex Mono, monospace">₹13k</text>
+              <text x="626" y="84" font-size="10.5" fill="#98a2b0" font-family="IBM Plex Mono, monospace">₹9k</text>
+              <text x="626" y="134" font-size="10.5" fill="#98a2b0" font-family="IBM Plex Mono, monospace">₹5k</text>
+              <path d="M20,116 L66,132 L112,108 L159,140 L205,120 L251,100 L297,128 L343,110 L389,90 L435,104 L482,86 L528,96 L574,78 L620,88" fill="none" stroke="#c3d6f9" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+              <path d="M20,180 L20,92 L66,86 L112,95 L159,74 L205,64 L251,80 L297,59 L343,48 L389,67 L435,51 L482,39 L528,49 L574,33 L620,28 L620,180 Z" fill="url(#areaGrad)"></path>
+              <path d="M20,92 L66,86 L112,95 L159,74 L205,64 L251,80 L297,59 L343,48 L389,67 L435,51 L482,39 L528,49 L574,33 L620,28" fill="none" stroke="#0758d6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+              <circle cx="620" cy="28" r="4.5" fill="#0758d6"></circle>
+              <text x="20" y="200" font-size="10.5" fill="#5b6879" font-family="DM Sans, sans-serif">6 Sep</text>
+              <text x="300" y="200" text-anchor="middle" font-size="10.5" fill="#5b6879" font-family="DM Sans, sans-serif">13 Sep</text>
+              <text x="620" y="200" text-anchor="end" font-size="10.5" fill="#5b6879" font-family="DM Sans, sans-serif">19 Sep</text>
+            </svg>
+            <div class="row" style="gap:16px;margin-top:2px;">
+              <span class="row" style="gap:6px;font-size:11.5px;color:var(--muted);"><span style="width:8px;height:8px;border-radius:50%;background:#0758d6;display:inline-block;"></span>This period</span>
+              <span class="row" style="gap:6px;font-size:11.5px;color:var(--muted);"><span style="width:8px;height:8px;border-radius:50%;background:#c3d6f9;display:inline-block;"></span>Previous period</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-heading"><div><h2 style="font-size:15px;">Employees at this outlet</h2><p>Active outlet membership</p></div></div>
+            <sc-raw-table class="grid">
+              <sc-raw-thead><sc-raw-tr><sc-raw-th>Name</sc-raw-th><sc-raw-th>Role</sc-raw-th><sc-raw-th></sc-raw-th></sc-raw-tr></sc-raw-thead>
+              <sc-raw-tbody>
+                <sc-raw-tr><sc-raw-td><strong>Deepak Sharma</strong></sc-raw-td><sc-raw-td>Employee <span class="default-tag">Default</span></sc-raw-td><sc-raw-td><span class="badge on">Active</span></sc-raw-td></sc-raw-tr>
+                <sc-raw-tr><sc-raw-td><strong>Manoj Pillai</strong></sc-raw-td><sc-raw-td>Employee <span class="default-tag">Default</span></sc-raw-td><sc-raw-td><span class="badge off">Inactive</span></sc-raw-td></sc-raw-tr>
+              </sc-raw-tbody>
+            </sc-raw-table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-heading"><div><h2 style="font-size:15px;">Contact &amp; details</h2><p>Read-only</p></div></div>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;">
+            <div class="row" style="justify-content:space-between;"><span style="color:var(--muted);">Address</span><span style="text-align:right;max-width:170px;">12 Cambridge Layout Rd, Bengaluru</span></div>
+            <div class="row" style="justify-content:space-between;"><span style="color:var(--muted);">Phone</span><span class="mono">+91 80 4012 5566</span></div>
+            <div class="row" style="justify-content:space-between;"><span style="color:var(--muted);">Opened</span><span class="mono">14 Mar 2026</span></div>
+            <div class="row" style="justify-content:space-between;"><span style="color:var(--muted);">Status</span><span class="badge on">Active</span></div>
+          </div>
+          <div class="error-banner" style="background:var(--tint);border-color:#bcd4f7;color:var(--brand-ink);margin-top:4px;">
+            <span style="font-size:12px;">ⓘ To update these details or close this outlet, contact platform support.</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-heading"><div><h2 style="font-size:15px;">Order status — today</h2><p>This outlet only</p></div></div>
+          <svg sc-camel-view-box="0 0 200 200" style="width:150px;height:150px;margin:0 auto;" role="img" aria-label="Order status breakdown donut chart">
+            <circle transform="rotate(-90 100 100)" cx="100" cy="100" r="70" fill="none" stroke="#0758d6" stroke-width="22" stroke-linecap="round" stroke-dasharray="228.7 439.8" stroke-dashoffset="0"></circle>
+            <circle transform="rotate(-90 100 100)" cx="100" cy="100" r="70" fill="none" stroke="#4d86e0" stroke-width="22" stroke-linecap="round" stroke-dasharray="83.2 439.8" stroke-dashoffset="-234.7"></circle>
+            <circle transform="rotate(-90 100 100)" cx="100" cy="100" r="70" fill="none" stroke="#a8c7f8" stroke-width="22" stroke-linecap="round" stroke-dasharray="62.4 439.8" stroke-dashoffset="-323.9"></circle>
+            <circle transform="rotate(-90 100 100)" cx="100" cy="100" r="70" fill="none" stroke="#e5e9ef" stroke-width="22" stroke-linecap="round" stroke-dasharray="41.6 439.8" stroke-dashoffset="-392.3"></circle>
+            <text x="100" y="96" text-anchor="middle" font-size="26" font-weight="700" fill="#102039" font-family="IBM Plex Mono, monospace">18</text>
+            <text x="100" y="116" text-anchor="middle" font-size="11" fill="#5b6879" font-family="DM Sans, sans-serif">Orders</text>
+          </svg>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+            <span class="row" style="gap:7px;font-size:12.5px;justify-content:space-between;"><span class="row" style="gap:7px;"><span style="width:9px;height:9px;border-radius:50%;background:#0758d6;display:inline-block;"></span>Delivered</span><strong>55%</strong></span>
+            <span class="row" style="gap:7px;font-size:12.5px;justify-content:space-between;"><span class="row" style="gap:7px;"><span style="width:9px;height:9px;border-radius:50%;background:#4d86e0;display:inline-block;"></span>Ready</span><strong>20%</strong></span>
+            <span class="row" style="gap:7px;font-size:12.5px;justify-content:space-between;"><span class="row" style="gap:7px;"><span style="width:9px;height:9px;border-radius:50%;background:#a8c7f8;display:inline-block;"></span>In progress</span><strong>15%</strong></span>
+            <span class="row" style="gap:7px;font-size:12.5px;justify-content:space-between;"><span class="row" style="gap:7px;"><span style="width:9px;height:9px;border-radius:50%;background:#e5e9ef;display:inline-block;"></span>Pending</span><strong>10%</strong></span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

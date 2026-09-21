@@ -1,15 +1,83 @@
+import React from 'react';
 import type { Employee } from '../admin.types';
-import { Badge, Button, Empty } from './Primitives';
+import type { OutletListItem } from '@/features/super-admin/types';
+import { Card, Badge, Tag, EmptyState } from '@/features/admin/components/ui';
 
-interface Props { employees: Employee[]; search: string; onSearch: (value: string) => void; onNew: () => void; onEdit: (employee: Employee) => void; onToggle: (employee: Employee) => void }
-export default function Employees({ employees, search, onSearch, onNew, onEdit, onToggle }: Props) {
-  return <section className="ad-card ad-table-card">
-    <div className="ad-card-heading"><div><h2>Team members <span className="ad-count">{employees.length}</span></h2><p>Employees can use Sales and manage Orders.</p></div><Button onClick={onNew}>＋ Add employee</Button></div>
-    <div className="ad-toolbar"><input aria-label="Search employees" value={search} onChange={event => onSearch(event.target.value)} placeholder="Search name or username…"/></div>
-    {!employees.length ? <Empty text={search ? 'No employees match this search.' : 'Add your first employee to give them access to orders.'}/> : <>
-      <div className="ad-table-wrap ad-desktop-table" tabIndex={0} role="region" aria-label="Employees table"><table className="ad-table ad-employees-table"><thead><tr><th>ID</th><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{employees.map(employee => <tr key={employee.id}><td><span title={employee.id}>{employee.id.slice(0, 8)}</span></td><td><strong>{employee.name}</strong></td><td>{employee.username}</td><td>Employee</td><td><Badge>{employee.active ? 'Active' : 'Inactive'}</Badge></td><td><div className="ad-employee-actions"><button className="ad-order-link" onClick={() => onEdit(employee)}>Edit</button><button className="ad-order-link" onClick={() => onToggle(employee)}>{employee.active ? 'Deactivate' : 'Activate'}</button></div></td></tr>)}</tbody></table></div>
-      <div className="ad-mobile-records">{employees.map(employee => <article className="ad-mobile-expense" key={employee.id}><div className="ad-record-heading"><h3>{employee.name}</h3><Badge>{employee.active ? 'Active' : 'Inactive'}</Badge></div><p>{employee.username} · Employee</p><div className="ad-employee-actions"><Button secondary onClick={() => onEdit(employee)}>Edit</Button><Button secondary onClick={() => onToggle(employee)}>{employee.active ? 'Deactivate' : 'Activate'}</Button></div></article>)}</div>
-    </>}
-    <p className="ad-help">Deactivated employees cannot sign in until reactivated.</p>
-  </section>;
+interface Props {
+  employees: Employee[];
+  outlets: OutletListItem[];
+  search: string;
+  onSearch: (value: string) => void;
+  onNew: () => void;
+  onEdit: (employee: Employee) => void;
+  onToggle: (employee: Employee) => void;
+}
+
+export default function Employees({ employees, outlets, search, onSearch, onNew, onEdit, onToggle }: Props) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1 style={{ fontSize: '22px' }}>Employees</h1>
+          <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
+            {employees.length} employees across {outlets.length} outlets · deactivating restricts their sign-in to this organization only
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={onNew}>＋ Add employee</button>
+      </div>
+
+      <div className="card">
+        {employees.length === 0 ? (
+          <EmptyState
+            isFiltered={Boolean(search)}
+            firstUseTitle="No employees yet"
+            firstUseDescription="Add your first employee to give them access to orders."
+            filteredTitle="No matching records"
+            filteredDescription="Try adjusting your filters or search terms to find what you are looking for."
+          />
+        ) : (
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Outlets</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map(employee => (
+                <tr key={employee.id}>
+                  <td>
+                    <strong>{employee.name}</strong>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+                  </td>
+                  <td>
+                    <span className="row" style={{ gap: '5px', flexWrap: 'wrap' }}>
+                      {employee.outlets?.length ? employee.outlets.map(outlet => (
+                        <Tag key={outlet.id} isDefault={outlet.id === employee.defaultOutletId}>
+                          {outlet.name}
+                        </Tag>
+                      )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>None</span>}
+                    </span>
+                  </td>
+                  <td>
+                    <Badge variant={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
+                  </td>
+                  <td>
+                    <span className="row" style={{ gap: '6px', justifyContent: 'flex-end' }}>
+                      <button className={employee.active ? "btn btn-danger" : "btn btn-primary"} onClick={() => onToggle(employee)}>
+                        {employee.active ? 'Deactivate' : 'Reactivate'}
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => onEdit(employee)}>Manage ↗</button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
 }

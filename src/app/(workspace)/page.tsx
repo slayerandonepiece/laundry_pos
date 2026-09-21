@@ -2,59 +2,78 @@ import AdminScreenContainer from '@/features/admin/containers/AdminScreenContain
 import { listOrders } from '@/server/services/orders';
 import { listExpenses } from '@/server/services/expenses';
 import { listProducts } from '@/server/services/products';
-import { requireStoreSession, resolveStoreSelection, AuthError } from '@/server/auth/session';
-
-async function loadOneStore(storeId?: string) {
-  const session = await requireStoreSession(storeId, 'OWNER');
-  const [orders, expenses, products] = await Promise.all([listOrders(session.storeId), listExpenses(session.storeId), listProducts(session.storeId)]);
-  return { orders, expenses, products };
-}
+import { requireStoreSession, resolveOutletSelection, AuthError } from '@/server/auth/session';
+import type { AllowedOutlet } from '@/server/auth/session';
+import { getDailyOutletSummaries } from '@/server/services/dashboard-rollups';
+import { todayIST, addDays } from '@/server/dates';
 
 export default async function Page() {
+  let dashboardLoadFailed = false;
   let serverOrders: Awaited<ReturnType<typeof listOrders>> = [];
   let serverExpenses: Awaited<ReturnType<typeof listExpenses>> = [];
   let serverProducts: Awaited<ReturnType<typeof listProducts>> = [];
+  let serverSummaries: Awaited<ReturnType<typeof getDailyOutletSummaries>> = [];
+  let serverOutlets: AllowedOutlet[] = [];
+  let allOutletsSelected = false;
+  let selectedOutletId: string | undefined;
+  let outletName: string | undefined;
+
   try {
-    // Dashboard is the only screen that ever offers "All stores" (Item 2).
-    // The chrome's own store-switcher display (including whether "All
-    // stores" is currently selected) is resolved independently in
-    // src/app/(workspace)/layout.tsx — this fetch only cares which data to
-    // load.
-    const selection = await resolveStoreSelection(true);
-    if (selection?.multiStore) {
-      if (selection.allStoresSelected) {
-        // Sum the same metrics the single-store Dashboard already shows,
-        // across every store this owner is an active member of. Each store
-        // is independently re-verified through requireStoreSession — a
-        // store that's individually blocked (locked/archived/payment-lapsed)
-        // contributes nothing rather than failing the whole aggregate, same
-        // as how a single-store owner sees an empty dashboard when blocked.
-        const perStore = await Promise.all(
-          selection.options.map(option =>
-            loadOneStore(option.storeId).catch(error => {
-              if (error instanceof AuthError) return { orders: [], expenses: [], products: [] };
-              throw error;
-            })
-          )
-        );
-        serverOrders = perStore.flatMap(store => store.orders);
-        serverExpenses = perStore.flatMap(store => store.expenses);
-        serverProducts = perStore.flatMap(store => store.products);
-      } else {
-        ({ orders: serverOrders, expenses: serverExpenses, products: serverProducts } = await loadOneStore(selection.storeId));
-      }
-    } else {
-      ({ orders: serverOrders, expenses: serverExpenses, products: serverProducts } = await loadOneStore());
+    const session = await requireStoreSession(undefined, 'OWNER');
+    const selection = await resolveOutletSelection(session, true);
+    serverOutlets = selection.options;
+    selectedOutletId = selection.outletId ?? undefined;
+    allOutletsSelected = selection.allOutletsSelected;
+
+    // Resolve the display name of the selected outlet for single-outlet header copy.
+    // When allOutletsSelected the header shows "All outlets" via the OutletSwitcher.
+    if (!allOutletsSelected && selection.outletId) {
+      const found = selection.options.find(o => o.id === selection.outletId);
+      outletName = found?.displayName;
+    } else if (!allOutletsSelected && selection.options.length === 1) {
+      // Single-outlet organization — no switcher, show the one outlet's name.
+      outletName = selection.options[0].displayName;
+    }
+
+    const [orders, expenses, products] = await Promise.all([
+      listOrders(
+        session.storeId,
+        selection.outletId ? { outletId: selection.outletId } : undefined,
+      ),
+      listExpenses(
+        session.storeId,
+        selection.outletId ? { outletId: selection.outletId } : undefined,
+      ),
+      listProducts(session.storeId),
+    ]);
+    serverOrders = orders;
+    serverExpenses = expenses;
+    serverProducts = products;
+
+    // Fetch per-outlet daily rollups only for multi-outlet "All outlets" view.
+    // The 2-day window (today + yesterday) is sufficient for the comparison badges.
+    if (selection.options.length > 1 && selection.allOutletsSelected) {
+      serverSummaries = await getDailyOutletSummaries(session.storeId, {
+        fromDate: addDays(todayIST(), -1),
+        toDate: todayIST(),
+      });
     }
   } catch (error) {
-    if (!(error instanceof AuthError)) throw error;
+    if (!(error instanceof AuthError)) dashboardLoadFailed = true;
   }
+
   return (
     <AdminScreenContainer
       screen="dashboard"
+      dashboardLoadFailed={dashboardLoadFailed}
       serverOrders={serverOrders}
       serverExpenses={serverExpenses}
       serverProducts={serverProducts}
+      serverSummaries={serverSummaries}
+      dashboardOutlets={serverOutlets}
+      selectedOutletId={selectedOutletId}
+      allOutletsSelected={allOutletsSelected}
+      outletName={outletName}
     />
   );
 }

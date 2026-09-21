@@ -71,3 +71,8 @@ no API key, $0).
 5. [.agents/MOBILE-API-TASKS.md](.agents/MOBILE-API-TASKS.md) — the mobile HTTP API
    task list (Phase 1 of the Flutter app work). No API exists today; read
    this before adding any route handler.
+6. [.agents/OWNER-WORKSPACE-2.0-REQUIREMENTS.md](.agents/OWNER-WORKSPACE-2.0-REQUIREMENTS.md) —
+   module-by-module requirements for the redesigned owner/employee workspace
+   (Dashboard, Products, Orders, Expenses, Employees, Profile, Outlets),
+   with design-canvas references and a reusable component list. Design only,
+   not implemented — read this before building any of those screens.

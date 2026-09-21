@@ -161,19 +161,26 @@ export async function lookupOwner(query: string): Promise<OwnerLookupResult | nu
   const trimmed = query.trim();
   if (!trimmed) return null;
   const digitsOnly = trimmed.replace(/\D/g, '');
+  const last10 = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : digitsOnly;
   const normalizedUsername = trimmed.toLowerCase();
 
-  const user = await prisma.user.findFirst({
+  let user = await prisma.user.findFirst({
     where: {
       isSuperAdmin: false,
       OR: [
         { username: normalizedUsername },
+        { name: { contains: trimmed, mode: 'insensitive' } },
         ...(digitsOnly.length >= 7 ? [
-          { phone: { contains: digitsOnly.slice(-10) } },
-          { memberships: { some: { role: 'OWNER' as const, store: { phone: { contains: digitsOnly.slice(-10) }, deletedAt: null } } } },
-        ] : trimmed.length >= 7 ? [
+          { phone: { contains: last10 } },
+          { phone: { contains: digitsOnly } },
           { phone: { contains: trimmed } },
-          { memberships: { some: { role: 'OWNER' as const, store: { phone: { contains: trimmed }, deletedAt: null } } } },
+          { memberships: { some: { store: { phone: { contains: last10 }, deletedAt: null } } } },
+          { memberships: { some: { store: { phone: { contains: digitsOnly }, deletedAt: null } } } },
+          { memberships: { some: { store: { phone: { contains: trimmed }, deletedAt: null } } } },
+          { memberships: { some: { store: { outlets: { some: { phone: { contains: last10 } } }, deletedAt: null } } } },
+        ] : trimmed.length >= 3 ? [
+          { phone: { contains: trimmed } },
+          { memberships: { some: { store: { phone: { contains: trimmed }, deletedAt: null } } } },
         ] : []),
       ],
     },
@@ -181,17 +188,66 @@ export async function lookupOwner(query: string): Promise<OwnerLookupResult | nu
       _count: { select: { memberships: { where: { store: { deletedAt: null } } } } },
       memberships: {
         where: { store: { deletedAt: null } },
-        include: { store: { select: { name: true } } },
+        include: {
+          store: {
+            select: {
+              name: true,
+              phone: true,
+              outlets: { select: { phone: true } },
+            },
+          },
+        },
       },
     },
   });
 
+  if (!user && digitsOnly.length >= 7) {
+    const allUsers = await prisma.user.findMany({
+      where: { isSuperAdmin: false },
+      include: {
+        _count: { select: { memberships: { where: { store: { deletedAt: null } } } } },
+        memberships: {
+          where: { store: { deletedAt: null } },
+          include: {
+            store: {
+              select: {
+                name: true,
+                phone: true,
+                outlets: { select: { phone: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    user = allUsers.find(u => {
+      const uDigits = (u.phone || '').replace(/\D/g, '');
+      if (uDigits.length >= 7 && (uDigits.includes(last10) || last10.includes(uDigits.slice(-10)))) return true;
+      for (const m of u.memberships) {
+        const sDigits = (m.store.phone || '').replace(/\D/g, '');
+        if (sDigits.length >= 7 && (sDigits.includes(last10) || last10.includes(sDigits.slice(-10)))) return true;
+        for (const o of m.store.outlets || []) {
+          const oDigits = (o.phone || '').replace(/\D/g, '');
+          if (oDigits.length >= 7 && (oDigits.includes(last10) || last10.includes(oDigits.slice(-10)))) return true;
+        }
+      }
+      return false;
+    }) ?? null;
+  }
+
   if (!user) return null;
+
+  const resolvedPhone = user.phone
+    || user.memberships.find((m: { store: { phone?: string } }) => m.store.phone)?.store.phone
+    || user.memberships.flatMap((m: { store: { outlets?: { phone?: string }[] } }) => m.store.outlets || []).find((o: { phone?: string }) => o.phone)?.phone
+    || undefined;
+
   return {
     id: user.id,
     name: user.name,
     username: user.username,
-    phone: user.phone ?? undefined,
+    phone: resolvedPhone,
     storeCount: user._count.memberships,
     storeNames: user.memberships.map((m: { store: { name: string } }) => m.store.name),
   };
@@ -232,11 +288,21 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
       const existing = await tx.user.findUnique({ where: { username: data.owner.username } });
       if (existing) throw new ValidationError('This username is already in use. Choose another.');
       const passwordHash = await hashPassword(data.owner.password);
-      const created = await tx.user.create({ data: { name: data.owner.name, username: data.owner.username, passwordHash } });
+      const created = await tx.user.create({
+        data: {
+          name: data.owner.name,
+          username: data.owner.username,
+          passwordHash,
+          phone: data.phone || null,
+        },
+      });
       ownerId = created.id;
     } else {
       const existing = await tx.user.findUnique({ where: { id: data.owner.userId } });
       if (!existing || existing.isSuperAdmin) throw new ValidationError('Owner not found.');
+      if (data.phone && !existing.phone) {
+        await tx.user.update({ where: { id: existing.id }, data: { phone: data.phone } });
+      }
       ownerId = existing.id;
     }
 

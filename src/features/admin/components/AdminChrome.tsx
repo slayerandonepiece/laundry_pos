@@ -11,20 +11,20 @@ import { selectStoreAction, selectDashboardAllStoresAction } from '@/server/auth
 import StoreSwitcher from './StoreSwitcher';
 import ConfirmationDialog, { type Confirmation } from './ConfirmationDialog';
 
-const links = [['dashboard', '▦', 'Dashboard'], ['products', '◇', 'Products'], ['sales', '↗', 'Sales'], ['orders', '▤', 'Orders'], ['expenses', '▤', 'Expenses'], ['employees', '♧', 'Employees'], ['profile', '○', 'Profile']];
+const links = [['dashboard', '◧', 'Dashboard'], ['products', '◇', 'Products'], ['sales', '▤', 'Sales'], ['orders', '▥', 'Orders'], ['expenses', '₹', 'Expenses'], ['employees', '◎', 'Employees'], ['outlets', '◫', 'Outlets'], ['profile', '◍', 'Profile']];
 
 function screenFromPathname(pathname: string): Screen {
   if (pathname === '/') return 'dashboard';
   const segment = pathname.split('/')[2];
-  const known: Screen[] = ['products', 'sales', 'orders', 'expenses', 'employees', 'profile'];
+  const known: Screen[] = ['products', 'sales', 'orders', 'expenses', 'employees', 'outlets', 'profile'];
   return (known as string[]).includes(segment) ? (segment as Screen) : 'dashboard';
 }
 
-function Navigation({ screen, role, storeName, multiStore, onNavigate, onLogout }: { screen: Screen; role: Role | undefined; storeName: string; multiStore: boolean; onNavigate?: () => void; onLogout: () => void }) {
+function Navigation({ screen, role, brandName, storeName, multiStore, onNavigate, onLogout }: { screen: Screen; role: Role | undefined; brandName: string; storeName: string; multiStore: boolean; onNavigate?: () => void; onLogout: () => void }) {
   return <>
-    <Link className="ad-logo" href={role ? homeFor(role) : '/'} onClick={onNavigate}><span className="ad-logo-mark">◎</span><span>Express Laundry<small>STORE WORKSPACE</small></span></Link>
+    <Link className="ad-logo" href={role ? homeFor(role) : '/'} onClick={onNavigate}><span className="ad-logo-mark">◎</span><span>{brandName}<small>STORE WORKSPACE</small></span></Link>
     <p className="ad-nav-label">WORKSPACE</p>
-    <nav aria-label="Admin navigation">{role && links.filter(([id]) => role === 'owner' ? id !== 'orders' : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}><span aria-hidden="true">{icon}</span>{label}</Link>)}</nav>
+    <nav aria-label="Admin navigation">{role && links.filter(([id]) => role === 'owner' ? (screen === 'dashboard' || id !== 'orders') : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}><span aria-hidden="true">{icon}</span>{label}</Link>)}</nav>
     <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>{storeName}<small>{multiStore ? 'Switch stores from the header above.' : 'One store. Everything in view.'}</small></div><button onClick={onLogout}>Log out ↗</button></div>
   </>;
 }
@@ -65,7 +65,8 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
   const role = user?.role;
   const name = user?.name ?? '';
   const multiStore = Boolean(storeOptions && storeOptions.length > 1);
-  const effectiveStoreName = screen === 'dashboard' && allStoresSelected ? 'All stores' : (storeName ?? 'Your store');
+  const brandName = storeName ?? 'Your store';
+  const effectiveStoreName = screen === 'dashboard' && allStoresSelected ? 'All stores' : brandName;
 
   function confirmLogout() {
     setConfirmation({ title: 'Log out?', description: 'You can sign back in any time.', confirmLabel: 'Log out', onConfirm: () => { logout(); router.replace('/login'); } });
@@ -77,14 +78,14 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
     selectDashboardAllStoresAction().then(result => { if (result.ok) router.refresh(); });
   }
 
-  return <div className={"ad-root ad-app" + (role === "employee" && screen === "sales" ? " ad-counter" : "")}>
-    <aside className="ad-sidebar ad-desktop-sidebar"><Navigation screen={screen} role={role} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout}/></aside>
-    {menu && <MobileNavigation onClose={() => setMenu(false)}><Navigation screen={screen} role={role} storeName={effectiveStoreName} multiStore={multiStore} onNavigate={() => setMenu(false)} onLogout={() => { setMenu(false); confirmLogout(); }}/></MobileNavigation>}
+  return <div className={"ad-root ad-app" + (screen === "dashboard" ? " ad-dashboard-shell" : "") + (role === "employee" && screen === "sales" ? " ad-counter" : "")}>
+    <aside className="ad-sidebar ad-desktop-sidebar"><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout}/></aside>
+    {menu && <MobileNavigation onClose={() => setMenu(false)}><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onNavigate={() => setMenu(false)} onLogout={() => { setMenu(false); confirmLogout(); }}/></MobileNavigation>}
     <div className="ad-workspace">
-      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">Workspace <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row"><span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span>{role === 'owner' ? <Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link> : <span className="ad-avatar" aria-label={name}>{name.slice(0, 1)}</span>}</div></header>
+      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">Workspace <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span>{role === 'owner' ? <Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link> : <span className="ad-avatar" aria-label={name}>{name.slice(0, 1)}</span>}</div></header>
       <main className="ad-main">
         {children}
-        <footer className="ad-bottom"><span className="ad-footer-brand">Express Laundry</span><span>IST · INR ₹</span></footer>
+        <footer className="ad-bottom"><span className="ad-footer-brand">{brandName}</span><span>IST · INR ₹</span></footer>
       </main>
     </div>
     {confirmation && <ConfirmationDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation.onConfirm; setConfirmation(null); action(); }}/>}

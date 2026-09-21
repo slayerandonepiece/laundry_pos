@@ -20,9 +20,9 @@ export default function EmptyState({
   return (
     <div className="card">
       <div className="empty">
-        <span className="ic l" aria-hidden="true">
+        <div className="empty-icon-wrap" aria-hidden="true">
           <Icon name={icon} size="l" />
-        </span>
+        </div>
         <h3>{title}</h3>
         <p>{body}</p>
         {action}

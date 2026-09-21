@@ -82,6 +82,69 @@ Fix only **genuine** defects you can point to in code. For each fix record the
 file:line, the width it breaks at, and why. Prefer the smallest change in the
 component's existing stylesheet or markup.
 
+### 2d. One sidebar/topbar on every workspace screen — owner's explicit request
+
+Measured live at 1440px on 2026-09-20: the workspace renders **three different
+chromes**. Super Admin is the reference theme for the whole app.
+
+| Property | Super Admin (TARGET) | Workspace Dashboard | Every other workspace screen |
+|---|---|---|---|
+| Sidebar width | 244px | 212px | 196px |
+| Sidebar padding | 22px 16px 18px | 20px 14px | 20px 12px |
+| Nav gap | 2px | 4px | 7px |
+| Nav item | min-height 38px · padding 8px 10px 8px 8px · 13.5px/500 · 3px left border, radius 0 9px 9px 0 | padding 9px 10px · 14px/500 · 3px left border | min-height 48px · padding 12px 16px · weight 600 |
+| Active item | brand-soft bg · brand left border · brand text · 700 | same idea | pill bg, no left border |
+| Brand block | 36px mark + name + small caps label | mark and label **hidden** | mark + name + label |
+| Topbar | 60px · padding 0 24px | 58px · padding 0 24px | 76px · padding 0 38px |
+| Main padding | 24px 28px 32px | 26px 30px | 34px 38px 0 |
+| Owner nav items | — | **8 (includes Orders)** | **7 (no Orders)** |
+
+Root causes:
+- `src/features/admin/components/AdminChrome.tsx:81` adds `ad-dashboard-shell` to the
+  app root **only on Dashboard**, and `src/app/(workspace)/admin/dashboard.css:14-26`
+  (desktop) and `:93-96` (mobile) restyle the entire chrome under that class.
+- `AdminChrome.tsx:27` filters owner nav with
+  `screen === 'dashboard' || id !== 'orders'`, so Orders appears only on Dashboard.
+- The non-Dashboard values come from `admin.css:6` (base `.ad-sidebar`, 235px) plus
+  later overrides (`admin.css:11`, `:28`, and possibly `owner-workspace.css`). Find
+  every rule that sets sidebar/topbar/main geometry with
+  `graft grep "ad-sidebar"`, `graft grep "ad-topbar"`, `graft grep "ad-main"`.
+- Super Admin's values: `src/app/super-admin/super-admin.css:28-65` (`.soa .side`,
+  `.soa .side nav a`, `.soa .top`, `.soa .main`). **Read only — do not edit.**
+
+What to do:
+1. One set of chrome rules for the workspace, applied on **every** screen, matching the
+   Super Admin values in the TARGET column (width, paddings, nav item geometry, active
+   state, brand block, topbar height, main padding). Put them in the workspace's
+   existing chrome stylesheet (`admin.css`) and **delete** the competing overrides —
+   `dashboard.css:14-26` and `:93-96`, and any other sidebar/topbar/main geometry rule
+   you find. Do not add a new stylesheet and do not touch `app.css`.
+2. **Keep the `ad-dashboard-shell` class on the Dashboard root.** Dashboard *content*
+   rules depend on it (e.g. `.ad-dashboard-shell .dashboard table.grid`). Only the
+   *chrome* rules move out from under it. `graft grep "ad-dashboard-shell"` and
+   check each rule before deleting.
+3. Owner nav must be **identical on every screen**. Per `.agents/CURRENT-STATE.md`,
+   owners use Sales as their order list, so remove the Dashboard exception: owners
+   see Dashboard, Products, Sales, Expenses, Employees, Outlets, Profile everywhere.
+   Employees keep exactly Sales + Orders. If you find an owner flow that genuinely
+   needs the Orders nav item, stop and report it instead of guessing.
+4. Brand block: the live **store name** (already passed as `storeName` from
+   `src/app/(workspace)/layout.tsx`) with the mark and the `STORE WORKSPACE` label, on
+   every screen — never hidden on one screen and shown on another.
+5. Nav icons: replace the emoji glyphs at `AdminChrome.tsx:14` (`◧ ◇ ▤ ▥ ₹ ◎ ◫ ◍`)
+   with the SVG set from `src/features/super-admin/components/Icon.tsx`. **Import it
+   read-only; do not modify `Icon.tsx`.** If it lacks a suitable icon for a workspace
+   item, report which instead of editing it.
+6. Mobile: the drawer (`MobileNavigation` in `AdminChrome.tsx`) must use the same nav
+   item geometry. Keep its native `<dialog>` + focus behaviour exactly as is.
+7. Keep: the topbar's store switcher and `#dashboard-outlet-control` portal target
+   (Dashboard, owners only), logout confirmation, `AccessBlockedScreen` with nav and
+   logout reachable, employee `ad-counter` class on Sales.
+
+Acceptance (Claude will measure live after you finish): at 1440px, sidebar width,
+sidebar padding, nav item height, topbar height and main padding are **identical** on
+all owner screens and on employee Sales/Orders, and equal the TARGET column.
+
 ## 3. Out of scope — do NOT touch
 
 - **`src/app/app.css`** — the Tailwind utilities layer is deliberately switched off
@@ -90,9 +153,8 @@ component's existing stylesheet or markup.
 - **Anything under `src/app/super-admin/` or `src/features/super-admin/`** — Super
   Admin's rendered UI is frozen. If a shared component you touch is also used by
   Super Admin, stop and report instead of changing it.
-- **The sidebar/topbar** (`AdminChrome.tsx`) — Phase 6 unifies it. The known
-  inconsistency (212px/8 items on Dashboard vs 196px/7 items elsewhere) is already
-  recorded; leave it.
+- **The sidebar/topbar is now IN scope** — see §2d. The owner explicitly asked
+  for it on 2026-09-21, overriding the earlier Phase 6 deferral.
 - **Scoping `owner-workspace.css` or deleting from `globals.css`** — that is
   Phase 1, queued next. If a responsive fix must go in `owner-workspace.css`,
   append a minimal rule at the end of the file and list it in your report so
@@ -153,6 +215,7 @@ Gate: tsc <n> errors (baseline <n>), eslint <n> errors (baseline <n>)
 | B3 Badge casing | NOT_STARTED | — | |
 | B4 Profile table | NOT_STARTED | — | |
 | R1–R4 investigation | NOT_STARTED | — | |
+| Sidebar/topbar unification (2d) | NOT_STARTED | — | |
 | Responsive audit | NOT_STARTED | — | |
 | Responsive fixes | NOT_STARTED | — | |
 | `graft build` | NOT_STARTED | — | |
