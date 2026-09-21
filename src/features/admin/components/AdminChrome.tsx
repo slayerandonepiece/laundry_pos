@@ -10,8 +10,18 @@ import { lockBodyScroll } from '../admin.dialog';
 import { selectStoreAction, selectDashboardAllStoresAction } from '@/server/auth/actions';
 import StoreSwitcher from './StoreSwitcher';
 import ConfirmationDialog, { type Confirmation } from './ConfirmationDialog';
+import Icon, { type IconName } from '@/features/super-admin/components/Icon';
 
-const links = [['dashboard', '◧', 'Dashboard'], ['products', '◇', 'Products'], ['sales', '▤', 'Sales'], ['orders', '▥', 'Orders'], ['expenses', '₹', 'Expenses'], ['employees', '◎', 'Employees'], ['outlets', '◫', 'Outlets'], ['profile', '◍', 'Profile']];
+const links: [Screen, IconName, string][] = [
+  ['dashboard', 'dashboard', 'Dashboard'],
+  ['products', 'archive', 'Products'],
+  ['sales', 'card', 'Sales'],
+  ['orders', 'history', 'Orders'],
+  ['expenses', 'card', 'Expenses'],
+  ['employees', 'users', 'Employees'],
+  ['outlets', 'store', 'Outlets'],
+  ['profile', 'key', 'Profile'],
+];
 
 function screenFromPathname(pathname: string): Screen {
   if (pathname === '/') return 'dashboard';
@@ -22,9 +32,18 @@ function screenFromPathname(pathname: string): Screen {
 
 function Navigation({ screen, role, brandName, storeName, multiStore, onNavigate, onLogout }: { screen: Screen; role: Role | undefined; brandName: string; storeName: string; multiStore: boolean; onNavigate?: () => void; onLogout: () => void }) {
   return <>
-    <Link className="ad-logo" href={role ? homeFor(role) : '/'} onClick={onNavigate}><span className="ad-logo-mark">◎</span><span>{brandName}<small>STORE WORKSPACE</small></span></Link>
+    <Link className="ad-logo" href={role ? homeFor(role) : '/'} onClick={onNavigate}>
+      <span className="ad-logo-mark"><Icon name="logo" size="l" /></span>
+      <span><b>{brandName}</b><small>STORE WORKSPACE</small></span>
+    </Link>
     <p className="ad-nav-label">WORKSPACE</p>
-    <nav aria-label="Admin navigation">{role && links.filter(([id]) => role === 'owner' ? (screen === 'dashboard' || id !== 'orders') : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}><span aria-hidden="true">{icon}</span>{label}</Link>)}</nav>
+    <nav aria-label="Admin navigation">
+      {role && links.filter(([id]) => role === 'owner' ? id !== 'orders' : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => (
+        <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}>
+          <Icon name={icon} />{label}
+        </Link>
+      ))}
+    </nav>
     <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>{storeName}<small>{multiStore ? 'Switch stores from the header above.' : 'One store. Everything in view.'}</small></div><button onClick={onLogout}>Log out ↗</button></div>
   </>;
 }

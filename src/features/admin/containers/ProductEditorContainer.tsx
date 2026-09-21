@@ -127,7 +127,7 @@ export default function ProductEditorContainer({
                   data-dirty
                   aria-label="Remove slab"
                   onClick={() => setSlabs(slabs.filter((_, j) => j !== i))}
-                  style={{ width: '34px', height: '34px', flexShrink: 0 }}
+                  style={{ width: '40px', height: '40px', flexShrink: 0 }}
                 >
                   ✕
                 </button>

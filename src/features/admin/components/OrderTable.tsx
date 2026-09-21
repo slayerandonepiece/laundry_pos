@@ -36,28 +36,28 @@ export default function OrderTable({ orders, onSelect, compact = false, emptyTex
 
   // Desktop Table (Grid)
   const desktopTable = (
-    <table className="grid" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+    <table className="grid">
       <thead>
         <tr>
-          <th style={{ background: 'var(--head-bg)', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--muted)', fontWeight: 700, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>Order</th>
-          <th style={{ background: 'var(--head-bg)', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--muted)', fontWeight: 700, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>Customer</th>
-          {storeOptions && <th style={{ background: 'var(--head-bg)', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--muted)', fontWeight: 700, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>Outlet</th>}
-          <th style={{ background: 'var(--head-bg)', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--muted)', fontWeight: 700, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>Status</th>
-          <th style={{ background: 'var(--head-bg)', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--muted)', fontWeight: 700, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>Date</th>
-          <th className="num" style={{ background: 'var(--head-bg)', textAlign: 'right', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--muted)', fontWeight: 700, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>Amount</th>
+          <th>Order</th>
+          <th>Customer</th>
+          {storeOptions && <th>Outlet</th>}
+          <th>Status</th>
+          <th>Date</th>
+          <th className="num">Amount</th>
         </tr>
       </thead>
       <tbody>
         {rows.map(o => (
           <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(o)}>
-            <td className="mono" style={{ padding: '11px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', fontWeight: 600 }}>{o.id}</td>
-            <td style={{ padding: '11px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }}>{o.name || 'Walk-in customer'}</td>
-            {storeOptions && <td style={{ padding: '11px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }}>{getStoreName(o.outletId)}</td>}
-            <td style={{ padding: '11px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }}>
+            <td className="mono" style={{ fontWeight: 600 }}>{o.id}</td>
+            <td>{o.name || 'Walk-in customer'}</td>
+            {storeOptions && <td>{getStoreName(o.outletId)}</td>}
+            <td>
               <UIBadge tone={o.status === 'Delivered' ? 'on' : o.status === 'Pending' ? 'warn' : 'warn'}>{o.status}</UIBadge>
             </td>
-            <td style={{ padding: '11px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }}>{dateLabel(o.date)}</td>
-            <td className="num mono" style={{ padding: '11px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', textAlign: 'right', fontWeight: 700 }}>{money(total(o))}</td>
+            <td>{dateLabel(o.date)}</td>
+            <td className="num mono" style={{ fontWeight: 700 }}>{money(total(o))}</td>
           </tr>
         ))}
       </tbody>

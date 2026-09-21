@@ -32,7 +32,7 @@ export default function OutletDetail({ outlet }: { outlet: OutletDetailType }) {
     <>
       {paymentWarning && <PaymentWarningBanner isOwner={isOwner} paidThroughDate={paymentWarning.paidThroughDate} />}
       
-      <div style={{ padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <Link href="/admin/outlets" style={{ fontSize: '12.5px', color: 'var(--muted)', textDecoration: 'none' }}>
           ← Back to outlets
         </Link>
@@ -54,11 +54,11 @@ export default function OutletDetail({ outlet }: { outlet: OutletDetailType }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px', alignItems: 'start' }}>
+        <div className="ad-outlet-detail-grid">
           {/* Left Column */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <Card>
-              <CardHeading title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Today's snapshot</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only</p></>} />
+              <CardHeading title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Today&apos;s snapshot</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only</p></>} />
               <StatsRow>
                 <StatTile label="Today's sales" value="₹0" />
                 <StatTile label="Orders today" value="0" />
@@ -105,12 +105,14 @@ export default function OutletDetail({ outlet }: { outlet: OutletDetailType }) {
               <div style={{ padding: '19px' }}>
                 <CardHeading title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Employees at this outlet</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>Active outlet membership</p></>} />
               </div>
-              <table className="grid">
-                <thead><tr><th>Name</th><th>Role</th><th></th></tr></thead>
-                <tbody>
-                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: '24px 12px' }}>No employees found.</td></tr>
-                </tbody>
-              </table>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="grid">
+                  <thead><tr><th>Name</th><th>Role</th><th></th></tr></thead>
+                  <tbody>
+                    <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: '24px 12px' }}>No employees found.</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </Card>
           </div>
 

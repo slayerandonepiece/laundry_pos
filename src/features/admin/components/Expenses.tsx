@@ -73,64 +73,66 @@ export default function Expenses({
             filteredDescription="Try adjusting your filters to find what you are looking for."
           />
         ) : (
-          <table className="grid">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Category</th>
-                <th>Outlet</th>
-                <th>Due</th>
-                <th>Status</th>
-                <th className="num">Amount</th>
-                <th className="num">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredExpenses.map(e => {
-                const outletName = e.outletId ? outlets.find(o => o.id === e.outletId)?.displayName || 'Unknown' : 'Organization-wide';
-                const isOrg = !e.outletId;
-                const isPaid = !!e.paid;
-                const isOverdue = !isPaid && e.due < today();
-                
-                return (
-                  <tr key={e.id}>
-                    <td>
-                      <strong>{e.title}</strong>
-                      {e.monthly && <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>↻ Monthly</div>}
-                    </td>
-                    <td>{e.category}</td>
-                    <td>
-                      {isOrg ? (
-                        <span className="badge" style={{ background: 'var(--tint)', color: 'var(--brand-ink)' }}>
-                          Organization-wide
-                        </span>
-                      ) : (
-                        outletName
-                      )}
-                    </td>
-                    <td>{dateLabel(e.due)}</td>
-                    <td>
-                      {isPaid ? (
-                        <Badge on>Paid</Badge>
-                      ) : isOverdue ? (
-                        <Badge warn>Overdue</Badge>
-                      ) : (
-                        <Badge off>Due</Badge>
-                      )}
-                    </td>
-                    <td className="num mono">{money(e.amount)}</td>
-                    <td className="num">
-                      {!isPaid && (
-                        <button type="button" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => onPaid(e.id)}>
-                          Mark paid
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Category</th>
+                  <th>Outlet</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                  <th className="num">Amount</th>
+                  <th style={{ textAlign: 'right' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredExpenses.map(e => {
+                  const outletName = e.outletId ? outlets.find(o => o.id === e.outletId)?.displayName || 'Unknown' : 'Organization-wide';
+                  const isOrg = !e.outletId;
+                  const isPaid = !!e.paid;
+                  const isOverdue = !isPaid && e.due < today();
+                  
+                  return (
+                    <tr key={e.id}>
+                      <td>
+                        <strong>{e.title}</strong>
+                        {e.monthly && <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>↻ Monthly</div>}
+                      </td>
+                      <td>{e.category}</td>
+                      <td>
+                        {isOrg ? (
+                          <span className="badge" style={{ background: 'var(--tint)', color: 'var(--brand-ink)' }}>
+                            Organization-wide
+                          </span>
+                        ) : (
+                          outletName
+                        )}
+                      </td>
+                      <td className="mono">{dateLabel(e.due)}</td>
+                      <td>
+                        {isPaid ? (
+                          <Badge on>Paid</Badge>
+                        ) : isOverdue ? (
+                          <Badge warn>Overdue</Badge>
+                        ) : (
+                          <Badge off>Due</Badge>
+                        )}
+                      </td>
+                      <td className="num mono">{money(e.amount)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {!isPaid && (
+                          <button type="button" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => onPaid(e.id)}>
+                            Mark paid
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </>

@@ -79,18 +79,16 @@ export default function Catalogue({
               <table className="grid">
                 <thead>
                   <tr>
-                    <th>ID</th>
                     <th>Service</th>
                     <th>Category</th>
                     <th>Pricing</th>
                     <th>Status</th>
-                    {!readOnly && <th></th>}
+                    {!readOnly && <th style={{ textAlign: 'right' }}></th>}
                   </tr>
                 </thead>
                 <tbody>
                   {products.map(product => (
                     <tr key={product.id}>
-                      <td className="mono">{product.id}</td>
                       <td><strong>{product.name}</strong></td>
                       <td>{product.category}</td>
                       <td><Pricing product={product}/></td>
@@ -100,7 +98,7 @@ export default function Catalogue({
                         </Badge>
                       </td>
                       {!readOnly && (
-                        <td>
+                        <td style={{ textAlign: 'right' }}>
                           <button type="button" className="btn btn-secondary" aria-label={'Edit ' + product.name} onClick={() => onEdit(product)}>
                             Edit ↗
                           </button>

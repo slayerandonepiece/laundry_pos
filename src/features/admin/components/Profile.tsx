@@ -9,6 +9,18 @@ import { Card, CardHeading, Badge, Dialog } from '@/features/admin/components/ui
 import { Button } from './Primitives';
 import PaymentMethodsSettings from './PaymentMethodsSettings';
 import { money, dateLabel } from '@/features/admin/admin.data';
+import { outletStatusBadge } from './OutletsList';
+
+function formatTimestamp(iso: string) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'Unknown';
+  return d.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
 
 export default function Profile({
   profile: p,
@@ -60,7 +72,7 @@ export default function Profile({
           />
           <div>
             <small style={{ color: 'var(--muted)' }}>Password last changed</small>
-            <div>{passwordUpdatedAt ? dateLabel(passwordUpdatedAt) : 'Unknown'}</div>
+            <div>{passwordUpdatedAt ? formatTimestamp(passwordUpdatedAt) : 'Unknown'}</div>
           </div>
         </Card>
 
@@ -83,26 +95,31 @@ export default function Profile({
             title="Outlets" 
             action={<Link href="/admin/outlets" style={{ fontSize: '13px', fontWeight: 600 }}>View all &rarr;</Link>} 
           />
-          <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginTop: '8px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', fontSize: '12px', color: 'var(--muted)' }}>
-                <th style={{ paddingBottom: '8px', fontWeight: 'normal' }}>Code</th>
-                <th style={{ paddingBottom: '8px', fontWeight: 'normal' }}>Outlet</th>
-                <th style={{ paddingBottom: '8px', fontWeight: 'normal' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {outlets.slice(0, 5).map(outlet => (
-                <tr key={outlet.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '12px 0' }}>{outlet.outletCode}</td>
-                  <td style={{ padding: '12px 0' }}>{outlet.displayName}</td>
-                  <td style={{ padding: '12px 0' }}>
-                    <Badge tone={outlet.status === 'ACTIVE' ? 'on' : 'off'}>{outlet.status}</Badge>
-                  </td>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Outlet</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {outlets.slice(0, 5).map(outlet => {
+                  const { tone, label } = outletStatusBadge(outlet.status);
+                  return (
+                    <tr key={outlet.id}>
+                      <td className="mono">{outlet.outletCode}</td>
+                      <td>{outlet.displayName}</td>
+                      <td>
+                        <Badge tone={tone}>{label}</Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {outlets.length === 0 && <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '12px' }}>No outlets found.</p>}
         </Card>
 
