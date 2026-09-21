@@ -25,6 +25,7 @@ All 37 integration tests pass, `tsc --noEmit` and `eslint .` are clean. Task B7 
 
 - `OutletSwitcher` wired into `AdminChrome`'s topbar for both owner and employee. Owner sees every active outlet plus an "All outlets" option (Dashboard only); employee sees only their granted, active outlets and no "All outlets" option.
 - Dashboard, Orders, and Expenses read `resolveOutletSelection` and filter `listOrders`/`listExpenses` by the selected outlet; Dashboard additionally supports the all-outlets aggregate via `outletId: undefined`.
+  - **Correction (2026-09-22, QA fix round):** no longer true in the working tree. Only the Dashboard page (`src/app/(workspace)/page.tsx`) calls `resolveOutletSelection`; the Sales, Orders and Expenses pages list the whole store with no outlet filtering. Probably lost when those pages were rewritten for Owner Workspace 2.0. See `.agents/css-refactor/qa/FIX-REPORT.md`.
 - New: owner-facing employee outlet assignment on `/admin/employees` — a per-employee "Outlets (N)" disclosure lists every active outlet with a checkbox (grant/revoke via `setEmployeeOutletAccessAction`) and a "Make default" action (`setEmployeeDefaultOutletAction`), calling the existing `assignEmployeeToOutlet`/`assignDefaultOutlet`/new `removeEmployeeFromOutlet` service functions. Hidden entirely for stores with zero outlets.
 - Payment methods and subscription/trial banners (`AccessNotices.tsx`, `PaymentMethodsSettings.tsx`) already reflected the B4/B5 backend contract from Gemini's earlier pass; verified working live.
 
