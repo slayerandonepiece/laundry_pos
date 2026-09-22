@@ -128,6 +128,7 @@ export default function ExpenseEditor({
             value={appliesTo}
             onChange={setAppliesTo}
             icon="◫"
+            ariaLabel="Applies to"
           />
           <span className="hint">
             Select one outlet or leave as Organization-wide.
@@ -136,7 +137,7 @@ export default function ExpenseEditor({
         </div>
 
         <div className="field">
-          <label className="ad-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+          <label className="ad-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', minHeight: '40px' }}>
             <input
               type="checkbox"
               style={{ width: '15px', height: '15px', accentColor: 'var(--brand)' }}
@@ -154,7 +155,7 @@ export default function ExpenseEditor({
         )}
 
         <div className="field">
-          <label className="ad-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+          <label className="ad-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', minHeight: '40px' }}>
             <input
               name="paid"
               type="checkbox"

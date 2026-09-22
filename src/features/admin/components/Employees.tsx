@@ -48,7 +48,8 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
             filteredDescription="Try adjusting your filters or search terms to find what you are looking for."
           />
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <>
+          <div className="employees-table-wrap">
             <table className="grid">
               <thead>
                 <tr>
@@ -90,6 +91,34 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
               </tbody>
             </table>
           </div>
+
+          <div className="employees-cards">
+            {employees.map(employee => (
+              <article key={employee.id} className="employee-card">
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <strong>{employee.name}</strong>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+                  </div>
+                  <Badge variant={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
+                </div>
+                <span className="row" style={{ gap: '5px', flexWrap: 'wrap' }}>
+                  {employee.outlets?.length ? employee.outlets.map(outlet => (
+                    <Tag key={outlet.id} isDefault={outlet.id === employee.defaultOutletId}>
+                      {outlet.name}
+                    </Tag>
+                  )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>No outlets</span>}
+                </span>
+                <div className="employee-card-actions">
+                  <button className={employee.active ? "btn btn-danger" : "btn btn-primary"} onClick={() => onToggle(employee)}>
+                    {employee.active ? 'Deactivate' : 'Reactivate'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => onEdit(employee)}>Manage ↗</button>
+                </div>
+              </article>
+            ))}
+          </div>
+          </>
         )}
       </div>
     </div>

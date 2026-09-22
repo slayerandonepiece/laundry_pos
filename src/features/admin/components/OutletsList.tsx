@@ -31,7 +31,7 @@ export default function OutletsList({ outlets }: { outlets: OutletListItem[] }) 
         />
       ) : (
         <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="outlet-table-wrap">
             <table className="grid">
               <thead>
                 <tr>
@@ -45,7 +45,7 @@ export default function OutletsList({ outlets }: { outlets: OutletListItem[] }) 
               <tbody>
                 {outlets.map(outlet => {
                   const { tone, label } = outletStatusBadge(outlet.status);
-                  
+
                   return (
                     <tr key={outlet.id}>
                       <td>
@@ -67,6 +67,28 @@ export default function OutletsList({ outlets }: { outlets: OutletListItem[] }) 
                 })}
               </tbody>
             </table>
+          </div>
+
+          <div className="outlet-cards">
+            {outlets.map(outlet => {
+              const { tone, label } = outletStatusBadge(outlet.status);
+
+              return (
+                <article key={outlet.id} className="outlet-card">
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <strong>{outlet.displayName}</strong>
+                    <Badge tone={tone}>{label}</Badge>
+                  </div>
+                  {outlet.address && <span style={{ fontSize: '12px', color: 'var(--muted)' }}>{outlet.address}</span>}
+                  <span className="mono" style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                    {outlet.outletCode} · Opened {dateLabel(outlet.openedAt)}
+                  </span>
+                  <Link href={`/admin/outlets/${outlet.id}`} className="btn btn-secondary outlet-card-view" style={{ textDecoration: 'none' }}>
+                    View ↗
+                  </Link>
+                </article>
+              );
+            })}
           </div>
         </Card>
       )}

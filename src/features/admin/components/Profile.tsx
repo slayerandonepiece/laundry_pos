@@ -156,7 +156,7 @@ export default function Profile({
             <div className="ad-form-grid">
               <label>Owner name<input name="name" defaultValue={p.name} required/></label>
               <label>Username<input value={username} readOnly/></label>
-              <label>Phone<input name="phone" type="tel" pattern={'[+0-9 ()\\-]{10,18}'} title="Enter a valid phone number with 10 to 15 digits" defaultValue={p.phone} required/></label>
+              <label>Phone<input name="phone" type="tel" pattern={'[+0-9 ()\\-]{10,18}'} title="Enter a valid phone number with 10 to 15 digits" aria-label="Phone" defaultValue={p.phone} required/></label>
               <label>Email<input name="email" type="email" defaultValue={p.email}/></label>
             </div>
             <label>Store name<input name="store" defaultValue={p.store} required/></label>

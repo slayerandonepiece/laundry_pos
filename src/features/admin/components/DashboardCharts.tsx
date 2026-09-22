@@ -17,6 +17,7 @@ export function SalesChart({ points, previousPoints = [] }: { points: TrendPoint
     return () => observer.disconnect();
   }, []);
   const maximum = Math.max(...[...points, ...previousPoints].map(point => point.amount), 10000);
+  const hasData = [...points, ...previousPoints].some(point => point.amount > 0);
   const x = (index: number, count: number) => count <= 1 ? plotWidth / 2 : 10 + index / (count - 1) * (plotWidth - 75);
   const y = (amount: number) => 155 - amount / maximum * 135;
   const line = (series: TrendPoint[]) => series.map((point, index) => `${index ? 'L' : 'M'}${x(index, series.length)},${y(point.amount)}`).join(' ');
@@ -27,7 +28,7 @@ export function SalesChart({ points, previousPoints = [] }: { points: TrendPoint
       <svg viewBox={`0 0 ${plotWidth} 190`} role="img" aria-label="Sales trend, this period compared with the previous period">
         <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".2"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>
         {[20, 65, 110, 155].map(value => <line key={value} x1="10" y1={value} x2={plotWidth - 10} y2={value} stroke="#e9ebef" strokeWidth="1" strokeDasharray="3 3"/>)}
-        {[1, 2 / 3, 1 / 3].map((value, index) => <text key={value} x={plotWidth - 10} y={24 + index * 45} textAnchor="end" fontSize="10.5" fill="#98a2b0" fontFamily="var(--font-mono)">{axisMoney(maximum * value)}</text>)}
+        {hasData && [1, 2 / 3, 1 / 3].map((value, index) => <text key={value} x={plotWidth - 10} y={24 + index * 45} textAnchor="end" fontSize="10.5" fill="#98a2b0" fontFamily="var(--font-mono)">{axisMoney(maximum * value)}</text>)}
         {previousPoints.length > 0 && <path d={line(previousPoints)} fill="none" stroke="#c3d6f9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>}
         {points.length > 0 && <>
           <path d={`${line(points)} L${x(points.length - 1, points.length)},155 L${x(0, points.length)},155 Z`} fill={`url(#${id})`}/>

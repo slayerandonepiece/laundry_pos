@@ -31,7 +31,7 @@ export default function EmployeeEditor({ employee, outlets, error, onSave, onClo
           name: String(data.get('name')).trim(), 
           username: String(data.get('username')).trim().toLowerCase(), 
           password: data.get('password') ? String(data.get('password')) : undefined, 
-          active: true,
+          active: employee ? employee.active : true,
           outlets: activeOutlets,
           defaultOutletId: defaultOutlet
         });
@@ -53,7 +53,7 @@ export default function EmployeeEditor({ employee, outlets, error, onSave, onClo
           </div>
           <div className="field" style={{ flex: 1 }}>
             <label>Temporary password</label>
-            <input name="password" disabled={!employee} value={employee ? "Leave blank to keep current" : "Auto-generated — shown once on save"} style={{ color: 'var(--muted)' }} />
+            <input name="password" required={!employee} placeholder={employee ? 'Leave blank to keep current' : 'At least 8 characters'} minLength={8} autoComplete="new-password" autoCapitalize="none" spellCheck={false} />
           </div>
         </div>
         <div className="field" style={{ overflow: 'visible' }}>
@@ -61,7 +61,8 @@ export default function EmployeeEditor({ employee, outlets, error, onSave, onClo
           <MultiSelectDropdown 
             label="Outlets" 
             options={outlets.map(o => ({ value: o.id, label: o.displayName }))} 
-            selected={activeOutlets} 
+            selected={activeOutlets}
+            requireSelection
             onChange={selected => {
               setActiveOutlets(selected);
               if (selected.length > 0 && !selected.includes(defaultOutlet)) {

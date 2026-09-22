@@ -3,7 +3,7 @@ import { money, paid, total } from '../admin.data';
 import { Metric } from './Primitives';
 import OrderTable from './OrderTable';
 
-import { Card, CardHeading } from './ui';
+import { Card, CardHeading, SingleSelectDropdown } from './ui';
 
 interface Props {
   orders: Order[]; matching: Order[]; employee: boolean; attentionOnly: boolean;
@@ -30,12 +30,8 @@ export default function Sales({ orders, matching, employee, attentionOnly, query
           ))}
         </div>
         <input value={query} onChange={event => onQuery(event.target.value)} placeholder="Search order, customer or phone…" aria-label="Search sales"/>
-        <select value={status} aria-label="Filter work status" onChange={event => onStatus(event.target.value)}>
-          {['All', 'Pending', 'In Progress', 'Ready', 'Delivered'].map(value => <option key={value} value={value}>{value === 'All' ? 'All work statuses' : value}</option>)}
-        </select>
-        <select value={payment} aria-label="Filter payment status" onChange={event => onPayment(event.target.value)}>
-          {['All', 'Unpaid', 'Part-paid', 'Paid'].map(value => <option key={value} value={value}>{value === 'All' ? 'All payment statuses' : value}</option>)}
-        </select>
+        <SingleSelectDropdown ariaLabel="Filter work status" value={status} onChange={onStatus} options={['All', 'Pending', 'In Progress', 'Ready', 'Delivered'].map(value => ({ value, label: value === 'All' ? 'All work statuses' : value }))}/>
+        <SingleSelectDropdown ariaLabel="Filter payment status" value={payment} onChange={onPayment} options={['All', 'Unpaid', 'Part-paid', 'Paid'].map(value => ({ value, label: value === 'All' ? 'All payment statuses' : value }))}/>
         <button className="ad-text-link" onClick={onClear}>Clear</button>
       </div>
       <OrderTable orders={matching} onSelect={onSelect} emptyText={emptyText}/>

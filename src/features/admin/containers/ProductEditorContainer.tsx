@@ -15,9 +15,9 @@ export default function ProductEditorContainer({
 }) {
   const [kind, setKind] = useState(product?.type || 'item');
   const [slabs, setSlabs] = useState<{limit: number; price: number}[]>(
-    product?.type === 'weight' ? product.slabs : [{ limit: 4, price: 27900 }, { limit: 6, price: 37900 }]
+    product?.type === 'weight' ? product.slabs : [{ limit: 0, price: 0 }, { limit: 0, price: 0 }]
   );
-  const [extra, setExtra] = useState(product?.type === 'weight' ? product.extra : 4900);
+  const [extra, setExtra] = useState(product?.type === 'weight' ? product.extra : 0);
   const [unit, setUnit] = useState(product?.type === 'item' ? product.price : 0);
   const [error, setError] = useState('');
   const [active, setActive] = useState(product?.active ?? true);
@@ -25,6 +25,8 @@ export default function ProductEditorContainer({
   const [category, setCategory] = useState(product?.category || 'Laundry');
 
   const pricing = kind === 'weight' ? { type: 'weight' as const, slabs, extra } : { type: 'item' as const, price: unit };
+  // Example numbers shown only as placeholders (never pre-filled values) for a brand-new weight service.
+  const slabExamples = [{ limit: '4', price: '279' }, { limit: '6', price: '379' }];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +52,7 @@ export default function ProductEditorContainer({
       foot={
         <>
           <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" form="product-form" className="btn btn-primary">Save changes</button>
+          <button type="submit" form="product-form" className="btn btn-primary">{product ? 'Save changes' : 'Add service'}</button>
         </>
       }
     >
@@ -104,7 +106,7 @@ export default function ProductEditorContainer({
                   step=".01"
                   min=".01"
                   aria-label={`Slab ${i + 1} weight limit (kg)`}
-                  placeholder="Up to (kg)"
+                  placeholder={slabExamples[i]?.limit ?? 'Up to (kg)'}
                   value={s.limit || ''}
                   required
                   onChange={e => setSlabs(slabs.map((v, j) => j === i ? { ...v, limit: Number(e.target.value) } : v))}
@@ -115,7 +117,7 @@ export default function ProductEditorContainer({
                   min=".01"
                   step=".01"
                   aria-label={`Slab ${i + 1} price (₹)`}
-                  placeholder="₹"
+                  placeholder={slabExamples[i]?.price ?? '₹'}
                   value={s.price ? s.price / 100 : ''}
                   required
                   onChange={e => setSlabs(slabs.map((v, j) => j === i ? { ...v, price: Math.round(Number(e.target.value) * 100) } : v))}
@@ -150,6 +152,7 @@ export default function ProductEditorContainer({
                 type="number"
                 min=".01"
                 step=".01"
+                placeholder="49"
                 value={extra ? extra / 100 : ''}
                 required
                 onChange={e => setExtra(Math.round(Number(e.target.value) * 100))}
