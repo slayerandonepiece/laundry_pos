@@ -75,7 +75,7 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
     <div className="stats-row">
       <StatTile label="Today's sales" value={money(d.todaySales)} />
       <StatTile label="Orders today" value={String(d.todayCount)} />
-      <StatTile label="Pending" value={String(d.pendingCount)} />
+      <StatTile label="Open orders" value={String(d.todo)} />
       <StatTile label="Expenses this month" value={money(d.expenses)} />
     </div>
     <Card className="dashboard-trend"><CardHeading title={trendTitle} subtitle={isAllOutlets ? 'All outlets combined' : 'This outlet'} action={trendControl} />
@@ -90,14 +90,14 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
           const ydaySales = yesterdaySummaries.find(s => s.outletId === outlet.id)?.grossOrderAmount ?? 0;
           const pct = maxSales > 0 ? sales / maxSales * 100 : 0;
           const growth = ydaySales > 0 ? (sales - ydaySales) / ydaySales * 100 : null;
-          const pending = d.commitments.filter(order => order.outletId === outlet.id && order.date === businessDate).length;
+          const openOrders = d.commitments.filter(order => order.outletId === outlet.id).length;
           return <Card key={outlet.id} className="dashboard-outlet">
             <CardHeading title={<h2>{outlet.displayName}</h2>} subtitle={<span className="mono">{outlet.outletCode}</span>}
               action={<Badge tone={outlet.status === 'ACTIVE' ? 'on' : 'off'}>{outlet.status === 'ACTIVE' ? 'Active' : 'Inactive'}</Badge>} />
             <div className="dashboard-outlet-metrics">
               <div className="row"><span>Sales today</span><strong className="mono">{money(sales)}</strong></div>
               <div className="row"><span>Orders</span><strong className="mono">{current?.ordersCreatedCount ?? 0}</strong></div>
-              <div className="row"><span>Pending</span><strong className="mono">{pending}</strong></div>
+              <div className="row"><span>Open orders</span><strong className="mono">{openOrders}</strong></div>
             </div>
             <div><div className="dashboard-share" role="meter" aria-label={`${outlet.displayName}: share of best outlet sales`} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
               <div style={{ width: `${pct}%`, background: ['var(--brand)', '#4d86e0', '#a8c7f8'][index % 3] }} />
@@ -108,7 +108,7 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
           </Card>;
         })}</div>
       </section>
-      <Card className="dashboard-earnings"><CardHeading title="Earnings vs expenses — this month" subtitle="All outlets combined"
+      <Card className="dashboard-earnings"><CardHeading title="Collected vs expenses — this month" subtitle={isAllOutlets ? 'All outlets combined · payments collected this month' : 'This outlet · payments collected this month'}
         action={<Badge tone={d.income >= d.expenses ? 'on' : 'warn'}>Net {money(d.income - d.expenses)}</Badge>} />
         <EarningsDonut income={d.income} expenses={d.expenses} />
       </Card>

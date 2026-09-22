@@ -22,8 +22,8 @@ export default async function Page() {
     const session = await requireStoreSession(undefined, 'OWNER');
     const selection = await resolveOutletSelection(session, true);
     serverOutlets = selection.options;
-    selectedOutletId = selection.outletId ?? undefined;
     allOutletsSelected = selection.allOutletsSelected;
+    selectedOutletId = allOutletsSelected ? undefined : (selection.outletId ?? undefined);
 
     // Resolve the display name of the selected outlet for single-outlet header copy.
     // When allOutletsSelected the header shows "All outlets" via the OutletSwitcher.
@@ -35,14 +35,15 @@ export default async function Page() {
       outletName = selection.options[0].displayName;
     }
 
+    const targetOutletId = allOutletsSelected ? undefined : (selection.outletId ?? undefined);
     const [orders, expenses, products] = await Promise.all([
       listOrders(
         session.storeId,
-        selection.outletId ? { outletId: selection.outletId } : undefined,
+        targetOutletId ? { outletId: targetOutletId } : undefined,
       ),
       listExpenses(
         session.storeId,
-        selection.outletId ? { outletId: selection.outletId } : undefined,
+        targetOutletId ? { outletId: targetOutletId } : undefined,
       ),
       listProducts(session.storeId),
     ]);

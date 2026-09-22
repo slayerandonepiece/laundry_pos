@@ -36,7 +36,7 @@ export function SalesChart({ points, previousPoints = [] }: { points: TrendPoint
           <circle cx={x(points.length - 1, points.length)} cy={y(points[points.length - 1].amount)} r="4.5" fill="var(--brand)"/>
         </>}
         {points.map((point, index) => <circle key={point.label} className="dashboard-chart-point" cx={x(index, points.length)} cy={y(point.amount)} r="10" fill="transparent" tabIndex={0} role="button"
-          aria-label={`${point.label}: ${money(point.amount)}`} onFocus={() => setSelected(index)} onBlur={() => setSelected(null)} onMouseEnter={() => setSelected(index)} onMouseLeave={() => setSelected(null)} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(index); } }}><title>{point.label}: {money(point.amount)}</title></circle>)}
+          aria-label={`${point.label}: ${money(point.amount)}`} onFocus={() => setSelected(index)} onBlur={() => setSelected(null)} onMouseEnter={() => setSelected(index)} onMouseLeave={() => setSelected(null)} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(index); } }}><title>{`${point.label}: ${money(point.amount)}`}</title></circle>)}
         {points.length > 0 && [0, Math.floor((points.length - 1) / 2), points.length - 1].filter((value, index, array) => array.indexOf(value) === index).map(index => <text key={index} x={index === 0 ? 10 : index === points.length - 1 ? plotWidth - 10 : plotWidth / 2} y="175" textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fontSize="10.5" fill="var(--muted)" fontFamily="var(--font-body)">{shortLabel(points[index].label)}</text>)}
       </svg>
       {picked && <output className="dashboard-chart-readout">{picked.label} · {money(picked.amount)}</output>}
@@ -94,7 +94,7 @@ export function EarningsDonut({ income, expenses }: { income: number; expenses: 
       </svg>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <span className="row" style={{ gap: '7px', fontSize: '12.5px', justifyContent: 'space-between' }}>
-          <span className="row" style={{ gap: '7px' }}><span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#0758d6', display: 'inline-block' }}></span>Earnings</span>
+          <span className="row" style={{ gap: '7px' }}><span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#0758d6', display: 'inline-block' }}></span>Collected</span>
           <strong className="mono">{money(income)} &middot; {Math.round(incPct)}%</strong>
         </span>
         <span className="row" style={{ gap: '7px', fontSize: '12.5px', justifyContent: 'space-between' }}>
