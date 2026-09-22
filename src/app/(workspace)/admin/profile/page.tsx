@@ -10,7 +10,7 @@ export default async function Page() {
   let serverProfile: Awaited<ReturnType<typeof getStoreProfile>> | undefined;
   let serverPaymentMethods: Awaited<ReturnType<typeof listOrganizationPaymentMethods>> = [];
   let serverOutlets: Awaited<ReturnType<typeof listOutletsForStoreAdmin>> = [];
-  let storeInfo = null;
+  let storeInfo: Awaited<ReturnType<typeof getStore>> | null = null;
   let ownerUsername: string | undefined;
   let passwordUpdatedAt: string | undefined;
   
@@ -39,5 +39,5 @@ export default async function Page() {
     if (!(error instanceof AuthError)) throw error;
   }
   
-  return <AdminScreenContainer screen="profile" serverProfile={serverProfile} serverPaymentMethods={serverPaymentMethods} serverOutlets={serverOutlets} storeInfo={storeInfo} ownerUsername={ownerUsername} passwordUpdatedAt={passwordUpdatedAt} />;
+  return <AdminScreenContainer screen="profile" serverProfile={serverProfile} serverOrgPaymentMethods={serverPaymentMethods} serverOutlets={serverOutlets} storeInfo={storeInfo} ownerUsername={ownerUsername} passwordUpdatedAt={passwordUpdatedAt} />;
 }

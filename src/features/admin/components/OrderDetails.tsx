@@ -4,7 +4,6 @@ import { money } from '../admin.data';
 import { Button, usePanelClose } from './Primitives';
 import OrderDeliveryDetails from './OrderDeliveryDetails';
 import OrderPaymentSummary from './OrderPaymentSummary';
-import OrderInvoiceActions from './OrderInvoiceActions';
 import { Dialog } from './ui';
 
 const statuses: WorkStatus[] = ['Pending', 'In Progress', 'Ready', 'Delivered'];
@@ -39,7 +38,7 @@ export default function OrderDetails({
           <OrderDeliveryDetails order={order}/>
           <section className="ad-detail-section ad-detail-note"><h3>Care instructions</h3><p className="ad-detail-notes">{order.notes || 'No special instructions added to this order.'}</p></section>
         </div>
-        <div className="ad-detail-summary"><OrderInvoiceActions orderCode={order.id}/><OrderPaymentSummary order={order} paymentMethods={paymentMethods} canRecordPayment={canRecordPayment} onPayment={onPayment}/><section className="ad-detail-section ad-detail-audit"><h3>Status history</h3>{order.history?.length ? <ol className="ad-status-history">{[...order.history].reverse().map((event, index) => <li key={event.at + index}><strong>{event.status}</strong><span>{event.by}</span><small>{new Date(event.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} IST</small></li>)}</ol> : <p>History was not recorded for this older order.</p>}</section></div>
+        <div className="ad-detail-summary"><OrderPaymentSummary order={order} paymentMethods={paymentMethods} canRecordPayment={canRecordPayment} onPayment={onPayment}/><section className="ad-detail-section ad-detail-audit"><h3>Status history</h3>{order.history?.length ? <ol className="ad-status-history">{[...order.history].reverse().map((event, index) => <li key={event.at + index}><strong>{event.status}</strong><span>{event.by}</span><small>{new Date(event.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} IST</small></li>)}</ol> : <p>History was not recorded for this older order.</p>}</section></div>
       </div>
     </div>
   );

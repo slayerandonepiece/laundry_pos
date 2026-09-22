@@ -2,11 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAdmin } from './AdminProvider';
-import { paid, paymentStatus, rangeFor, today, total, within } from '../admin.data';
+import { money, paid, paymentStatus, rangeFor, today, total, within } from '../admin.data';
 import { dashboardData } from '../admin.analytics';
 import { canAccess, homeFor } from '../admin.permissions';
 import type { Employee, Expense, Order, Product, Screen, StorePaymentMethod, WorkStatus } from '../admin.types';
-import type { OutletListItem } from '@/features/super-admin/types';
+import type { OutletListItem, StoreDetail } from '@/features/super-admin/types';
+import type { OrganizationPaymentMethodDTO } from '@/server/services/platform-payment-methods';
 import Login from '../components/Login';
 import Dashboard, { type DashboardOutlet, type DashboardOutletSummary } from '../components/Dashboard';
 import { DashboardLoading } from '../components/DashboardStates';
@@ -36,7 +37,7 @@ import { changePasswordAction, saveProfileAction } from '../actions/profile.acti
 import type { Profile as ProfileType } from '../admin.types';
 
 type Modal = { type: 'order'; id: string } | { type: 'newOrder' } | { type: 'product'; product?: Product } | { type: 'expense' } | { type: 'employee'; employee?: Employee } | null;
-export default function AdminScreenContainer({ screen, serverProducts, serverOrders, serverExpenses, serverOutlets, serverEmployees, serverProfile, serverPaymentMethods, ownerUsername, storeInfo, passwordUpdatedAt, serverSummaries, allOutletsSelected, outletName, dashboardOutlets, selectedOutletId, dashboardLoadFailed = false }: { screen: Screen; serverProducts?: Product[]; serverOrders?: Order[]; serverExpenses?: Expense[]; serverOutlets?: OutletListItem[]; serverEmployees?: Employee[]; serverProfile?: ProfileType; serverPaymentMethods?: StorePaymentMethod[]; ownerUsername?: string; serverSummaries?: DashboardOutletSummary[]; dashboardLoadFailed?: boolean; dashboardOutlets?: DashboardOutlet[]; selectedOutletId?: string; storeInfo?: unknown; passwordUpdatedAt?: string; allOutletsSelected?: boolean; outletName?: string }) {
+export default function AdminScreenContainer({ screen, serverProducts, serverOrders, serverExpenses, serverOutlets, serverEmployees, serverProfile, serverPaymentMethods, serverOrgPaymentMethods, ownerUsername, storeInfo, passwordUpdatedAt, serverSummaries, allOutletsSelected, outletName, dashboardOutlets, selectedOutletId, dashboardLoadFailed = false }: { screen: Screen; serverProducts?: Product[]; serverOrders?: Order[]; serverExpenses?: Expense[]; serverOutlets?: OutletListItem[]; serverEmployees?: Employee[]; serverProfile?: ProfileType; serverPaymentMethods?: StorePaymentMethod[]; serverOrgPaymentMethods?: OrganizationPaymentMethodDTO[]; ownerUsername?: string; serverSummaries?: DashboardOutletSummary[]; dashboardLoadFailed?: boolean; dashboardOutlets?: DashboardOutlet[]; selectedOutletId?: string; storeInfo?: StoreDetail | null; passwordUpdatedAt?: string; allOutletsSelected?: boolean; outletName?: string }) {
   const { period, setPeriod, range, setRange, ready, user, blockedReason, blockedPaidThroughDate, paymentWarning, login, logout } = useAdmin();
   const router = useRouter();
   const [dashboardPeriod, setDashboardPeriod] = useState('14d');
@@ -89,7 +90,9 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
   function updateStatus(next: WorkStatus) {
     if (!selected || next === selected.status || !['Pending', 'In Progress', 'Ready', 'Delivered'].includes(next)) return;
     const id = selected.id;
-    setConfirmation({ title: 'Update order status?', description: `Change ${id} from ${selected.status} to ${next}.`, confirmLabel: 'Update status', onConfirm: () => {
+    const balanceDue = total(selected) - paid(selected);
+    const deliverWithBalance = next === 'Delivered' && balanceDue > 0;
+    setConfirmation({ title: 'Update order status?', description: deliverWithBalance ? `${id} still has ${money(balanceDue)} due. Mark it delivered anyway?` : `Change ${id} from ${selected.status} to ${next}.`, confirmLabel: deliverWithBalance ? 'Deliver anyway' : 'Update status', onConfirm: () => {
       updateOrderStatusAction(id, next).then(() => { router.refresh(); setNotice('Order status updated'); setError(''); }).catch(() => setError('Could not update the status. Try again.'));
     } });
   }
@@ -108,7 +111,7 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
     if (!isOwner || modal?.type !== 'employee') return;
     const existing = modal.employee;
     if (!draft.name || !/^[a-z0-9._-]{3,40}$/.test(draft.username)) return setError('Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.');
-    if ((!existing || draft.password) && draft.password!.length < 8) return setError('Use a password with at least 8 characters.');
+    if ((!existing || draft.password) && (draft.password ?? '').length < 8) return setError('Use a password with at least 8 characters.');
     const save = () => {
       const action = existing ? updateEmployeeAction(existing.id, draft) : createEmployeeAction(draft);
       action.then(result => {
@@ -163,10 +166,10 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
       {isOwner && screen === 'employees' && <Employees employees={allEmployees.filter(employee => (employee.name + ' ' + employee.username).toLowerCase().includes(search))} outlets={allOutlets} search={query} onSearch={setQuery} onNew={() => open({ type: 'employee' })} onEdit={employee => open({ type: 'employee', employee })} onToggle={toggleEmployee}/>}
       {screen === 'outlets' && <OutletsList outlets={allOutlets} />}
       {isOwner && screen === 'expenses' && <Expenses expenses={allExpenses.filter(expense => within(expense.due, range) && (expense.title + expense.category).toLowerCase().includes(search))} outlets={allOutlets} onNew={() => open({ type: 'expense' })} onPaid={id => { if (!isOwner) return; setConfirmation({ title: 'Mark expense paid?', description: 'Record this bill as paid today.', confirmLabel: 'Mark paid', onConfirm: () => { markExpensePaidAction(id).then(() => { router.refresh(); setNotice('Expense marked paid'); }).catch(() => setError('Could not mark this expense paid. Try again.')); } }); }}/>}
-      {isOwner && screen === 'profile' && <Profile profile={allProfile} paymentMethods={serverPaymentMethods ?? []} outlets={serverOutlets ?? []} storeInfo={storeInfo} passwordUpdatedAt={passwordUpdatedAt} username={ownerUsername} onLogout={exit} error={error} onSave={profile => { if (!isOwner) return; saveProfileAction(profile).then(result => { if (!result.ok) return setError(result.error || 'Could not save your profile. Try again.'); router.refresh(); setError(''); setNotice('Profile updated'); }).catch(() => setError('Could not save your profile. Try again.')); }} onPassword={async (old, next, confirm) => { if (!isOwner) return false; if (next !== confirm || next === old || next.length < 8) { setError('Use a different password of at least 8 characters and confirm it exactly.'); return false; } try { const result = await changePasswordAction(old, next); if (!result.ok) { setError(result.error || 'Could not update your password. Try again.'); return false; } setError(''); setNotice('Password updated — signing you out for security.'); logout(); router.replace('/login'); return true; } catch { setError('Could not update your password. Try again.'); return false; } }}/>}
+      {isOwner && screen === 'profile' && <Profile profile={allProfile} paymentMethods={serverOrgPaymentMethods ?? []} outlets={serverOutlets ?? []} storeInfo={storeInfo ?? null} passwordUpdatedAt={passwordUpdatedAt} username={ownerUsername} onLogout={exit} error={error} onSave={profile => { if (!isOwner) return; saveProfileAction(profile).then(result => { if (!result.ok) return setError(result.error || 'Could not save your profile. Try again.'); router.refresh(); setError(''); setNotice('Profile updated'); }).catch(() => setError('Could not save your profile. Try again.')); }} onPassword={async (old, next, confirm) => { if (!isOwner) return false; if (next !== confirm || next === old || next.length < 8) { setError('Use a different password of at least 8 characters and confirm it exactly.'); return false; } try { const result = await changePasswordAction(old, next); if (!result.ok) { setError(result.error || 'Could not update your password. Try again.'); return false; } setError(''); setNotice('Password updated — signing you out for security.'); logout(); router.replace('/login'); return true; } catch { setError('Could not update your password. Try again.'); return false; } }}/>}
       {modal && modal.type !== 'expense' && modal.type !== 'employee' && modal.type !== 'product' && <Panel key={modal.type + (modal.type === 'order' ? modal.id : '')} title={title} headerContent={selected ? <OrderDetailsHeader order={selected}/> : undefined} variant={modal.type === 'order' ? 'details' : 'default'} onClose={() => setModal(null)} warnOnChanges={modal.type !== 'order'}>
         {selected && <OrderDetails order={selected} paymentMethods={serverPaymentMethods ?? []} canRecordPayment={true} error={error} onStatus={updateStatus} onPayment={recordPayment}/>}
-        {modal.type === 'newOrder' && <OrderEditorContainer products={allProducts} paymentMethods={serverPaymentMethods ?? []} onSave={input => createOrderAction(input).then(order => { router.refresh(); open({ type: 'order', id: order.id }); setNotice('Order saved'); })}/>}
+        {modal.type === 'newOrder' && <OrderEditorContainer products={allProducts} paymentMethods={serverPaymentMethods ?? []} outlets={allOutlets} onSave={(input, outletId) => createOrderAction(input, outletId).then(order => { router.refresh(); open({ type: 'order', id: order.id }); setNotice('Order saved'); })}/>}
       </Panel>}
       {modal?.type === 'product' && isOwner && (
         <ProductEditorContainer product={modal.product} error={error} onClose={() => setModal(null)} onSave={product => { saveProductAction(product).then(() => { router.refresh(); complete('Service saved'); }).catch(() => setError('Could not save the service. Try again.')); }}/>

@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Order, StorePaymentMethod, WorkStatus } from '../admin.types';
-import { dateLabel, money, total } from '../admin.data';
+import { dateLabel, money, paid, total } from '../admin.data';
 import { MultiSelectDropdown, SingleSelectDropdown } from './ui/Dropdown';
 import { Pagination } from './ui/Pagination';
 import { Pill } from './ui/Pill';
@@ -13,7 +13,7 @@ import ConfirmationDialog, { type Confirmation } from './ConfirmationDialog';
 import { Badge as UIBadge } from './ui/Badge';
 
 // The raw table for backwards compatibility (used by Sales/Dashboard) + new Orders UI
-export default function OrderTable({ orders, onSelect, compact = false, emptyText, storeOptions }: { orders: Order[]; onSelect: (o: Order) => void; compact?: boolean; emptyText?: string; storeOptions?: {storeId: string, storeName: string}[] }) {
+export default function OrderTable({ orders, onSelect, compact = false, emptyText, outlets }: { orders: Order[]; onSelect: (o: Order) => void; compact?: boolean; emptyText?: string; outlets?: { id: string; name: string }[] }) {
   const [page, setPage] = useState(0);
   const pageSize = compact ? 5 : 10;
   const last = Math.max(0, Math.ceil(orders.length / pageSize) - 1);
@@ -32,7 +32,7 @@ export default function OrderTable({ orders, onSelect, compact = false, emptyTex
     return () => observer.disconnect();
   }, [current, last]);
 
-  const getStoreName = (id?: string) => storeOptions?.find(s => s.storeId === id)?.storeName || 'Organization-wide';
+  const getOutletName = (id?: string) => outlets?.find(outlet => outlet.id === id)?.name || 'Organization-wide';
 
   // Desktop Table (Grid)
   const desktopTable = (
@@ -41,7 +41,7 @@ export default function OrderTable({ orders, onSelect, compact = false, emptyTex
         <tr>
           <th>Order</th>
           <th>Customer</th>
-          {storeOptions && <th>Outlet</th>}
+          {outlets && <th>Outlet</th>}
           <th>Status</th>
           <th>Date</th>
           <th className="num">Amount</th>
@@ -52,7 +52,7 @@ export default function OrderTable({ orders, onSelect, compact = false, emptyTex
           <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(o)}>
             <td className="mono" style={{ fontWeight: 600 }}>{o.id}</td>
             <td>{o.name || 'Walk-in customer'}</td>
-            {storeOptions && <td>{getStoreName(o.outletId)}</td>}
+            {outlets && <td>{getOutletName(o.outletId)}</td>}
             <td>
               <UIBadge tone={o.status === 'Delivered' ? 'on' : o.status === 'Pending' ? 'warn' : 'warn'}>{o.status}</UIBadge>
             </td>
@@ -91,7 +91,7 @@ export default function OrderTable({ orders, onSelect, compact = false, emptyTex
                  </div>
                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--muted)' }}>
                    <span>{o.name || 'Walk-in'}</span>
-                   {storeOptions && <span>{getStoreName(o.outletId)}</span>}
+                   {outlets && <span>{getOutletName(o.outletId)}</span>}
                  </div>
                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                    <span className="mono" style={{ fontSize: '15px', fontWeight: 700 }}>{money(total(o))}</span>
@@ -119,7 +119,7 @@ export default function OrderTable({ orders, onSelect, compact = false, emptyTex
   );
 }
 
-export function OrdersClient({ serverOrders, paymentMethods, storeOptions }: { serverOrders: Order[]; paymentMethods: StorePaymentMethod[]; storeOptions: {storeId: string, storeName: string}[] }) {
+export function OrdersClient({ serverOrders, paymentMethods, outlets }: { serverOrders: Order[]; paymentMethods: StorePaymentMethod[]; outlets: { id: string; name: string }[] }) {
   const router = useRouter();
   const [selectedOutlets, setSelectedOutlets] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState('All status');
@@ -127,12 +127,14 @@ export function OrdersClient({ serverOrders, paymentMethods, storeOptions }: { s
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
   
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  // Keep only the code: the open order is read from serverOrders so it reflects router.refresh().
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedOrder = selectedId ? serverOrders.find(order => order.id === selectedId) ?? null : null;
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const outletOptions = storeOptions.map(s => ({ value: s.storeId, label: s.storeName }));
+  const outletOptions = outlets.map(outlet => ({ value: outlet.id, label: outlet.name }));
   const statusOptions = [
     { value: 'All status', label: 'All status' },
     { value: 'Pending', label: 'Pending' },
@@ -158,16 +160,17 @@ export function OrdersClient({ serverOrders, paymentMethods, storeOptions }: { s
   const handleStatusUpdate = (next: WorkStatus) => {
     if (!selectedOrder || next === selectedOrder.status) return;
     const id = selectedOrder.id;
+    const balanceDue = total(selectedOrder) - paid(selectedOrder);
+    const deliverWithBalance = next === 'Delivered' && balanceDue > 0;
     setConfirmation({
       title: 'Update order status?',
-      description: `Change ${id} from ${selectedOrder.status} to ${next}.`,
-      confirmLabel: 'Update status',
+      description: deliverWithBalance ? `${id} still has ${money(balanceDue)} due. Mark it delivered anyway?` : `Change ${id} from ${selectedOrder.status} to ${next}.`,
+      confirmLabel: deliverWithBalance ? 'Deliver anyway' : 'Update status',
       onConfirm: () => {
         updateOrderStatusAction(id, next).then(() => {
           router.refresh();
           setNotice('Order status updated');
           setError('');
-          setSelectedOrder({ ...selectedOrder, status: next });
         }).catch(() => setError('Could not update the status. Try again.'));
       }
     });
@@ -201,9 +204,10 @@ export function OrdersClient({ serverOrders, paymentMethods, storeOptions }: { s
           }
         `}</style>
         <div className="orders-desktop-filters">
-          {storeOptions.length > 0 && (
+          {outlets.length > 1 && (
             <MultiSelectDropdown
               label="Outlets"
+              emptyLabel="All outlets"
               options={outletOptions}
               selected={selectedOutlets}
               onChange={setSelectedOutlets}
@@ -227,7 +231,7 @@ export function OrdersClient({ serverOrders, paymentMethods, storeOptions }: { s
            ))}
         </div>
 
-        <OrderTable orders={filteredOrders} onSelect={setSelectedOrder} storeOptions={storeOptions} emptyText={search || selectedOutlets.length ? 'No orders match this search. Try another filter.' : undefined} />
+        <OrderTable orders={filteredOrders} onSelect={order => setSelectedId(order.id)} outlets={outlets.length > 1 ? outlets : undefined} emptyText={search || selectedOutlets.length ? 'No orders match this search. Try another filter.' : undefined} />
       </div>
 
       {selectedOrder && (
@@ -238,7 +242,7 @@ export function OrdersClient({ serverOrders, paymentMethods, storeOptions }: { s
           onStatus={handleStatusUpdate}
           onPayment={handlePaymentRecord}
           error={error}
-          onClose={() => setSelectedOrder(null)}
+          onClose={() => setSelectedId(null)}
         />
       )}
       

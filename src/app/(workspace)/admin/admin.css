@@ -151,6 +151,8 @@
 .ad-employee-actions{display:flex;gap:8px;flex-wrap:wrap}
 @media(max-width:767px){
  .ad-workspace{margin-left:0}.ad-topbar{height:56px;padding:0 16px}
+ .ad-avatar{width:40px;height:40px}
+ .ad-root .ad-checkbox{min-height:40px}
  .ad-user-role{max-width:90px;font-size:11px}
  .ad-delivery-reminder{flex-wrap:wrap;gap:4px}.ad-section-label{gap:8px;font-size:11px}
  .ad-main{min-height:calc(100dvh - 56px);padding:16px 16px 0}
@@ -170,6 +172,11 @@
  .ad-form-footer strong{font-size:22px}.ad-form-footer .ad-button{padding:10px 12px}
  .ad-form-grid{gap:12px}.ad-root footer.ad-bottom{padding:12px 0 max(14px,env(safe-area-inset-bottom))}
  .ad-root.ad-confirm-dialog{padding:18px}.ad-confirm-actions{display:grid;grid-template-columns:1fr 1fr}
+ .ad-root .ad-details-header{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .ad-root .ad-details-header>div:not(.ad-order-title-row){padding:8px 9px;gap:2px}
+ .ad-root .ad-details-header small{font-size:10px}
+ .ad-root .ad-details-header strong{font-size:13px}
+ .ad-root .ad-details-header span,.ad-root .ad-details-header a{font-size:11px}
 }
 @media(max-width:560px){.ad-payment-method-row{align-items:stretch;flex-wrap:wrap}.ad-payment-method-row>div:first-child,.ad-payment-method-edit{flex-basis:100%}.ad-payment-method-add{grid-template-columns:1fr}}
 @media(max-height:500px){.ad-dialog>header{padding-block:8px}.ad-dialog>header .ad-eyebrow{display:none}.ad-order-form .ad-form-footer{padding-block:8px}.ad-sidebar-bottom{padding-top:12px}.ad-store-note{display:none}}
@@ -231,3 +238,6 @@
 .ad-store-switcher-empty{padding:8px 10px;font-size:12px}
 @media(max-width:767px){.ad-store-switcher-trigger{max-width:150px}.ad-topbar .ad-row:first-child{flex-wrap:wrap;row-gap:8px}}
 @media(min-width:768px) and (max-width:1199px){.ad-dialog{width:min(560px,100%);max-width:min(560px,100%)}}
+
+/* Bill/Invoice card: compact line breakdown (name, qty × rate, amount) */
+.ad-bill-lines .ad-history span small{display:block;color:var(--color-muted);font-size:12px}

@@ -36,12 +36,26 @@
   color: var(--ink);
   cursor: pointer;
   user-select: none;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
 }
 .switcher-trigger:hover {
   background: #f8fafd;
   border-color: #d6dde7;
 }
+.switcher-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.switcher-caret {
+  flex: none;
+  margin-left: 2px;
+  color: var(--color-muted);
+}
 
+/* Left offset is set by useDropdownMenu so the popup stays inside the viewport. */
 .switcher-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -50,7 +64,9 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(16, 32, 57, 0.14);
-  min-width: 230px;
+  width: max-content;
+  min-width: min(230px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   padding: 6px;
   z-index: 60;
 }
@@ -59,6 +75,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  overflow-wrap: anywhere;
   padding: 9px 10px;
   border-radius: 7px;
   font-size: 13.5px;
@@ -179,6 +198,11 @@
   background: var(--ink);
   color: #fff;
   border-color: var(--ink);
+}
+@media (max-width: 767px) {
+  .pill {
+    min-height: 40px;
+  }
 }
 
 /* Buttons */
@@ -347,7 +371,9 @@ table.grid th.num {
 .dropdown-wrap {
   position: relative;
   display: inline-block;
+  max-width: 100%;
 }
+/* Left offset is set by useDropdownMenu so the popup stays inside the viewport. */
 .dropdown-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -356,32 +382,59 @@ table.grid th.num {
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(16, 32, 57, 0.14);
-  min-width: 230px;
+  width: max-content;
+  min-width: min(230px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   max-height: 360px;
   overflow-y: auto;
   padding: 8px;
   z-index: 40;
 }
-.dropdown-check-row {
+/* Scoped under .dropdown-menu so it outranks the form-field `.ad-root label`
+   (column, bold) and `.ad-root input` (44px tall, padded) rules in admin.css. */
+.dropdown-menu .dropdown-check-row {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 9px;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 36px;
   padding: 8px 9px;
   border-radius: 7px;
   font-size: 13px;
+  font-weight: 400;
+  line-height: 1.35;
   color: var(--ink);
   cursor: pointer;
   user-select: none;
+  overflow-wrap: anywhere;
 }
-.dropdown-check-row:hover {
+.dropdown-menu .dropdown-check-row:hover {
   background: #f4f6fa;
 }
-.dropdown-check-row input {
-  width: 15px;
-  height: 15px;
+.dropdown-menu .dropdown-check-row.dropdown-check-all {
+  font-weight: 600;
+}
+.dropdown-menu .dropdown-check-row input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
   accent-color: var(--brand);
   margin: 0;
   cursor: pointer;
+}
+.dropdown-menu .dropdown-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.dropdown-menu .dropdown-hint,
+.dropdown-menu .dropdown-empty {
+  margin: 6px 9px 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 .dropdown-menu .dropdown-foot {
   display: flex;
@@ -391,21 +444,56 @@ table.grid th.num {
   border-top: 1px solid var(--border);
   margin-top: 4px;
 }
-.dropdown-radio-row {
+.dropdown-menu .dropdown-foot .btn {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+.dropdown-menu .dropdown-radio-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
   padding: 8px 9px;
+  border: 0;
   border-radius: 7px;
+  background: transparent;
+  font: inherit;
   font-size: 13px;
+  text-align: left;
   color: var(--ink);
   cursor: pointer;
   user-select: none;
+  overflow-wrap: anywhere;
 }
-.dropdown-radio-row:hover {
+.dropdown-menu .dropdown-check {
+  flex: none;
+  color: var(--brand-ink);
+  font-weight: 700;
+}
+/* Inset focus ring: the default 3px outside ring is clipped by the scrolling popup. */
+.dropdown-menu .dropdown-radio-row:focus-visible,
+.switcher-menu .switcher-option:focus-visible {
+  outline: 2px solid #80adf4;
+  outline-offset: -2px;
+}
+@media (pointer: coarse), (max-width: 767px) {
+  /* Whole row is the touch target. */
+  .dropdown-menu .dropdown-check-row,
+  .dropdown-menu .dropdown-radio-row,
+  .switcher-menu .switcher-option {
+    min-height: 44px;
+  }
+  .dropdown-menu .dropdown-foot .btn {
+    min-height: 40px;
+  }
+}
+.dropdown-menu .dropdown-radio-row:hover {
   background: #f4f6fa;
 }
-.dropdown-radio-row.active {
+.dropdown-menu .dropdown-radio-row.active {
   background: var(--tint);
   color: var(--brand-ink);
   font-weight: 700;
@@ -749,6 +837,39 @@ table.grid th.num {
   }
 }
 
+/* Outlets list (OutletsList.tsx) — same table/card fallback pattern as Catalogue above */
+.outlet-table-wrap {
+  overflow-x: auto;
+}
+.outlet-cards {
+  display: none;
+}
+@media (max-width: 767px) {
+  .outlet-table-wrap {
+    display: none;
+  }
+  .outlet-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+  }
+  .outlet-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .outlet-card-view {
+    align-self: flex-start;
+    min-height: 40px;
+  }
+}
+
 /* Avatar & Section Note */
 .avatar {
   width: 31px;
@@ -801,3 +922,98 @@ table.grid th.num {
   }
 }
 
+/* Employees list — same table/card split as the Catalogue. The breakpoint is
+   wider than the catalogue's because the four-column table (with two row
+   actions) needs ~500px of card width, which the sidebar layout doesn't
+   leave until ~900px. */
+.employees-table-wrap {
+  overflow-x: auto;
+}
+.employees-cards {
+  display: none;
+}
+@media (max-width: 900px) {
+  .employees-table-wrap {
+    display: none;
+  }
+  .employees-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .employee-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .employee-card-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .employee-card-actions .btn {
+    flex: 1;
+    min-height: 40px;
+  }
+}
+
+/* new-sale form */
+.ad-sale-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-weight: 600;
+  min-width: 0;
+}
+.ad-entry .ad-sale-field {
+  font-size: 12px;
+}
+.ad-sale-select {
+  display: block;
+  width: 100%;
+}
+.ad-sale-select .switcher-trigger {
+  width: 100%;
+  min-height: 44px;
+  justify-content: space-between;
+  font-weight: 500;
+}
+.ad-sale-received {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.ad-sale-received input {
+  flex: 1;
+  min-width: 0;
+}
+.ad-sale-received .ad-button {
+  flex: none;
+  white-space: nowrap;
+}
+.ad-sale-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  min-width: 0;
+}
+.ad-form-footer .ad-sale-totals strong {
+  font-size: 18px;
+}
+.ad-form-footer .ad-sale-totals span:last-child strong {
+  color: var(--ad-blue);
+}
+@media (max-width: 767px) {
+  .ad-entry > .ad-sale-service {
+    grid-column: 1 / 3;
+  }
+  .ad-sale-totals {
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+}
