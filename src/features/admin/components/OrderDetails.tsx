@@ -1,6 +1,5 @@
 'use client';
 import type { Order, StorePaymentMethod, WorkStatus } from '../admin.types';
-import { money } from '../admin.data';
 import { Button, usePanelClose } from './Primitives';
 import OrderDeliveryDetails from './OrderDeliveryDetails';
 import OrderPaymentSummary from './OrderPaymentSummary';
@@ -34,7 +33,6 @@ export default function OrderDetails({
     <div className="ad-order-detail-content">
       <div className="ad-detail-columns">
         <div className="ad-detail-main">
-          <section className="ad-detail-section"><h3>Items ({order.lines.length})</h3><div className="ad-detail-items-scroll"><table className="ad-items-table"><thead><tr><th>#</th><th>Service</th><th>Qty / kg</th><th>Amount</th></tr></thead><tbody>{order.lines.map((line,index) => <tr key={line.productId+index}><td>{index+1}</td><td>{line.name}</td><td>{line.quantity} {line.unit}</td><td>{money(line.amount)}</td></tr>)}</tbody></table></div></section>
           <OrderDeliveryDetails order={order}/>
           <section className="ad-detail-section ad-detail-note"><h3>Care instructions</h3><p className="ad-detail-notes">{order.notes || 'No special instructions added to this order.'}</p></section>
         </div>

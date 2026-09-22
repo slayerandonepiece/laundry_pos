@@ -8,6 +8,8 @@ import { Pagination } from './ui/Pagination';
 import { Pill } from './ui/Pill';
 import { Sentinel, EmptyState } from './ui/ListStates';
 import OrderDetails from './OrderDetails';
+import OrderDetailsHeader from './OrderDetailsHeader';
+import { Panel } from './Primitives';
 import { recordPaymentAction, updateOrderStatusAction } from '../actions/orders.actions';
 import ConfirmationDialog, { type Confirmation } from './ConfirmationDialog';
 import { Badge as UIBadge } from './ui/Badge';
@@ -235,15 +237,22 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
       </div>
 
       {selectedOrder && (
-        <OrderDetails
-          asDialog={true}
-          order={selectedOrder}
-          paymentMethods={paymentMethods}
-          onStatus={handleStatusUpdate}
-          onPayment={handlePaymentRecord}
-          error={error}
+        <Panel
+          variant="details"
+          title={selectedOrder.id}
+          headerContent={<OrderDetailsHeader order={selectedOrder} outletName={outlets.find(outlet => outlet.id === selectedOrder.outletId)?.name || 'Organization-wide'} />}
           onClose={() => setSelectedId(null)}
-        />
+          warnOnChanges={false}
+        >
+          <OrderDetails
+            order={selectedOrder}
+            paymentMethods={paymentMethods}
+            onStatus={handleStatusUpdate}
+            onPayment={handlePaymentRecord}
+            error={error}
+            onClose={() => setSelectedId(null)}
+          />
+        </Panel>
       )}
       
       {confirmation && <ConfirmationDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation.onConfirm; setConfirmation(null); action(); }}/>}

@@ -177,6 +177,7 @@
  .ad-root .ad-details-header small{font-size:10px}
  .ad-root .ad-details-header strong{font-size:13px}
  .ad-root .ad-details-header span,.ad-root .ad-details-header a{font-size:11px}
+ .ad-root .ad-details-header>div:last-child{grid-column:auto}
 }
 @media(max-width:560px){.ad-payment-method-row{align-items:stretch;flex-wrap:wrap}.ad-payment-method-row>div:first-child,.ad-payment-method-edit{flex-basis:100%}.ad-payment-method-add{grid-template-columns:1fr}}
 @media(max-height:500px){.ad-dialog>header{padding-block:8px}.ad-dialog>header .ad-eyebrow{display:none}.ad-order-form .ad-form-footer{padding-block:8px}.ad-sidebar-bottom{padding-top:12px}.ad-store-note{display:none}}
@@ -241,3 +242,4 @@
 
 /* Bill/Invoice card: compact line breakdown (name, qty × rate, amount) */
 .ad-bill-lines .ad-history span small{display:block;color:var(--color-muted);font-size:12px}
+.ad-details-header>div:last-child strong{white-space:nowrap}

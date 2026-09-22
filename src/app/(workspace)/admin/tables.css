@@ -68,7 +68,7 @@
 .ad-dialog-details{container-type:inline-size}
 .ad-dialog-details>header{position:relative;padding:12px 16px}
 .ad-dialog-details>header>.ad-icon-button{position:absolute;right:12px;top:10px}
-.ad-details-header{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%}
+.ad-details-header{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;width:100%}
 .ad-details-header>div:not(.ad-order-title-row){padding:9px;background:#f7f9fc;border:1px solid #eef1f6;border-radius:6px}
 .ad-details-header>.ad-order-title-row{grid-column:1/-1;display:flex;flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px;padding-right:40px;min-height:30px}
 .ad-order-title-row h2{font-size:17px!important;overflow-wrap:anywhere}
@@ -106,7 +106,6 @@
 @container(max-width:560px){
  .ad-detail-columns{grid-template-columns:1fr}
  .ad-details-header{grid-template-columns:1fr 1fr}
- .ad-details-header>div:last-child{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between}
  .ad-detail-items-scroll{max-height:38dvh}
  .ad-dialog-details .ad-detail-footer label{flex-wrap:wrap}
 }
@@ -126,7 +125,7 @@
 .ad-detail-columns{gap:18px;grid-template-columns:minmax(0,3fr) minmax(0,2fr)}
 .ad-detail-main,.ad-detail-summary{display:flex;flex-direction:column;align-items:stretch;gap:18px}
 .ad-dialog-details .ad-detail-section{padding:16px;border-radius:10px}
-.ad-dialog-details .ad-detail-section>h3,.ad-dialog-details .ad-payment-heading h3{font-size:16px;font-weight:650;letter-spacing:-.015em;margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid #e6edf7}
+.ad-dialog-details .ad-detail-section>h3,.ad-dialog-details .ad-payment-heading h3,.ad-dialog-details .ad-form h3{font-size:16px;font-weight:650;letter-spacing:-.015em;margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid #e6edf7}
 .ad-dialog-details .ad-detail-items-scroll{max-height:none;overflow-x:auto}
 .ad-dialog-details .ad-items-table{font-size:13px;font-variant-numeric:tabular-nums}
 .ad-dialog-details .ad-items-table th,.ad-dialog-details .ad-items-table td{padding:11px 9px}
@@ -134,6 +133,7 @@
 .ad-dialog-details .ad-receipt{margin:10px 0 22px}
 .ad-dialog-details .ad-receipt>div{font-size:14px;padding:7px 0}
 .ad-dialog-details .ad-receipt .ad-balance{padding:14px 10px;font-size:15px;margin-top:12px}
+.ad-dialog-details .ad-receipt .ad-balance.ad-balance-paid{background:#f0fdf4;border-color:#bbf7d0;color:#15803d}
 .ad-payment-heading .ad-badge{font-size:12px}
 .ad-dialog-details .ad-status-history li{position:relative;gap:5px;padding:0 0 20px 15px;font-size:14px}
 .ad-dialog-details .ad-status-history li::before{content:"";position:absolute;left:-5px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--ad-blue);box-shadow:0 0 0 3px #eef4ff}
@@ -145,7 +145,13 @@
 .ad-delivery-steps{display:grid;grid-template-columns:repeat(var(--step-count,4),minmax(0,1fr));list-style:none;gap:8px;padding:0;margin:0 0 16px}
 .ad-delivery-steps li{display:flex;flex-direction:column;gap:5px}
 .ad-step-indicator{height:4px;background:#e2e8f0;border-radius:4px;margin-bottom:5px}
-.ad-delivery-steps [aria-current=step] .ad-step-indicator{background:var(--ad-blue)}
+.ad-delivery-steps li[data-state=completed] .ad-step-indicator{background:#16a34a}
+.ad-delivery-steps li[data-state=completed] strong{color:#15803d}
+.ad-delivery-steps li[data-state=current] .ad-step-indicator,.ad-delivery-steps [aria-current=step] .ad-step-indicator{background:var(--ad-blue);height:5px}
+.ad-delivery-steps li[data-state=current] strong,.ad-delivery-steps [aria-current=step] strong{color:var(--ad-blue);font-weight:700}
+.ad-delivery-steps li[data-state=future] .ad-step-indicator{background:#e2e8f0}
+.ad-delivery-steps li[data-state=future] strong{color:var(--ad-muted);font-weight:500}
+.ad-delivery-steps li[data-state=future] small{opacity:0.7}
 .ad-delivery-steps strong{font-size:12px}
 .ad-delivery-steps small{font-size:11px;color:var(--ad-muted)}
 .ad-dialog-details .ad-detail-footer{padding:12px 20px}
@@ -155,7 +161,6 @@
 @container(max-width:680px){
  .ad-detail-columns{grid-template-columns:1fr}
  .ad-details-header{grid-template-columns:1fr 1fr}
- .ad-details-header>div:last-child{grid-column:1/-1}
 }
 @media(max-width:767px){
  .ad-dialog-details>header,.ad-order-detail-content{padding:16px}

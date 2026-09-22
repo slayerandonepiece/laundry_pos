@@ -48,13 +48,15 @@ export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
   const paymentMethods = [...new Set(invoice.payments.map(p => p.method))];
   const methodLabel = paymentMethods.length === 0 ? '-' : paymentMethods.length === 1 ? paymentMethodLabel(paymentMethods[0]) : 'Multiple';
 
+  const storeContactParts = [invoice.store.address?.trim(), invoice.store.phone?.trim()].filter(Boolean);
+
   return (
     <Document title={invoiceNumber}>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <View>
             <Text style={styles.brand}>{invoice.store.name}</Text>
-            <Text style={styles.brandSub}>{invoice.store.address || '-'}{invoice.store.phone ? ` · ${invoice.store.phone}` : ''}</Text>
+            {storeContactParts.length > 0 && <Text style={styles.brandSub}>{storeContactParts.join(' · ')}</Text>}
           </View>
           <View>
             <Text style={styles.invoiceTitle}>{invoiceNumber}</Text>
