@@ -22,5 +22,7 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><AdminProvider>{children}</AdminProvider></body></html>;
+  // Browser extensions (e.g. LocatorJS) add attributes to <html> before React
+  // hydrates; this only silences attribute diffs on this one element.
+  return <html lang="en" suppressHydrationWarning><body><AdminProvider>{children}</AdminProvider></body></html>;
 }
