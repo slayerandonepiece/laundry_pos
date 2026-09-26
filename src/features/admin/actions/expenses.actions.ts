@@ -1,17 +1,20 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireOutletSession, requireStoreSession, resolveOutletSelection, resolveStoreSelection } from '@/server/auth/session';
+import { requireStoreSession, resolveStoreSelection } from '@/server/auth/session';
 import { createExpense, markExpensePaid, type CreateExpenseInput } from '@/server/services/expenses';
 import type { Expense } from '../admin.types';
 
+// Note: createExpenseAction no longer forces the cookie-selected outlet.
+// The outletId (null = org-wide, string = one outlet) comes from the form
+// via input.outletId and is validated inside createExpense() against the store.
 export async function createExpenseAction(input: CreateExpenseInput): Promise<Expense> {
   const storeSelection = await resolveStoreSelection();
-  const storeSession = await requireStoreSession(storeSelection?.multiStore ? storeSelection.storeId : undefined, 'OWNER');
-  const outletSelection = await resolveOutletSelection(storeSession);
-  if (!outletSelection.outletId) throw new Error('Select an active outlet before creating an expense.');
-  const session = await requireOutletSession(storeSession.storeId, outletSelection.outletId, 'OWNER', storeSession);
-  const expense = await createExpense(session.storeId, input, session.outletId);
+  const session = await requireStoreSession(
+    storeSelection?.multiStore ? storeSelection.storeId : undefined,
+    'OWNER',
+  );
+  const expense = await createExpense(session.storeId, input);
   revalidatePath('/admin/expenses');
   return expense;
 }

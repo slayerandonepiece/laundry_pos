@@ -1,21 +1,32 @@
-import AdminScreenContainer from '@/features/admin/containers/AdminScreenContainer';
 import { listOrders } from '@/server/services/orders';
-import { listProducts } from '@/server/services/products';
-import { listStorePaymentMethods } from '@/server/services/payment-methods';
+import { listOrganizationPaymentMethods } from '@/server/services/platform-payment-methods';
+import { listOutletsForStore } from '@/server/services/outlets';
 import { requireStoreSession, resolveStoreSelection, AuthError } from '@/server/auth/session';
+import { OrdersClient } from '@/features/admin/components/OrderTable';
+import type { StorePaymentMethod } from '@/features/admin/admin.types';
 
 export default async function Page() {
   let serverOrders: Awaited<ReturnType<typeof listOrders>> = [];
-  let serverProducts: Awaited<ReturnType<typeof listProducts>> = [];
-  let serverPaymentMethods: Awaited<ReturnType<typeof listStorePaymentMethods>> = [];
+  let serverPaymentMethods: StorePaymentMethod[] = [];
+  let outlets: { id: string; name: string }[] = [];
+  
   try {
-    // Orders always requires one specific store — no "All stores" view
-    // outside Dashboard (Item 2).
     const selection = await resolveStoreSelection();
     const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined);
-    [serverOrders, serverProducts, serverPaymentMethods] = await Promise.all([listOrders(session.storeId), listProducts(session.storeId), listStorePaymentMethods(session.storeId)]);
+    let storeOutlets: Awaited<ReturnType<typeof listOutletsForStore>>;
+    let orgMethods: Awaited<ReturnType<typeof listOrganizationPaymentMethods>>;
+    [serverOrders, orgMethods, storeOutlets] = await Promise.all([
+      listOrders(session.storeId), 
+      listOrganizationPaymentMethods(session.storeId),
+      listOutletsForStore(session.storeId)
+    ]);
+    serverPaymentMethods = orgMethods
+      .filter(method => method.enabled)
+      .map(method => ({ id: method.id, storeId: session.storeId, name: method.name, active: true }));
+    outlets = storeOutlets.map(outlet => ({ id: outlet.id, name: outlet.displayName }));
   } catch (error) {
     if (!(error instanceof AuthError)) throw error;
   }
-  return <AdminScreenContainer screen="orders" serverOrders={serverOrders} serverProducts={serverProducts} serverPaymentMethods={serverPaymentMethods} />;
+  
+  return <OrdersClient serverOrders={serverOrders} paymentMethods={serverPaymentMethods} outlets={outlets} />;
 }

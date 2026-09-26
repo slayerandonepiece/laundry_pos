@@ -1,6 +1,13 @@
 # Express Laundry — Mobile & Client HTTP API Specification (`/api/v1`)
 
-This document is the authoritative contract for frontend and mobile clients (Flutter "MyShop", etc.) consuming the Express Laundry backend API.
+This document is the endpoint reference for frontend and mobile clients
+(Flutter "MyShop", etc.) consuming the Express Laundry backend API — paths,
+methods, request and response shapes.
+
+> **For outlet scoping and payment-method resolution, `.agents/MOBILE-API-CONTRACT.md`
+> is authoritative.** It is generated from the route handlers with `file:line`
+> citations and states which calls *require* an outlet and why. This file
+> summarises those rules; where the two differ, the contract file wins.
 
 ---
 
@@ -22,6 +29,21 @@ Except for `POST /api/v1/auth/login`, all endpoints require:
   - Identifies which tenant store is being operated on.
   - **Mandatory** for multi-store owners.
   - **Optional** for single-store owners and employees (auto-resolves if omitted).
+- **Outlet Context Header**: `X-Outlet-Id: <outletId>`
+  - Identifies which physical outlet of the organization is being operated on.
+    Also accepted as an `?outletId=` query parameter.
+  - **Mandatory for `EMPLOYEE`** on `GET|POST /api/v1/orders`,
+    `GET /api/v1/orders/sync`, `POST /api/v1/orders/bulk-sync` and
+    `GET /api/v1/dashboard/rollups` — those calls return `403 Forbidden`
+    without it. The server deliberately never falls back to a default outlet
+    for an employee.
+  - **Optional for `OWNER`**: omitting it means "the whole organization".
+    Never send an empty string — absence is meaningful.
+  - **Ignored** on the per-order routes (`/orders/[orderCode]/**`), which
+    derive the outlet from the order itself.
+  - **`GET /api/v1/dashboard` reads `?outletId=` only** and ignores the header.
+  - `POST /api/v1/orders` returns `400` if the header and `body.outletId`
+    disagree.
 - **Content-Type Header**: `Content-Type: application/json` for requests with JSON body.
 
 ### 3. Response Headers
@@ -593,49 +615,67 @@ Bulk synchronizes offline-queued mutations (order creations, status changes, pay
 
 ## 6. Payment Methods
 
+Payment methods are **organization-level**, drawn from a platform catalogue
+that only Super Admin can add to. An owner enables or disables which of them
+their organization accepts; nobody creates or renames one through this API.
+
+This matters at checkout: an outlet-owned order is validated against an
+**enabled** `OrganizationPaymentMethod`, matched by id, code or
+case-insensitive name. A method that is not in this list will be rejected
+with `400 "That payment method is no longer available."` Submit the `name`
+exactly as returned.
+
+An organization with no enabled methods can take no prepaid order and collect
+no balance — its owner must enable one in the web workspace
+(Profile → Payment methods). Clients should show that as an empty state, not
+fall back to a hardcoded "Cash".
+
 ### `GET /api/v1/payment-methods`
 
-Lists store-configured payment methods (e.g. Cash, UPI, Card).
+Lists the organization's **enabled** payment methods.
 
 - **Auth**: Bearer token + `X-Store-Id`.
+- **Query**: `?all=true` also returns disabled methods, for an owner's
+  settings screen.
 - **Response `200 OK`**:
   ```json
   [
-    { "id": "pm_1", "name": "Cash", "active": true },
-    { "id": "pm_2", "name": "UPI", "active": true }
+    { "id": "ppm_1", "code": "CASH", "name": "Cash", "enabled": true },
+    { "id": "ppm_2", "code": "UPI", "name": "Upi", "enabled": true }
   ]
   ```
+  `id` is the **platform** method id — the same id `PATCH` takes.
 
 ---
 
 ### `POST /api/v1/payment-methods`
 
-Creates a custom payment method. **Restricted to `OWNER`**.
-
-- **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
-- **Request Body**:
-  ```json
-  {
-    "name": "Store QR Code"
-  }
-  ```
-- **Response `201 Created`**: Returns created method `{ "id": "...", "name": "...", "active": true }`.
+**Retired.** Always returns `410 Gone`. A store-local method could never pay
+an outlet-owned order. The catalogue is managed by Super Admin; an owner only
+toggles enablement.
 
 ---
 
 ### `PATCH /api/v1/payment-methods/[id]`
 
-Renames or toggles active status. **Restricted to `OWNER`**.
+Enables or disables a catalogue method for this organization. **Restricted to
+`OWNER`**.
 
 - **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
 - **Request Body**:
   ```json
-  {
-    "name": "Updated Name",
-    "active": false
-  }
+  { "enabled": false }
   ```
-- **Response `200 OK`**: Returns updated method.
+  `active` is accepted as an alias for `enabled`.
+- **Response `200 OK`**: `{ "id": "...", "code": "...", "name": "...", "enabled": false }`
+- **`400`** if `name` is supplied — display names belong to the platform
+  catalogue and are shared across organizations.
+
+---
+
+> **Deprecated:** `GET /api/v1/payment-methods/platform` and
+> `PATCH /api/v1/payment-methods/platform/[id]` are duplicates of the two
+> routes above. They still exist but no client should use them.
 
 ---
 

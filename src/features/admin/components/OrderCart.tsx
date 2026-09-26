@@ -37,6 +37,6 @@ export default function OrderCart({ draft, lines, paymentMethods, error, busy, o
         <label>Notes<input value={draft.notes} onChange={e => onChange({ notes: e.target.value })} placeholder="Optional"/></label>
       </div></div>
     </div>}
-    <div className="ad-pos-cart-footer">{error && <p role="alert" className="ad-error">{error}</p>}<div><span>Order total</span><strong>{money(amount)}</strong></div><Button type="submit" disabled={busy || (Boolean(draft.customerReady) && !lines.length)}>{!draft.customerReady ? 'Continue →' : busy ? 'Saving…' : 'Punch order ↗'}</Button></div>
+    <div className="ad-pos-cart-footer">{error && <p role="alert" className="ad-error">{error}</p>}<div><span>Order total</span><strong>{money(amount)}</strong></div><Button type="submit" disabled={busy || (Boolean(draft.customerReady) && !lines.length)}>{!draft.customerReady ? 'Continue →' : busy ? 'Saving…' : 'Punch order'}</Button></div>
   </form>;
 }

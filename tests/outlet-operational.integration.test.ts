@@ -36,6 +36,8 @@ let paymentRoute: typeof import('../src/app/api/v1/orders/[orderCode]/payments/r
 let statusRoute: typeof import('../src/app/api/v1/orders/[orderCode]/status/route');
 let listOrdersRoute: typeof import('../src/app/api/v1/orders/route');
 let syncOrdersRoute: typeof import('../src/app/api/v1/orders/sync/route');
+let bulkSyncRoute: typeof import('../src/app/api/v1/orders/bulk-sync/route');
+let createOrdersRoute: typeof import('../src/app/api/v1/orders/route');
 
 import { generateSessionToken } from '../src/server/auth/token';
 
@@ -49,6 +51,8 @@ before(async () => {
   statusRoute = await import('../src/app/api/v1/orders/[orderCode]/status/route');
   listOrdersRoute = await import('../src/app/api/v1/orders/route');
   syncOrdersRoute = await import('../src/app/api/v1/orders/sync/route');
+  bulkSyncRoute = await import('../src/app/api/v1/orders/bulk-sync/route');
+  createOrdersRoute = await import('../src/app/api/v1/orders/route');
 });
 
 after(async () => {
@@ -472,4 +476,88 @@ test('B3.4: Invoices and Expenses preserve outletId', async () => {
   // List all store expenses
   const allExpenses = await expenses.listExpenses(ctx.store.id);
   assert.equal(allExpenses.length, 2);
+});
+
+test('B3.5: Offline batch files each queued order against its own outlet', async () => {
+  const ctx = await setupStoreWithOutlets('b35');
+
+  // An owner queues one order per outlet while offline, then syncs while the
+  // app happens to be scoped to outlet 1. Each order must keep the outlet it
+  // was actually taken at, not inherit the scope active at flush time.
+  const req = new NextRequest('http://localhost/api/v1/orders/bulk-sync', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ctx.tokenOwner}`,
+      'X-Store-Id': ctx.store.id,
+      'X-Outlet-Id': ctx.outlet1.id,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      actions: [
+        {
+          clientActionId: 'a1',
+          type: 'create_order',
+          offlineCode: 'OFF-1',
+          payload: {
+            idempotencyKey: 'b35-key-1',
+            phone: '9876543210',
+            dueDate: '2100-01-01',
+            entries: [{ productId: ctx.product.id, quantity: 1 }],
+            outletId: ctx.outlet1.id,
+          },
+        },
+        {
+          clientActionId: 'a2',
+          type: 'create_order',
+          offlineCode: 'OFF-2',
+          payload: {
+            idempotencyKey: 'b35-key-2',
+            phone: '9876543211',
+            dueDate: '2100-01-01',
+            entries: [{ productId: ctx.product.id, quantity: 1 }],
+            outletId: ctx.outlet2.id,
+          },
+        },
+      ],
+    }),
+  });
+
+  const res = await bulkSyncRoute.POST(req);
+  assert.equal(res.status, 200);
+  const { results } = (await res.json()) as {
+    results: { clientActionId: string; status: string; order?: { id: string } }[];
+  };
+  assert.equal(results.length, 2);
+  assert.ok(results.every(r => r.status === 'success'));
+
+  const first = await prisma.order.findFirst({ where: { idempotencyKey: 'b35-key-1' } });
+  const second = await prisma.order.findFirst({ where: { idempotencyKey: 'b35-key-2' } });
+  assert.equal(first?.outletId, ctx.outlet1.id);
+  assert.equal(second?.outletId, ctx.outlet2.id);
+});
+
+test('B3.6: Conflicting outlet between header and body is rejected, not silently resolved', async () => {
+  const ctx = await setupStoreWithOutlets('b36');
+
+  const req = new NextRequest('http://localhost/api/v1/orders', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ctx.tokenOwner}`,
+      'X-Store-Id': ctx.store.id,
+      'X-Outlet-Id': ctx.outlet1.id,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      idempotencyKey: 'b36-key-1',
+      phone: '9876543210',
+      dueDate: '2100-01-01',
+      entries: [{ productId: ctx.product.id, quantity: 1 }],
+      outletId: ctx.outlet2.id,
+    }),
+  });
+
+  const res = await createOrdersRoute.POST(req);
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /Conflicting outlet/);
+  assert.equal(await prisma.order.count({ where: { idempotencyKey: 'b36-key-1' } }), 0);
 });

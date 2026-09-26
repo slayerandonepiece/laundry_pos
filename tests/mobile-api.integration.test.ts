@@ -43,6 +43,7 @@ let orderStatusRoute: typeof import("../src/app/api/v1/orders/[orderCode]/status
 let orderInvoiceRoute: typeof import("../src/app/api/v1/orders/[orderCode]/invoice/route");
 let employeesRoute: typeof import("../src/app/api/v1/employees/route");
 let paymentMethodsRoute: typeof import("../src/app/api/v1/payment-methods/route");
+let paymentMethodDetailRoute: typeof import("../src/app/api/v1/payment-methods/[id]/route");
 let profileRoute: typeof import("../src/app/api/v1/profile/route");
 let parseOrderCode: (code: string) => number | null;
 
@@ -58,6 +59,7 @@ before(async () => {
     orderInvoiceRoute,
     employeesRoute,
     paymentMethodsRoute,
+    paymentMethodDetailRoute,
     profileRoute,
   ] = await Promise.all([
     import("../src/app/api/v1/orders/route"),
@@ -67,6 +69,7 @@ before(async () => {
     import("../src/app/api/v1/orders/[orderCode]/invoice/route"),
     import("../src/app/api/v1/employees/route"),
     import("../src/app/api/v1/payment-methods/route"),
+    import("../src/app/api/v1/payment-methods/[id]/route"),
     import("../src/app/api/v1/profile/route"),
   ]);
 });
@@ -248,16 +251,19 @@ test("B6.1: Auth matrix enforcement across route handlers", async () => {
   assert.equal(wrongStoreRes.status, 403);
   assert.equal((await wrongStoreRes.json()).error, "Forbidden");
 
-  // 7. Wrong role: EMPLOYEE attempts owner-only action (POST /api/v1/payment-methods) -> 403
+  // 7. Wrong role: EMPLOYEE attempts owner-only action
+  // (PATCH /api/v1/payment-methods/{id}) -> 403
   const empFixture = await createTestFixture("b61-employee", {
     role: Role.EMPLOYEE,
   });
-  const empRoleReq = createReq("http://localhost/api/v1/payment-methods", {
+  const empRoleReq = createReq("http://localhost/api/v1/payment-methods/some-id", {
     token: empFixture.token,
     storeId: empFixture.store.id,
-    body: { name: "New Method" },
+    body: { enabled: true },
   });
-  const empRoleRes = await paymentMethodsRoute.POST(empRoleReq);
+  const empRoleRes = await paymentMethodDetailRoute.PATCH(empRoleReq, {
+    params: Promise.resolve({ id: "some-id" }),
+  });
   assert.equal(empRoleRes.status, 403);
   assert.equal((await empRoleRes.json()).error, "Forbidden");
 
@@ -713,4 +719,74 @@ test("Task B: Employee can read store profile, but cannot update it", async () =
   const putRes = await profileRoute.PUT(putReq);
   assert.equal(putRes.status, 403);
   assert.equal((await putRes.json()).error, "Forbidden");
+});
+
+// Task C: the mobile payment list must match what checkout will actually accept
+test("Task C: payment methods expose organization methods only", async () => {
+  const fixture = await createTestFixture("org-payment-methods");
+
+  const enabledMethod = await prisma.platformPaymentMethod.create({
+    data: { code: "TASKC_ENABLED", name: "Task C Enabled", active: true },
+  });
+  const disabledMethod = await prisma.platformPaymentMethod.create({
+    data: { code: "TASKC_DISABLED", name: "Task C Disabled", active: true },
+  });
+  await prisma.organizationPaymentMethod.create({
+    data: { storeId: fixture.store.id, platformPaymentMethodId: enabledMethod.id, enabled: true },
+  });
+  await prisma.organizationPaymentMethod.create({
+    data: { storeId: fixture.store.id, platformPaymentMethodId: disabledMethod.id, enabled: false },
+  });
+  // A legacy per-store method must never reach the client: an outlet-owned
+  // order would reject it at checkout.
+  await prisma.storePaymentMethod.create({
+    data: { storeId: fixture.store.id, name: "Legacy Only", active: true },
+  });
+
+  const listReq = createReq("http://localhost/api/v1/payment-methods", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const listRes = await paymentMethodsRoute.GET(listReq);
+  assert.equal(listRes.status, 200);
+  const listed = (await listRes.json()) as { id: string; name: string; enabled: boolean }[];
+  const names = listed.map(m => m.name);
+  assert.ok(names.includes("Task C Enabled"));
+  assert.ok(!names.includes("Task C Disabled"));
+  assert.ok(!names.includes("Legacy Only"));
+  assert.ok(listed.every(m => m.enabled === true));
+
+  const allReq = createReq("http://localhost/api/v1/payment-methods?all=true", {
+    token: fixture.token,
+    storeId: fixture.store.id,
+  });
+  const allNames = ((await (await paymentMethodsRoute.GET(allReq)).json()) as { name: string }[]).map(m => m.name);
+  assert.ok(allNames.includes("Task C Enabled"));
+  assert.ok(allNames.includes("Task C Disabled"));
+
+  // Creating a store-local method is retired — it could never pay an outlet order.
+  const createRes = await paymentMethodsRoute.POST();
+  assert.equal(createRes.status, 410);
+
+  // Owner toggles organization enablement by platform method id.
+  const patchReq = createReq(`http://localhost/api/v1/payment-methods/${disabledMethod.id}`, {
+    token: fixture.token,
+    storeId: fixture.store.id,
+    body: { enabled: true },
+  });
+  const patchRes = await paymentMethodDetailRoute.PATCH(patchReq, {
+    params: Promise.resolve({ id: disabledMethod.id }),
+  });
+  assert.equal(patchRes.status, 200);
+  assert.equal((await patchRes.json()).enabled, true);
+
+  const renameReq = createReq(`http://localhost/api/v1/payment-methods/${disabledMethod.id}`, {
+    token: fixture.token,
+    storeId: fixture.store.id,
+    body: { enabled: true, name: "Renamed" },
+  });
+  const renameRes = await paymentMethodDetailRoute.PATCH(renameReq, {
+    params: Promise.resolve({ id: disabledMethod.id }),
+  });
+  assert.equal(renameRes.status, 400);
 });

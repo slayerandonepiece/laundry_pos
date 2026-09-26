@@ -527,11 +527,16 @@ export async function bulkSyncOrders(
   for (const action of actions) {
     if (action.type === "create_order") {
       try {
+        // The queued order carries the outlet it was actually taken at, which
+        // may not be the one selected now that connectivity is back. Its own
+        // outlet wins; defaultOutletId is only the fallback for a payload that
+        // predates outlet awareness. createOrder still verifies the outlet
+        // belongs to this organization and is active.
         const order = await createOrder(
           storeId,
           action.payload,
           actorId,
-          defaultOutletId,
+          action.payload.outletId ?? defaultOutletId,
         );
         codeMap.set(action.offlineCode, order.id);
         results.push({

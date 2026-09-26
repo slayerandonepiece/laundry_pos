@@ -54,6 +54,7 @@ export function formatApiError(error: unknown): Response {
       'Combine repeated services into one line.',
       'Payment must be between zero and the order total.',
       'That payment method is no longer available.',
+      'Invalid outlet.',
       'Payment must be a positive amount.',
       'Payment must be no more than the outstanding balance.',
       'Invalid status.',

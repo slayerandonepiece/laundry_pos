@@ -16,26 +16,34 @@ export default function PlansEmptyState() {
   const [open, setOpen] = useState(false);
 
   return <>
-    <div className="card"><div className="empty">
-      <span className="ic l"><Icon name="card" size="l" /></span>
-      <h3>No plans yet</h3>
-      <p>
-        Every organization today has its own deposit and fee typed in during onboarding. Create a plan to reuse
-        the same terms next time — or keep setting terms per organization, that still works too.
-      </p>
-      <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />Create your first plan</button>
-    </div></div>
+    <div className="card">
+      <div className="empty">
+        <div className="empty-icon-wrap" aria-hidden="true">
+          <Icon name="card" size="l" />
+        </div>
+        <h3>No plans yet</h3>
+        <p>
+          Every organization today has its own deposit and fee typed in during onboarding. Create a plan to reuse
+          the same terms next time — or keep setting terms per organization, that still works too.
+        </p>
+        <button type="button" className="btn" onClick={() => setOpen(true)}>
+          <Icon name="plus" size="s" />Create your first plan
+        </button>
+      </div>
+    </div>
 
-    <div className="card" style={{ marginTop: 16 }}>
+    <div className="card" style={{ marginTop: 20 }}>
       <div className="card-head"><h3>A plan usually looks like</h3></div>
-      <div className="card-body" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {EXAMPLES.map(ex => (
-          <div key={ex.name} className="chip" style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-            <strong>{ex.name}</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{ex.description}</span>
-            <span className="num">{money(ex.deposit)} + {money(ex.fee)}/yr</span>
-          </div>
-        ))}
+      <div className="card-body">
+        <div className="plan-preview-grid">
+          {EXAMPLES.map(ex => (
+            <div key={ex.name} className="plan-preview-card">
+              <strong>{ex.name}</strong>
+              <span className="desc">{ex.description}</span>
+              <span className="pricing num">{money(ex.deposit)} deposit + {money(ex.fee)}/yr</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
 

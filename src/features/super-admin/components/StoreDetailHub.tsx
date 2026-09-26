@@ -103,6 +103,37 @@ export default function StoreDetailHub({
     });
   }, [storageKey]);
 
+  // Adjust tabCache when incoming fresh server props change (React-recommended pattern instead of useEffect)
+  const [prevOutlets, setPrevOutlets] = useState(initialOutlets);
+  if (initialOutlets !== prevOutlets) {
+    setPrevOutlets(initialOutlets);
+    if (initialOutlets) setTabCache(c => ({ ...c, outlets: initialOutlets }));
+  }
+
+  const [prevOverview, setPrevOverview] = useState(initialOverview);
+  if (initialOverview !== prevOverview) {
+    setPrevOverview(initialOverview);
+    if (initialOverview) setTabCache(c => ({ ...c, overview: initialOverview }));
+  }
+
+  const [prevPeople, setPrevPeople] = useState(initialPeople);
+  if (initialPeople !== prevPeople) {
+    setPrevPeople(initialPeople);
+    if (initialPeople) setTabCache(c => ({ ...c, users: initialPeople }));
+  }
+
+  const [prevSubscription, setPrevSubscription] = useState(initialSubscription);
+  if (initialSubscription !== prevSubscription) {
+    setPrevSubscription(initialSubscription);
+    if (initialSubscription) setTabCache(c => ({ ...c, subscription: initialSubscription }));
+  }
+
+  const [prevActivity, setPrevActivity] = useState(initialActivity);
+  if (initialActivity !== prevActivity) {
+    setPrevActivity(initialActivity);
+    if (initialActivity) setTabCache(c => ({ ...c, activity: initialActivity }));
+  }
+
   // Listen to browser Back/Forward popstate
   useEffect(() => {
     const handlePopState = () => {
@@ -151,6 +182,43 @@ export default function StoreDetailHub({
       setLoadingTab(null);
     }
   }, [store.id, tabCache, updateCache]);
+
+  const refreshTab = useCallback(async (tab: OrgTabKey) => {
+    setLoadingTab(tab);
+    try {
+      switch (tab) {
+        case 'overview': {
+          const data = await fetchStoreOverviewDataAction(store.id);
+          updateCache(c => ({ ...c, overview: data }));
+          break;
+        }
+        case 'outlets': {
+          const data = await fetchStoreOutletsDataAction(store.id);
+          updateCache(c => ({ ...c, outlets: data }));
+          break;
+        }
+        case 'users': {
+          const data = await fetchStorePeopleDataAction(store.id);
+          updateCache(c => ({ ...c, users: data }));
+          break;
+        }
+        case 'subscription': {
+          const data = await fetchStoreSubscriptionDataAction(store.id);
+          updateCache(c => ({ ...c, subscription: data }));
+          break;
+        }
+        case 'activity': {
+          const data = await fetchStoreActivityDataAction(store.id);
+          updateCache(c => ({ ...c, activity: data }));
+          break;
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to refresh tab ${tab}:`, e);
+    } finally {
+      setLoadingTab(null);
+    }
+  }, [store.id, updateCache]);
 
   // Handle tab click with 0ms transition if cached, or inner shimmer while fetching
   const handleTabSelect = (tab: OrgTabKey) => {
@@ -207,6 +275,7 @@ export default function StoreDetailHub({
             <StoreOutletsTab
               storeId={store.id}
               outlets={tabCache.outlets.outlets}
+              onRefresh={() => refreshTab('outlets')}
             />
           )}
           {activeTab === 'users' && tabCache.users && (
