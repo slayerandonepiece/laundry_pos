@@ -8,10 +8,12 @@ machine-local and do **not** reach cloud sessions — this file does.
 ## How the user wants to work
 
 - Never commit without explicit permission, per batch of work.
-- Keep **one working branch per repo** (`claude/nifty-newton-8w8fhh` here and
-  in `laundry_pos_mobile`). Pull `main` into it before each batch; merge
-  finished work to `main`. Merging does not deploy (auto-deploy disabled by
-  the user) — but `vercel-build` runs `prisma migrate deploy` whenever a
+- Keep **one working branch per repo, named per side**: `backend/offline-id`
+  here, `frontend/offline-id` in `laundry_pos_mobile`. Pull `main` into it
+  before each batch; merge finished work to `main`.
+- Backend and frontend work happen in **separate chats**, each with its own
+  prompt and its own diff — never club the two repos in one session or diff.
+- Merging does not deploy (auto-deploy disabled by the user) — but `vercel-build` runs `prisma migrate deploy` whenever a
   deploy does run.
 - Staging DB (Neon) is additive-only unless the user asks for a reset.
 - Confirm before irreversible actions; payments cannot be reversed.

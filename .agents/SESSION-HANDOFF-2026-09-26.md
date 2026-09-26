@@ -10,8 +10,11 @@ Both repositories are on branch `chore/backend-and-setup`.
 ## 0. Update — end of the 2026-09-26 cloud session (read this first)
 
 - **Branches:** `chore/backend-and-setup` is merged into `main` in both repos
-  (here via PR #13). Single working branch per repo:
-  `claude/nifty-newton-8w8fhh`, cut from `main`. The old
+  (here via PR #13). One working branch per repo, named per side:
+  `backend/offline-id` here, `frontend/offline-id` in the mobile repo.
+  Backend and frontend are worked in separate chats with separate prompts.
+  Superseded branch `claude/nifty-newton-8w8fhh` (both repos) is for the user
+  to delete. The old
   `chore/backend-and-setup` branches are fully merged; the session could not
   delete them (git proxy 403), the user deletes them on GitHub. `staging` and
   `production` were left alone. See `.agents/MEMORY.md` for working rules.
