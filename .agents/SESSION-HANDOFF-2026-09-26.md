@@ -7,6 +7,31 @@ claim here; the durable documents it points to are the authoritative ones.
 
 Both repositories are on branch `chore/backend-and-setup`.
 
+## 0. Update — end of the 2026-09-26 cloud session (read this first)
+
+- **Branches:** `chore/backend-and-setup` is merged into `main` in both repos
+  (here via PR #13). Single working branch per repo:
+  `claude/nifty-newton-8w8fhh`, cut from `main`. The old
+  `chore/backend-and-setup` branches are fully merged; the session could not
+  delete them (git proxy 403), the user deletes them on GitHub. `staging` and
+  `production` were left alone. See `.agents/MEMORY.md` for working rules.
+- **Current task:** two ids per order (`id` + `offlineId`), a syncing screen
+  after login, and local-first mobile screens. Full plan and findings:
+  `laundry_pos_mobile/docs/OFFLINE-ID-SYNC-PLAN.md`.
+- **Done here (working branch):** `Order.offlineId` + unique
+  `(storeId, offlineId)` (migration `20260926100000_add_order_offline_id`);
+  create idempotent by `offlineId`; bulk-sync `orderRef` resolves an
+  `offlineId` via DB lookup across requests; order DTO returns `offlineId`
+  and payment `clientActionId`; contract §3.5. `tsc` and `eslint` clean;
+  **integration suite not run** (needs Postgres) — run it before merging.
+- **Artifacts:** mobile owner-screen wireframes —
+  https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
+- **Discussions:** "store" in the user's words = outlet; web orders keep
+  `offlineId` null on the server (recommended: an id the app assigns to a web
+  order stays on the phone — pending user confirmation).
+
+Everything below is the earlier snapshot.
+
 ---
 
 ## 1. Read these first, in this order

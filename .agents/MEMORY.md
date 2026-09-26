@@ -1,0 +1,44 @@
+# Project memory (committed, travels to cloud sessions)
+
+Durable preferences and facts only. Session state lives in
+`.agents/SESSION-HANDOFF-2026-09-26.md`; the mobile API lives in
+`.agents/MOBILE-API-CONTRACT.md`. Native `~/.claude` memory and `.wiki/` are
+machine-local and do **not** reach cloud sessions — this file does.
+
+## How the user wants to work
+
+- Never commit without explicit permission, per batch of work.
+- Keep **one working branch per repo** (`claude/nifty-newton-8w8fhh` here and
+  in `laundry_pos_mobile`). Pull `main` into it before each batch; merge
+  finished work to `main`. Merging does not deploy (auto-deploy disabled by
+  the user) — but `vercel-build` runs `prisma migrate deploy` whenever a
+  deploy does run.
+- Staging DB (Neon) is additive-only unless the user asks for a reset.
+- Confirm before irreversible actions; payments cannot be reversed.
+- Surgical changes only (`CLAUDE.md`). Keep `.agents/*` docs current when
+  routes, persistence or permissions change.
+- UI says "Organization" for the `Store` model. In the user's words "store"
+  usually means **outlet**.
+- End every session by updating this file and the session handoff, and
+  mention artifacts and discussions.
+
+## Durable technical facts
+
+- Orders carry two ids: `id` = `EL-<orderNumber>` (server), `offlineId` =
+  mobile-generated UUID, unique per organization (`@@unique([storeId,
+  offlineId])`), null for web orders. Create is idempotent by
+  `idempotencyKey` and by `offlineId`; bulk-sync `orderRef` accepts either.
+  Contract §3.5.
+- Order DTO returns payment `clientActionId`, so the app matches offline
+  payments exactly.
+- Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`; flow tests
+  `LC_ALL=C LANG=C npm run test:subscription-payments` (needs Postgres).
+- Cloud sessions: `npm ci` fails (lockfile out of sync with
+  `@emnapi/*`); use `npm install` and then `git checkout package-lock.json`.
+  `tsconfig.tsbuildinfo` is tracked and dirties on every `tsc` — restore it.
+  Deleting remote branches is refused (HTTP 403) by the session git proxy.
+
+## Artifacts
+
+- Mobile owner-screen wireframes: https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
+- Mobile plan for this work: `laundry_pos_mobile/docs/OFFLINE-ID-SYNC-PLAN.md`
