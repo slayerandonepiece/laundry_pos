@@ -197,6 +197,19 @@ is the safe pattern for both roles.
 `GET /api/v1/orders/sync` filters by outlet, so its cursor is only
 meaningful within one scope. Key the cursor by outlet client-side.
 
+### 3.5 Two ids per order: `id` and `offlineId`
+
+- `id` is the server order code (`EL-123`). `offlineId` is a client-generated
+  id, unique per organization, set only for orders created in the app;
+  web-created orders have none (the field is omitted).
+- `create_order` payloads may carry `payload.offlineId`. A retry with the same
+  `offlineId` returns the existing order instead of creating a second one.
+- `update_status` / `record_payment` `orderRef` may be an `EL-` code or an
+  `offlineId`, including one whose `create_order` synced in an earlier request.
+- Every order response includes `offlineId` (when set), and each payment
+  includes the `clientActionId` it was recorded with (when set), so the client
+  can match its offline payments exactly.
+
 ---
 
 ## 4. Payment methods — the rule that breaks checkout if you get it wrong

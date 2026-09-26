@@ -48,6 +48,7 @@ const entrySchema = z.object({
 });
 const createOrderSchema = z.object({
   idempotencyKey: z.string().min(1),
+  offlineId: z.string().trim().min(1).max(64).optional(),
   customerName: z.string().trim().default(""),
   phone: z.string().regex(/^\+?[0-9]{10,15}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -73,6 +74,7 @@ type OrderRow = Prisma.OrderGetPayload<{ include: typeof includeForDTO }>;
 function toOrderDTO(row: OrderRow): Order {
   return {
     id: toOrderCode(row.orderNumber),
+    offlineId: row.offlineId ?? undefined,
     outletId: row.outletId ?? undefined,
     name: row.customerName,
     phone: row.phone,
@@ -94,6 +96,7 @@ function toOrderDTO(row: OrderRow): Order {
       amount: payment.amount,
       date: formatCalendarDate(payment.paidAt),
       method: payment.method,
+      clientActionId: payment.clientActionId ?? undefined,
     })),
     notes: row.notes,
     history: row.statusEvents.map((event) => ({
@@ -229,6 +232,7 @@ export async function getOrder(
 
 export interface CreateOrderInput {
   idempotencyKey: string;
+  offlineId?: string;
   customerName?: string;
   phone: string;
   dueDate: string;
@@ -254,6 +258,13 @@ export async function createOrder(
   if (existing) {
     if (existing.storeId !== storeId) throw new Error("Order not found.");
     return toOrderDTO(existing);
+  }
+  if (data.offlineId) {
+    const existingOffline = await prisma.order.findUnique({
+      where: { storeId_offlineId: { storeId, offlineId: data.offlineId } },
+      include: includeForDTO,
+    });
+    if (existingOffline) return toOrderDTO(existingOffline);
   }
 
   if (
@@ -338,6 +349,7 @@ export async function createOrder(
         storeId,
         outletId: resolvedOutletId,
         idempotencyKey: data.idempotencyKey,
+        offlineId: data.offlineId ?? null,
         customerName: data.customerName ?? "",
         phone: data.phone,
         orderDate: today,
@@ -511,7 +523,9 @@ function errorMessage(err: unknown): string {
  * that order's offlineCode as orderRef — this resolves it against the
  * create_order results earlier in the SAME batch before applying the update,
  * so "create then update the same order while still offline" works in one
- * sync pass without a network round trip in between.
+ * sync pass without a network round trip in between. An orderRef that is
+ * neither a code from this batch nor an EL- code is looked up as the order's
+ * offlineId, for orders whose create synced in an earlier request.
  */
 export async function bulkSyncOrders(
   storeId: string,
@@ -571,13 +585,22 @@ export async function bulkSyncOrders(
     } else if (parseOrderCode(action.orderRef) !== null) {
       resolvedRef = action.orderRef;
     } else {
-      results.push({
-        clientActionId: action.clientActionId,
-        type: action.type,
-        status: "skipped",
-        error: "Referenced order was not created yet.",
+      // An order created offline and synced in an EARLIER request: the
+      // device may still only know it by its offlineId.
+      const offlineRow = await prisma.order.findUnique({
+        where: { storeId_offlineId: { storeId, offlineId: action.orderRef } },
+        select: { orderNumber: true },
       });
-      continue;
+      if (!offlineRow) {
+        results.push({
+          clientActionId: action.clientActionId,
+          type: action.type,
+          status: "skipped",
+          error: "Referenced order was not created yet.",
+        });
+        continue;
+      }
+      resolvedRef = toOrderCode(offlineRow.orderNumber);
     }
 
     try {

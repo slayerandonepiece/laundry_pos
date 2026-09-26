@@ -275,6 +275,9 @@ model Order {
   store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   orderNumber     Int        @unique @default(autoincrement())
   idempotencyKey  String?    @unique
+  // Client-generated id for orders created in the mobile app (offline-first).
+  // Null for orders created on the web.
+  offlineId       String?
   customerName    String
   phone           String
   // Calendar dates (Asia/Kolkata), not instants — stored without a time
@@ -301,6 +304,7 @@ model Order {
   @@index([storeId, outletId, orderDate])
   @@index([outletId, status])
   @@index([outletId, dueDate])
+  @@unique([storeId, offlineId])
   @@map("orders")
 }
 
