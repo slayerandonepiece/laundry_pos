@@ -251,21 +251,8 @@ export async function createOrder(
   await assertStoreWritable(storeId);
   const data = createOrderSchema.parse(input);
 
-  const existing = await prisma.order.findUnique({
-    where: { idempotencyKey: data.idempotencyKey },
-    include: includeForDTO,
-  });
-  if (existing) {
-    if (existing.storeId !== storeId) throw new Error("Order not found.");
-    return toOrderDTO(existing);
-  }
-  if (data.offlineId) {
-    const existingOffline = await prisma.order.findUnique({
-      where: { storeId_offlineId: { storeId, offlineId: data.offlineId } },
-      include: includeForDTO,
-    });
-    if (existingOffline) return toOrderDTO(existingOffline);
-  }
+  const existing = await findExistingOrder(storeId, data);
+  if (existing) return existing;
 
   if (
     new Set(data.entries.map((e) => e.productId)).size !== data.entries.length
@@ -343,69 +330,108 @@ export async function createOrder(
     resolvedOutletId = defaultOutlet?.id ?? null;
   }
 
-  const row = await prisma.$transaction(async (tx) => {
-    const created = await tx.order.create({
-      data: {
-        storeId,
-        outletId: resolvedOutletId,
-        idempotencyKey: data.idempotencyKey,
-        offlineId: data.offlineId ?? null,
-        customerName: data.customerName ?? "",
-        phone: data.phone,
-        orderDate: today,
-        dueDate: parseCalendarDate(data.dueDate),
-        status: "PENDING",
-        notes: data.notes ?? "",
-        lines: { create: lines },
-        payments: data.initialPayment
-          ? {
-              create: [
-                {
-                  amount: data.initialPayment.amount,
-                  method: initialPaymentMethodName ?? data.initialPayment.method,
-                  platformPaymentMethodId: initialPlatformPaymentMethodId,
-                  paidAt: today,
-                  storeId,
-                  outletId: resolvedOutletId,
-                },
-              ],
-            }
-          : undefined,
-        statusEvents: {
-          create: [
-            {
-              status: "PENDING",
-              byUserId: actorId,
-              storeId,
-              outletId: resolvedOutletId,
-            },
-          ],
-        },
-      },
-      include: includeForDTO,
-    });
-
-    if (resolvedOutletId) {
-      await applyOrderCreationRollup(tx, {
-        storeId,
-        outletId: resolvedOutletId,
-        orderDate: today,
-        lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, amount: l.amount })),
-      });
-      if (data.initialPayment && data.initialPayment.amount > 0) {
-        await applyPaymentRollup(tx, {
+  let row: OrderRow;
+  try {
+    row = await prisma.$transaction(async (tx) => {
+      const created = await tx.order.create({
+        data: {
           storeId,
           outletId: resolvedOutletId,
-          paidAt: today,
-          amount: data.initialPayment.amount,
-        });
-      }
-    }
+          idempotencyKey: data.idempotencyKey,
+          offlineId: data.offlineId ?? null,
+          customerName: data.customerName ?? "",
+          phone: data.phone,
+          orderDate: today,
+          dueDate: parseCalendarDate(data.dueDate),
+          status: "PENDING",
+          notes: data.notes ?? "",
+          lines: { create: lines },
+          payments: data.initialPayment
+            ? {
+                create: [
+                  {
+                    amount: data.initialPayment.amount,
+                    method: initialPaymentMethodName ?? data.initialPayment.method,
+                    platformPaymentMethodId: initialPlatformPaymentMethodId,
+                    paidAt: today,
+                    storeId,
+                    outletId: resolvedOutletId,
+                  },
+                ],
+              }
+            : undefined,
+          statusEvents: {
+            create: [
+              {
+                status: "PENDING",
+                byUserId: actorId,
+                storeId,
+                outletId: resolvedOutletId,
+              },
+            ],
+          },
+        },
+        include: includeForDTO,
+      });
 
-    return created;
-  });
+      if (resolvedOutletId) {
+        await applyOrderCreationRollup(tx, {
+          storeId,
+          outletId: resolvedOutletId,
+          orderDate: today,
+          lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, amount: l.amount })),
+        });
+        if (data.initialPayment && data.initialPayment.amount > 0) {
+          await applyPaymentRollup(tx, {
+            storeId,
+            outletId: resolvedOutletId,
+            paidAt: today,
+            amount: data.initialPayment.amount,
+          });
+        }
+      }
+
+      return created;
+    });
+  } catch (err) {
+    // A concurrent retry with the same idempotencyKey or offlineId passed the
+    // lookup above too; its insert won, so return that order instead.
+    if (isUniqueViolation(err)) {
+      const winner = await findExistingOrder(storeId, data);
+      if (winner) return winner;
+    }
+    throw err;
+  }
 
   return toOrderDTO(row);
+}
+
+async function findExistingOrder(
+  storeId: string,
+  data: { idempotencyKey: string; offlineId?: string },
+): Promise<Order | null> {
+  const byKey = await prisma.order.findUnique({
+    where: { idempotencyKey: data.idempotencyKey },
+    include: includeForDTO,
+  });
+  if (byKey) {
+    if (byKey.storeId !== storeId) throw new Error("Order not found.");
+    return toOrderDTO(byKey);
+  }
+  if (!data.offlineId) return null;
+  const byOfflineId = await prisma.order.findUnique({
+    where: { storeId_offlineId: { storeId, offlineId: data.offlineId } },
+    include: includeForDTO,
+  });
+  return byOfflineId ? toOrderDTO(byOfflineId) : null;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "P2002"
+  );
 }
 
 export async function updateOrderStatus(
@@ -660,18 +686,6 @@ export async function recordPayment(
   const method = z.string().trim().min(1).max(40).parse(methodInput);
 
   const row = await prisma.$transaction(async (tx) => {
-    if (clientActionId) {
-      const existing = await tx.payment.findUnique({
-        where: { clientActionId },
-      });
-      if (existing) {
-        return tx.order.findUniqueOrThrow({
-          where: { orderNumber },
-          include: includeForDTO,
-        });
-      }
-    }
-
     // Lock the order row first so a concurrent payment can't read the same
     // stale balance and double-spend it; only after the lock do we read
     // lines/payments, guaranteeing the balance check sees committed state.
@@ -688,6 +702,23 @@ export async function recordPayment(
     const order = locked[0];
     if (!order || order.legacyCancelled || order.storeId !== storeId)
       throw new Error("Order not found.");
+
+    // Replay of an already-recorded payment. Checked after the lock so a
+    // concurrent duplicate waits for the first and then sees its row.
+    if (clientActionId) {
+      const existing = await tx.payment.findUnique({
+        where: { clientActionId },
+        select: { orderId: true },
+      });
+      if (existing) {
+        if (existing.orderId !== order.id)
+          throw new Error("That payment was already recorded on another order.");
+        return tx.order.findUniqueOrThrow({
+          where: { id: order.id },
+          include: includeForDTO,
+        });
+      }
+    }
 
     const paymentCheck = await resolveActivePaymentMethod(storeId, method, {
       allowLegacy: !order.outletId,

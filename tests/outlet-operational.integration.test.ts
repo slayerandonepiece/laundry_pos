@@ -752,3 +752,115 @@ test('B3.10: Web orders have no offlineId', async () => {
   assert.equal('offlineId' in json, false);
   assert.equal('clientActionId' in json.payments[0], false);
 });
+
+test('B3.11: A replayed payment clientActionId cannot read or pay another order', async () => {
+  const a = await setupStoreWithOutlets('b311-a');
+  const b = await setupStoreWithOutlets('b311-b');
+  const newOrder = (ctx: typeof a, key: string) => orders.createOrder(ctx.store.id, {
+    idempotencyKey: key,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  }, ctx.ownerUser.id);
+
+  const orderA = await newOrder(a, 'b311-a-key');
+  const orderB1 = await newOrder(b, 'b311-b-key-1');
+  const orderB2 = await newOrder(b, 'b311-b-key-2');
+  await orders.recordPayment(b.store.id, orderB1.id, 1_000, 'Cash', 'b311-own-pay');
+
+  // Store B replays its own clientActionId against store A's order code.
+  await assert.rejects(
+    orders.recordPayment(b.store.id, orderA.id, 1_000, 'Cash', 'b311-own-pay'),
+    /Order not found/,
+  );
+  // Same store, different order: rejected rather than returning the wrong order.
+  await assert.rejects(
+    orders.recordPayment(b.store.id, orderB2.id, 1_000, 'Cash', 'b311-own-pay'),
+    /already recorded on another order/,
+  );
+  // The genuine replay still returns the original order, unchanged.
+  const replay = await orders.recordPayment(b.store.id, orderB1.id, 1_000, 'Cash', 'b311-own-pay');
+  assert.equal(replay.id, orderB1.id);
+  assert.equal(replay.payments.length, 1);
+  assert.equal(await prisma.payment.count({ where: { storeId: b.store.id } }), 1);
+  assert.equal(await prisma.payment.count({ where: { storeId: a.store.id } }), 0);
+});
+
+async function waitForBlocked(count: number) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const { rows } = await control.query<{ waiting: number }>(`
+      SELECT count(*)::int AS waiting FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND application_name = 'el-outlet-ops-test'
+        AND wait_event_type = 'Lock'
+    `);
+    if (rows[0].waiting >= count) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`${count} calls did not reach the lock barrier.`);
+}
+
+/** Runs the calls while `lockSql` is held, releasing it once all are blocked. */
+async function raceBehindLock<T>(lockSql: string, params: unknown[], calls: (() => Promise<T>)[]) {
+  const blocker = await control.connect();
+  await blocker.query('BEGIN');
+  await blocker.query(lockSql, params);
+  const pending = Promise.allSettled(calls.map(call => call()));
+  try {
+    await waitForBlocked(calls.length);
+  } finally {
+    await blocker.query('COMMIT');
+    blocker.release();
+  }
+  return pending;
+}
+
+test('B3.12: Concurrent creates with the same offlineId or idempotencyKey return one order', async () => {
+  const ctx = await setupStoreWithOutlets('b312');
+  const input = (idempotencyKey: string, offlineId?: string) => ({
+    idempotencyKey,
+    offlineId,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  });
+
+  // Blocking inserts into orders (reads still pass) lets both calls get past
+  // the "already exists?" lookup before either inserts.
+  const cases = [
+    [input('b312-key-1', 'b312-offline'), input('b312-key-2', 'b312-offline')],
+    [input('b312-key-3'), input('b312-key-3')],
+  ];
+  for (const [first, second] of cases) {
+    const results = await raceBehindLock('LOCK TABLE orders IN SHARE MODE', [], [
+      () => orders.createOrder(ctx.store.id, first, ctx.ownerUser.id),
+      () => orders.createOrder(ctx.store.id, second, ctx.ownerUser.id),
+    ]);
+    assert.ok(results.every(r => r.status === 'fulfilled'), JSON.stringify(results));
+    const [a, b] = results.map(r => (r as PromiseFulfilledResult<{ id: string }>).value);
+    assert.equal(a.id, b.id);
+  }
+  assert.equal(await prisma.order.count({ where: { storeId: ctx.store.id } }), 2);
+});
+
+test('B3.13: Concurrent payments with the same clientActionId record one payment', async () => {
+  const ctx = await setupStoreWithOutlets('b313');
+  const order = await orders.createOrder(ctx.store.id, {
+    idempotencyKey: 'b313-key',
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  }, ctx.ownerUser.id);
+
+  const results = await raceBehindLock(
+    'SELECT id FROM orders WHERE "orderNumber" = $1 FOR UPDATE',
+    [Number(order.id.replace('EL-', ''))],
+    [1, 2].map(() => () => orders.recordPayment(ctx.store.id, order.id, 1_000, 'Cash', 'b313-pay')),
+  );
+  assert.ok(results.every(r => r.status === 'fulfilled'), JSON.stringify(results));
+  assert.equal(await prisma.payment.count({ where: { storeId: ctx.store.id } }), 1);
+});

@@ -36,27 +36,28 @@ Both repositories are on branch `chore/backend-and-setup`.
   carries `offlineId` + payment `clientActionId`; web orders store NULL,
   two NULLs don't collide, field omitted from JSON). Run `npx prisma
   generate` after pulling a schema change — the generated client is not
-  committed. Not yet committed or merged — awaiting the user's go-ahead.
-- **Open review findings (not fixed, awaiting a decision):**
-  1. *Pre-existing, cross-tenant read:* `recordPayment`'s `clientActionId`
-     replay shortcut (`src/server/services/orders.ts`, inside the
-     transaction) returns `findUniqueOrThrow({ where: { orderNumber } })`
-     with no `storeId` check, and does not check the matched payment
-     belongs to that order. A caller who replays any of their own
-     `clientActionId`s with another organization's `EL-<n>` gets that
-     order's DTO. Fix: scope the lookup to the existing payment's order and
-     `storeId`.
-  2. Concurrent creates with the same `offlineId` (or `idempotencyKey`) race
-     the pre-insert lookups; the loser hits the unique index as a raw
-     Prisma `P2002`, surfacing as a 500 (or a `failed` bulk result) instead
-     of returning the existing order. Fix: catch `P2002` and re-read.
-     Reasoned from the code, not reproduced.
-  3. *Pre-existing:* bulk-sync `update_status`/`record_payment` do not check
-     the target order's outlet against an employee's outlet (the single
-     routes do). Resolving by offlineId inherits this.
-  4. Minor: `create_order` trims `offlineId` but `orderRef` is not trimmed;
-     an offlineId shaped like `EL-<n>` would be parsed as an order code.
-     Harmless with UUIDs.
+  committed. Tests and docs committed on `backend/offline-id` (`c5262ae`); not merged to `main`.
+- **Review findings:**
+  1. *Fixed:* cross-tenant read via `recordPayment`'s `clientActionId`
+     replay (it returned the order by `orderNumber` with no `storeId`
+     check). The replay check now runs after the order row lock, only
+     returns when the existing payment belongs to that same order, and
+     otherwise throws. Test `B3.11`.
+  2. *Fixed:* concurrent creates with the same `offlineId` or
+     `idempotencyKey` surfaced the loser's unique violation (`P2002`) as a
+     500. `createOrder` now catches `P2002` and returns the winning order
+     (`findExistingOrder`). Test `B3.12`, using a `LOCK TABLE orders IN
+     SHARE MODE` barrier. The same race on payment `clientActionId` is fixed
+     by moving the replay check behind the lock. Test `B3.13`. All three
+     tests failed on the old code before the fix.
+  3. *Open, pre-existing:* bulk-sync `update_status`/`record_payment` do not
+     check the target order's outlet against an employee's outlet (the
+     single routes do). Resolving by offlineId inherits this.
+  4. *Open, minor:* `create_order` trims `offlineId` but `orderRef` is not
+     trimmed; an offlineId shaped like `EL-<n>` would be parsed as an order
+     code. Harmless with UUIDs.
+- **Gates after the fixes:** `tsc` 0, `lint` 0 errors, `build` passes,
+  integration suite **53/53**.
 - **Artifacts:** mobile owner-screen wireframes —
   https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
 - **Discussions:** "store" in the user's words = outlet; web orders keep
