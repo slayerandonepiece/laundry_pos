@@ -25,8 +25,38 @@ Both repositories are on branch `chore/backend-and-setup`.
   `(storeId, offlineId)` (migration `20260926100000_add_order_offline_id`);
   create idempotent by `offlineId`; bulk-sync `orderRef` resolves an
   `offlineId` via DB lookup across requests; order DTO returns `offlineId`
-  and payment `clientActionId`; contract §3.5. `tsc` and `eslint` clean;
-  **integration suite not run** (needs Postgres) — run it before merging.
+  and payment `clientActionId`; contract §3.5.
+- **Verified (local Mac session, same day):** logic reviewed; gates `tsc` 0,
+  `lint` 0 errors, `build` passes, integration suite **50/50** (46 existing
+  + new `B3.7`–`B3.10` in `tests/outlet-operational.integration.test.ts`:
+  offlineId retry → one order, including across a regenerated
+  idempotencyKey and a later request; offlineId unique per organization,
+  not global; `update_status`/`record_payment` by offlineId in a later
+  request, replay-safe, unknown ref skipped, not resolvable cross-org; DTO
+  carries `offlineId` + payment `clientActionId`; web orders store NULL,
+  two NULLs don't collide, field omitted from JSON). Run `npx prisma
+  generate` after pulling a schema change — the generated client is not
+  committed. Not yet committed or merged — awaiting the user's go-ahead.
+- **Open review findings (not fixed, awaiting a decision):**
+  1. *Pre-existing, cross-tenant read:* `recordPayment`'s `clientActionId`
+     replay shortcut (`src/server/services/orders.ts`, inside the
+     transaction) returns `findUniqueOrThrow({ where: { orderNumber } })`
+     with no `storeId` check, and does not check the matched payment
+     belongs to that order. A caller who replays any of their own
+     `clientActionId`s with another organization's `EL-<n>` gets that
+     order's DTO. Fix: scope the lookup to the existing payment's order and
+     `storeId`.
+  2. Concurrent creates with the same `offlineId` (or `idempotencyKey`) race
+     the pre-insert lookups; the loser hits the unique index as a raw
+     Prisma `P2002`, surfacing as a 500 (or a `failed` bulk result) instead
+     of returning the existing order. Fix: catch `P2002` and re-read.
+     Reasoned from the code, not reproduced.
+  3. *Pre-existing:* bulk-sync `update_status`/`record_payment` do not check
+     the target order's outlet against an employee's outlet (the single
+     routes do). Resolving by offlineId inherits this.
+  4. Minor: `create_order` trims `offlineId` but `orderRef` is not trimmed;
+     an offlineId shaped like `EL-<n>` would be parsed as an order code.
+     Harmless with UUIDs.
 - **Artifacts:** mobile owner-screen wireframes —
   https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
 - **Discussions:** "store" in the user's words = outlet; web orders keep

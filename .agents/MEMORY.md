@@ -34,7 +34,13 @@ machine-local and do **not** reach cloud sessions — this file does.
 - Order DTO returns payment `clientActionId`, so the app matches offline
   payments exactly.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`; flow tests
-  `LC_ALL=C LANG=C npm run test:subscription-payments` (needs Postgres).
+  `LC_ALL=C LANG=C npm run test:subscription-payments` (needs Postgres;
+  local `initdb`/`pg_ctl`/`psql` from Homebrew work on the user's Mac).
+  Offline-id flow tests are `B3.7`–`B3.10` in
+  `tests/outlet-operational.integration.test.ts`.
+- The Prisma client (`src/generated/prisma`) is not committed: run
+  `npx prisma generate` after pulling a schema change, or the local client
+  lacks the new fields.
 - Cloud sessions: `npm ci` fails (lockfile out of sync with
   `@emnapi/*`); use `npm install` and then `git checkout package-lock.json`.
   `tsconfig.tsbuildinfo` is tracked and dirties on every `tsc` — restore it.
