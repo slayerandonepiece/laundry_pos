@@ -136,6 +136,9 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stat-tile .value {
   font-family: var(--font-mono);
@@ -174,13 +177,13 @@
   color: var(--muted);
 }
 
-/* Filter Pills */
+/* Filter Pills - Segmented filter style matching Sales chips */
 .pill {
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 14px;
+  border-radius: 8px;
+  padding: 8px 14px;
   font-size: 12.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--muted);
   background: #fff;
   cursor: pointer;
@@ -188,21 +191,39 @@
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  min-height: 38px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .pill:hover:not(.active) {
   border-color: #cbd5e1;
   color: var(--ink);
+  background: #f8fafd;
 }
 .pill.active {
-  background: var(--ink);
-  color: #fff;
-  border-color: var(--ink);
+  background: #eaf2ff;
+  color: var(--brand);
+  border-color: #8fb3ec;
 }
 @media (max-width: 767px) {
   .pill {
     min-height: 40px;
   }
+}
+
+/* Full-width dropdowns in forms */
+.dropdown-wrap.full-width,
+.field > .dropdown-wrap {
+  width: 100%;
+}
+.dropdown-wrap.full-width .switcher-trigger,
+.field > .dropdown-wrap .switcher-trigger {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+}
+.dropdown-wrap.full-width .switcher-caret,
+.field > .dropdown-wrap .switcher-caret {
+  margin-left: auto;
 }
 
 /* Buttons */
@@ -319,6 +340,14 @@ table.grid th.num {
   background: #fff3e0;
   color: #a15c00;
 }
+.badge.info {
+  background: #edf3ff;
+  color: #0758d6;
+}
+.badge.ready {
+  background: #f3eefe;
+  color: #6b3fc9;
+}
 
 /* Outlet Chips & Tags */
 .outlet-chip {
@@ -383,7 +412,7 @@ table.grid th.num {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(16, 32, 57, 0.14);
   width: max-content;
-  min-width: min(230px, calc(100vw - 32px));
+  min-width: max(100%, min(230px, calc(100vw - 32px)));
   max-width: calc(100vw - 32px);
   max-height: 360px;
   overflow-y: auto;
@@ -543,8 +572,8 @@ table.grid th.num {
   color: var(--ink);
 }
 .dialog-close {
-  width: 29px;
-  height: 29px;
+  width: 40px;
+  height: 40px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: #fff;
@@ -554,9 +583,8 @@ table.grid th.num {
   flex-shrink: 0;
   cursor: pointer;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
-  border: 1px solid var(--border);
 }
 .dialog-close:hover {
   background: #f4f6fa;
@@ -683,11 +711,26 @@ table.grid th.num {
   border-radius: 10px;
   padding: 11px 15px;
   font-size: 13px;
+  margin-bottom: 16px;
+}
+.info-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #d2e1fd;
+  background: var(--tint);
+  color: var(--brand-ink);
+  border-radius: 10px;
+  padding: 11px 15px;
+  font-size: 13px;
+  margin-bottom: 16px;
 }
 .error-banner.info {
   border-color: #d2e1fd;
   background: var(--tint);
   color: var(--brand-ink);
+  margin-bottom: 16px;
 }
 
 /* Shimmer Loading */
@@ -970,8 +1013,9 @@ table.grid th.num {
   font-weight: 600;
   min-width: 0;
 }
-.ad-entry .ad-sale-field {
-  font-size: 12px;
+.ad-entry .ad-sale-field,
+.ad-entry label {
+  font-size: 14px;
 }
 .ad-sale-select {
   display: block;
@@ -996,6 +1040,12 @@ table.grid th.num {
   flex: none;
   white-space: nowrap;
 }
+.ad-sale-received .ad-button[aria-pressed="true"],
+.ad-sale-received .ad-button.ad-active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
 .ad-sale-totals {
   display: flex;
   flex-wrap: wrap;
@@ -1008,6 +1058,30 @@ table.grid th.num {
 .ad-form-footer .ad-sale-totals span:last-child strong {
   color: var(--ad-blue);
 }
+.dashboard-order-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.dashboard-order-link:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+.dashboard-order-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.ad-field-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #dc2626;
+  font-weight: 500;
+}
 @media (max-width: 767px) {
   .ad-entry > .ad-sale-service {
     grid-column: 1 / 3;
@@ -1017,3 +1091,19 @@ table.grid th.num {
     justify-content: space-between;
   }
 }
+
+/* M-07: Scope normal overflow-wrap to the store workspace so words do not break mid-word */
+.ad-root h1, .ad-root h2, .ad-root h3, .ad-root h4, .ad-root p, .ad-root a, .ad-root span, .ad-root strong, .ad-root small, .ad-root b,
+.ad-app h1, .ad-app h2, .ad-app h3, .ad-app h4, .ad-app p, .ad-app a, .ad-app span, .ad-app strong, .ad-app small, .ad-app b {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.ad-detail-notes, .mono, .ad-wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/* D-39: Constrain dropdown trigger width in toolbar so it doesn't push adjacent controls */
+.orders-desktop-filters .dropdown-wrap {
+  max-width: 220px;
+}
+

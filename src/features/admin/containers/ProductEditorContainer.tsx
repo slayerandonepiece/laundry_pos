@@ -25,8 +25,6 @@ export default function ProductEditorContainer({
   const [category, setCategory] = useState(product?.category || 'Laundry');
 
   const pricing = kind === 'weight' ? { type: 'weight' as const, slabs, extra } : { type: 'item' as const, price: unit };
-  // Example numbers shown only as placeholders (never pre-filled values) for a brand-new weight service.
-  const slabExamples = [{ limit: '4', price: '279' }, { limit: '6', price: '379' }];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,26 +56,28 @@ export default function ProductEditorContainer({
     >
       <form id="product-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div className="field">
-          <label>Service name</label>
+          <label htmlFor="prod-name">Service name</label>
           <input
+            id="prod-name"
             name="name"
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="e.g. Wash & Fold"
             required
+            autoFocus
           />
         </div>
 
         <div className="row" style={{ gap: '12px', alignItems: 'flex-start' }}>
           <div className="field" style={{ flex: 1 }}>
-            <label>Category</label>
-            <select name="category" value={category} onChange={e => setCategory(e.target.value)}>
+            <label htmlFor="prod-category">Category</label>
+            <select id="prod-category" name="category" value={category} onChange={e => setCategory(e.target.value)}>
               {['Laundry', 'Dry cleaning', 'Ironing', 'Home fabrics', 'Add-on'].map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
           <div className="field" style={{ flex: 1 }}>
-            <label>Charging type</label>
-            <select value={kind} onChange={e => setKind(e.target.value as 'item' | 'weight')}>
+            <label htmlFor="prod-charging">Charging type</label>
+            <select id="prod-charging" value={kind} onChange={e => setKind(e.target.value as 'item' | 'weight')}>
               <option value="item">Per item</option>
               <option value="weight">By weight (slabs)</option>
             </select>
@@ -86,11 +86,13 @@ export default function ProductEditorContainer({
 
         {kind === 'item' ? (
           <div className="field">
-            <label>Price per piece (₹)</label>
+            <label htmlFor="prod-price">Price per piece (₹)</label>
             <input
+              id="prod-price"
               type="number"
               min=".01"
               step=".01"
+              placeholder="e.g. 50"
               required
               value={unit ? unit / 100 : ''}
               onChange={e => setUnit(Math.round(Number(e.target.value) * 100))}
@@ -98,15 +100,20 @@ export default function ProductEditorContainer({
           </div>
         ) : (
           <div className="field">
-            <label>Pricing slabs <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— add or remove a price break</span></label>
+            <label id="slabs-heading">Pricing slabs <span style={{ fontWeight: 400, color: 'var(--muted)' }}>Add or remove a price break</span></label>
+            <div className="row" style={{ gap: '8px', marginBottom: '4px', fontSize: '12px', fontWeight: 600, color: 'var(--muted)' }}>
+              <span style={{ flex: 1 }}>Up to (kg)</span>
+              <span style={{ flex: 1 }}>Price (₹)</span>
+              <span style={{ width: '40px', flexShrink: 0 }}></span>
+            </div>
             {slabs.map((s, i) => (
-              <div className="row" key={i} style={{ gap: '8px' }}>
+              <div className="row" key={i} style={{ gap: '8px', marginBottom: '8px' }}>
                 <input
                   type="number"
                   step=".01"
                   min=".01"
                   aria-label={`Slab ${i + 1} weight limit (kg)`}
-                  placeholder={slabExamples[i]?.limit ?? 'Up to (kg)'}
+                  placeholder={`e.g. ${4 + i * 2}`}
                   value={s.limit || ''}
                   required
                   onChange={e => setSlabs(slabs.map((v, j) => j === i ? { ...v, limit: Number(e.target.value) } : v))}
@@ -117,17 +124,17 @@ export default function ProductEditorContainer({
                   min=".01"
                   step=".01"
                   aria-label={`Slab ${i + 1} price (₹)`}
-                  placeholder={slabExamples[i]?.price ?? '₹'}
+                  placeholder={`e.g. ${250 + i * 100}`}
                   value={s.price ? s.price / 100 : ''}
                   required
                   onChange={e => setSlabs(slabs.map((v, j) => j === i ? { ...v, price: Math.round(Number(e.target.value) * 100) } : v))}
-                  style={{ width: '110px' }}
+                  style={{ flex: 1 }}
                 />
                 <button
                   type="button"
                   className="dialog-close"
                   data-dirty
-                  aria-label="Remove slab"
+                  aria-label={`Remove slab ${i + 1}`}
                   onClick={() => setSlabs(slabs.filter((_, j) => j !== i))}
                   style={{ width: '40px', height: '40px', flexShrink: 0 }}
                 >
@@ -139,20 +146,21 @@ export default function ProductEditorContainer({
             <button
               type="button"
               className="btn btn-secondary"
-              style={{ alignSelf: 'flex-start' }}
+              style={{ alignSelf: 'flex-start', marginTop: '4px' }}
               data-dirty
               onClick={() => setSlabs([...slabs, { limit: (slabs.at(-1)?.limit || 0) + 2, price: (slabs.at(-1)?.price || 0) + 10000 }])}
             >
               ＋ Add price slab
             </button>
 
-            <div className="field" style={{ marginTop: '4px' }}>
-              <label>Extra price per kg after final slab (₹)</label>
+            <div className="field" style={{ marginTop: '12px' }}>
+              <label htmlFor="prod-extra">Extra price per kg after final slab (₹)</label>
               <input
+                id="prod-extra"
                 type="number"
                 min=".01"
                 step=".01"
-                placeholder="49"
+                placeholder="e.g. 50"
                 value={extra ? extra / 100 : ''}
                 required
                 onChange={e => setExtra(Math.round(Number(e.target.value) * 100))}
@@ -162,10 +170,10 @@ export default function ProductEditorContainer({
         )}
 
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '13px' }}>Active — visible to all outlets</span>
+          <label htmlFor="prod-active" style={{ fontSize: '13px', cursor: 'pointer' }}>Active — visible to all outlets</label>
           <div className="row" style={{ gap: '12px' }}>
             <Badge tone={active ? 'on' : 'off'}>{active ? 'On' : 'Off'}</Badge>
-            <Toggle checked={active} onChange={setActive} aria-label="Service active status" />
+            <Toggle id="prod-active" checked={active} onChange={setActive} aria-label="Active" />
           </div>
         </div>
 

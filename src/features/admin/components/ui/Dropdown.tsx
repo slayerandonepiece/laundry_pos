@@ -186,7 +186,11 @@ export function MultiSelectDropdown({
     close(true);
   };
 
-  const handleClear = () => setDraft([]);
+  const handleClear = () => {
+    setDraft([]);
+    onChange([]);
+    close(true);
+  };
 
   // Enter toggles a checkbox instead of submitting an enclosing form.
   const enterToggles = (e: ReactKeyboardEvent<HTMLInputElement>) => {

@@ -84,27 +84,30 @@ export default function ExpenseEditor({
         }}
       >
         <div className="field">
-          <label>Title</label>
+          <label htmlFor="exp-title">Title</label>
           <input
+            id="exp-title"
             name="title"
             onInput={(e) => e.currentTarget.setCustomValidity('')}
             placeholder="e.g. Shop rent"
             required
+            autoFocus
           />
         </div>
 
         <div className="row" style={{ gap: '12px' }}>
           <div className="field" style={{ flex: 1 }}>
-            <label>Category</label>
-            <select name="category">
+            <label htmlFor="exp-category">Category</label>
+            <select id="exp-category" name="category">
               {['Electricity', 'Salaries', 'Raw materials', 'Shop rent', 'Machine EMI', 'Supplies', 'Maintenance', 'Other'].map((c) => (
                 <option key={c}>{c}</option>
               ))}
             </select>
           </div>
           <div className="field" style={{ flex: 1 }}>
-            <label>Amount (₹)</label>
+            <label htmlFor="exp-amount">Amount (₹)</label>
             <input
+              id="exp-amount"
               name="amount"
               type="number"
               min=".01"
@@ -117,13 +120,14 @@ export default function ExpenseEditor({
         </div>
 
         <div className="field">
-          <label>Due date</label>
-          <input name="due" type="date" defaultValue={today()} required />
+          <label htmlFor="exp-due">Due date</label>
+          <input id="exp-due" name="due" type="date" defaultValue={today()} required />
         </div>
 
         <div className="field" style={{ overflow: 'visible' }}>
-          <label>Applies to</label>
+          <label id="exp-applies-label">Applies to</label>
           <SingleSelectDropdown
+            className="full-width"
             options={appliesToOptions}
             value={appliesTo}
             onChange={setAppliesTo}

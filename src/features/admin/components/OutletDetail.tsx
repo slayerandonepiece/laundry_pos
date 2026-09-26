@@ -102,7 +102,20 @@ export default function OutletDetail({
       {paymentWarning && <PaymentWarningBanner isOwner={isOwner} paidThroughDate={paymentWarning.paidThroughDate} />}
       
       <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-        <Link href="/admin/outlets" style={{ fontSize: '12.5px', color: 'var(--muted)', textDecoration: 'none' }}>
+        <Link 
+          href="/admin/outlets" 
+          style={{ 
+            display: 'inline-flex',
+            alignItems: 'center',
+            alignSelf: 'flex-start',
+            minHeight: '44px',
+            padding: '8px 4px',
+            fontSize: '13px', 
+            color: 'var(--muted)', 
+            textDecoration: 'none',
+            fontWeight: 500
+          }}
+        >
           ← Back to outlets
         </Link>
 
@@ -132,13 +145,13 @@ export default function OutletDetail({
                 <StatTile label="Today's sales" value={money(d.todaySales)} />
                 <StatTile label="Orders today" value={String(d.todayCount)} />
                 <StatTile label="Open orders" value={String(openOrdersCount)} />
-                <StatTile label="Pieces sold today" value={String(itemsSoldToday)} />
+                <StatTile label="Pieces today" value={String(itemsSoldToday)} />
               </StatsRow>
             </Card>
 
             <Card>
               <CardHeading 
-                title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Collected vs expenses — this month</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only · donut share</p></>} 
+                title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Collected vs expenses — this month</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only</p></>} 
                 action={<Badge tone={d.income >= d.expenses ? 'on' : 'warn'}>Net {money(d.income - d.expenses)}</Badge>} 
               />
               <EarningsDonut income={d.income} expenses={d.expenses} />
@@ -147,7 +160,7 @@ export default function OutletDetail({
             <Card className="dashboard-trend">
               <CardHeading 
                 title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Sales trend — last 14 days</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only</p></>} 
-                action={<Pill>14d ▾</Pill>} 
+                action={<Pill>Last 14 days</Pill>} 
               />
               <SalesChart points={d.bars} />
             </Card>
@@ -180,7 +193,7 @@ export default function OutletDetail({
           {/* Right Column */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <Card>
-              <CardHeading title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Contact & details</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>Read-only</p></>} />
+              <CardHeading title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Contact & details</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>Outlet information</p></>} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13.5px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Address</span><span style={{ textAlign: 'right', maxWidth: '170px' }}>{outlet.address || '—'}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Phone</span><span className="mono">{outlet.phone || '—'}</span></div>

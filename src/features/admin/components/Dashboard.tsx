@@ -4,7 +4,7 @@ import type { Order } from '../admin.types';
 import type { dashboardData, TrendPoint } from '../admin.analytics';
 import { money, total } from '../admin.data';
 import { SalesChart, EarningsDonut } from './DashboardCharts';
-import { Card, CardHeading, StatTile, Badge, SectionNote, EmptyState } from './ui';
+import { Card, CardHeading, StatTile, Badge, EmptyState, statusTone } from './ui';
 
 export type DashboardData = ReturnType<typeof dashboardData>;
 export interface DashboardOutlet {
@@ -45,8 +45,22 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
   const attention = <Card className="dashboard-attention">
     <CardHeading title="Needs attention" subtitle="Overdue & unpaid" />
     <div className="dashboard-attention-rows">
-      {d.overdue > 0 && <div className="row"><span>{d.overdue} order{d.overdue === 1 ? '' : 's'} overdue</span><Badge tone="warn">Action</Badge></div>}
-      {d.dueToday > 0 && <div className="row"><span>{d.dueToday} order{d.dueToday === 1 ? '' : 's'} due today</span><Badge tone="warn">Action</Badge></div>}
+      {d.overdue > 0 && (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <span>{d.overdue} order{d.overdue === 1 ? '' : 's'} overdue</span>
+          <Link href="/admin/sales?attention=1" className="badge warn" style={{ textDecoration: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', minHeight: '32px', padding: '4px 10px' }}>
+            Action &rarr;
+          </Link>
+        </div>
+      )}
+      {d.dueToday > 0 && (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <span>{d.dueToday} order{d.dueToday === 1 ? '' : 's'} due today</span>
+          <Link href="/admin/sales?attention=1" className="badge warn" style={{ textDecoration: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', minHeight: '32px', padding: '4px 10px' }}>
+            Action &rarr;
+          </Link>
+        </div>
+      )}
       {d.overdue === 0 && d.dueToday === 0 && <p className="dashboard-muted">All caught up!</p>}
     </div>
   </Card>;
@@ -60,7 +74,7 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
           <td className="mono"><button type="button" className="dashboard-order-link" onClick={() => onSelect(order)} aria-label={`Open order ${order.id}`}>{order.id}</button></td>
           <td>{order.name || 'Walk-in customer'}</td>
           {isAllOutlets && <td>{outlets.find(outlet => outlet.id === order.outletId)?.displayName ?? 'Unassigned'}</td>}
-          <td><Badge tone={order.status === 'Delivered' ? 'on' : order.status === 'Pending' ? 'off' : 'warn'}>{order.status}</Badge></td>
+          <td><Badge tone={statusTone(order.status)}>{order.status}</Badge></td>
           <td className="num mono">{money(total(order))}</td>
         </tr>)}</tbody>
       </table>
@@ -83,7 +97,10 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
     </Card>
     {isAllOutlets && <>
       <section className="dashboard-outlets" aria-label="Per-outlet summary">
-        <SectionNote>Per-outlet summary — today, share of best-performing outlet</SectionNote>
+        <div style={{ marginBottom: '14px' }}>
+          <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>Per-outlet summary</h2>
+          <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>Today&apos;s performance · share of best-performing outlet</p>
+        </div>
         <div className="dashboard-outlet-grid">{outlets.map((outlet, index) => {
           const current = todaySummaries.find(s => s.outletId === outlet.id);
           const sales = current?.grossOrderAmount ?? 0;
@@ -104,7 +121,7 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
             </div><div className="row dashboard-comparison"><span>{pct === 100 ? 'Best outlet today' : `${Math.round(pct)}% of best outlet`}</span>
               {growth !== null && <Badge tone={growth >= 0 ? 'on' : 'warn'}>{growth >= 0 ? '↑' : '↓'} {Math.round(Math.abs(growth))}% vs yesterday</Badge>}
             </div></div>
-            <Link href={`/admin/outlets/${outlet.id}`} className="btn btn-secondary">View detail ↗</Link>
+            <Link href={`/admin/outlets/${outlet.id}`} className="btn btn-secondary">View detail</Link>
           </Card>;
         })}</div>
       </section>

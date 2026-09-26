@@ -15,6 +15,11 @@ export interface DialogProps {
   className?: string;
 }
 
+const DialogContext = React.createContext<{ requestClose: () => void }>({ requestClose: () => {} });
+export function useDialog() {
+  return React.useContext(DialogContext);
+}
+
 export function Dialog({
   isOpen = true,
   onClose,
@@ -44,13 +49,21 @@ export function Dialog({
     const previousActive = document.activeElement as HTMLElement | null;
     const unlockScroll = lockBodyScroll();
 
-    // Focus the first focusable element inside the dialog or the dialog container itself
+    // Focus the first form field inside the dialog, or first focusable element, or the dialog itself
     const timer = setTimeout(() => {
       if (dialogRef.current) {
+        const autoFocused = dialogRef.current.querySelector<HTMLElement>('[autofocus]');
+        const bodyInput = dialogRef.current.querySelector<HTMLElement>(
+          '.dialog-body input:not([type="hidden"]):not([disabled]), .dialog-body select:not([disabled]), .dialog-body textarea:not([disabled])'
+        );
         const focusable = dialogRef.current.querySelector<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         );
-        if (focusable) {
+        if (autoFocused) {
+          autoFocused.focus();
+        } else if (bodyInput) {
+          bodyInput.focus();
+        } else if (focusable) {
           focusable.focus();
         } else {
           dialogRef.current.focus();
@@ -91,35 +104,37 @@ export function Dialog({
         }}
         role="presentation"
       >
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dialog-title"
-          tabIndex={-1}
-          className={`dialog ${wide ? 'wide' : ''} ${className}`.trim()}
-          onChangeCapture={() => {
-            isDirty.current = true;
-          }}
-        >
-          <div className="dialog-head">
-            <h2 id="dialog-title" style={{ fontSize: '16px' }}>
-              {title}
-            </h2>
-            <button
-              type="button"
-              className="dialog-close"
-              aria-label="Close dialog"
-              onClick={requestClose}
-            >
-              ✕
-            </button>
+        <DialogContext.Provider value={{ requestClose }}>
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dialog-title"
+            tabIndex={-1}
+            className={`dialog ${wide ? 'wide' : ''} ${className}`.trim()}
+            onChangeCapture={() => {
+              isDirty.current = true;
+            }}
+          >
+            <div className="dialog-head">
+              <h2 id="dialog-title" style={{ fontSize: '16px' }}>
+                {title}
+              </h2>
+              <button
+                type="button"
+                className="dialog-close"
+                aria-label="Close dialog"
+                onClick={requestClose}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="dialog-body">{children}</div>
+
+            {foot && <div className="dialog-foot">{foot}</div>}
           </div>
-
-          <div className="dialog-body">{children}</div>
-
-          {foot && <div className="dialog-foot">{foot}</div>}
-        </div>
+        </DialogContext.Provider>
       </div>
 
       {confirmClose && (

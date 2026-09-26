@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import type { Employee } from '../admin.types';
 import type { OutletListItem } from '@/features/super-admin/types';
-import { Dialog, MultiSelectDropdown, Tag, ErrorBanner } from '@/features/admin/components/ui';
+import { Dialog, useDialog, MultiSelectDropdown, Tag, ErrorBanner } from '@/features/admin/components/ui';
 
 export interface EmployeeDraft { 
   name: string; 
@@ -16,13 +16,13 @@ export interface EmployeeDraft {
 export default function EmployeeEditor({ employee, outlets, error, onSave, onClose }: { employee?: Employee; outlets: OutletListItem[]; error: string; onSave: (draft: EmployeeDraft) => void; onClose: () => void }) {
   const [activeOutlets, setActiveOutlets] = useState<string[]>(employee?.outlets?.map(o => o.id) || []);
   const [defaultOutlet, setDefaultOutlet] = useState<string>(employee?.defaultOutletId || activeOutlets[0] || '');
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <Dialog 
       isOpen={true} 
       onClose={onClose} 
       title={employee ? 'Edit employee' : 'Add employee'} 
-      wide 
       warnOnChanges
     >
       <form className="dialog-body" onSubmit={event => {
@@ -38,26 +38,60 @@ export default function EmployeeEditor({ employee, outlets, error, onSave, onClo
       }}>
         <div className="row" style={{ gap: '12px' }}>
           <div className="field" style={{ flex: 1 }}>
-            <label>Name</label>
-            <input name="name" defaultValue={employee?.name} required maxLength={80} autoComplete="off"/>
+            <label htmlFor="emp-name">Name</label>
+            <input id="emp-name" name="name" defaultValue={employee?.name} required maxLength={80} autoComplete="off" autoFocus/>
           </div>
           <div className="field" style={{ flex: 1 }}>
-            <label>Phone</label>
-            <input name="phone" defaultValue="" placeholder="Optional" autoComplete="off"/>
+            <label htmlFor="emp-phone">Phone</label>
+            <input id="emp-phone" type="tel" inputMode="tel" name="phone" defaultValue="" placeholder="Optional" autoComplete="off"/>
           </div>
         </div>
         <div className="row" style={{ gap: '12px' }}>
           <div className="field" style={{ flex: 1 }}>
-            <label>Username</label>
-            <input name="username" defaultValue={employee?.username} required minLength={3} maxLength={40} pattern="[a-zA-Z0-9._-]+" title="Use letters, numbers, dots, underscores or hyphens" autoComplete="off" autoCapitalize="none"/>
+            <label htmlFor="emp-username">Username</label>
+            <input id="emp-username" name="username" defaultValue={employee?.username} required minLength={3} maxLength={40} pattern="[a-zA-Z0-9._-]+" title="Use letters, numbers, dots, underscores or hyphens" autoComplete="off" autoCapitalize="none"/>
           </div>
           <div className="field" style={{ flex: 1 }}>
-            <label>Temporary password</label>
-            <input name="password" required={!employee} placeholder={employee ? 'Leave blank to keep current' : 'At least 8 characters'} minLength={8} autoComplete="new-password" autoCapitalize="none" spellCheck={false} />
+            <label htmlFor="emp-password">Temporary password</label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input 
+                id="emp-password" 
+                type={showPassword ? 'text' : 'password'} 
+                name="password" 
+                required={!employee} 
+                placeholder={employee ? 'Leave blank to keep current' : 'At least 8 characters'} 
+                minLength={8} 
+                autoComplete="new-password" 
+                autoCapitalize="none" 
+                spellCheck={false} 
+                style={{ paddingRight: '56px', width: '100%' }}
+              />
+              <button 
+                type="button" 
+                onClick={() => setShowPassword(v => !v)} 
+                aria-label={showPassword ? 'Hide password' : 'Show password'} 
+                style={{ 
+                  position: 'absolute', 
+                  right: '8px', 
+                  top: '50%', 
+                  transform: 'translateY(-50%)', 
+                  background: 'none', 
+                  border: 'none', 
+                  cursor: 'pointer', 
+                  color: 'var(--brand)', 
+                  fontWeight: 600,
+                  fontSize: '12px', 
+                  padding: '4px 6px',
+                  lineHeight: 1 
+                }}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
         </div>
         <div className="field" style={{ overflow: 'visible' }}>
-          <label>Active outlets <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— select at least one</span></label>
+          <label id="emp-outlets-label">Active outlets <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(select at least one)</span></label>
           <MultiSelectDropdown 
             label="Outlets" 
             options={outlets.map(o => ({ value: o.id, label: o.displayName }))} 
@@ -80,8 +114,9 @@ export default function EmployeeEditor({ employee, outlets, error, onSave, onClo
           </div>
         </div>
         <div className="field">
-          <label>Default outlet <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— must be one of the selected outlets above</span></label>
+          <label htmlFor="emp-default-outlet">Default outlet <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(must be one of the selected outlets above)</span></label>
           <select 
+            id="emp-default-outlet"
             value={defaultOutlet} 
             onChange={e => setDefaultOutlet(e.target.value)} 
             disabled={activeOutlets.length === 0}
@@ -95,11 +130,18 @@ export default function EmployeeEditor({ employee, outlets, error, onSave, onClo
           </select>
         </div>
         {error && <ErrorBanner message={error} />}
-        <div className="dialog-foot" style={{ margin: '0 -21px -19px', padding: '15px 21px' }}>
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary">{employee ? 'Save changes' : 'Save & create login'}</button>
-        </div>
+        <CancelableDialogFoot onClose={onClose} submitLabel={employee ? 'Save changes' : 'Save & create login'} />
       </form>
     </Dialog>
+  );
+}
+
+function CancelableDialogFoot({ onClose, submitLabel }: { onClose: () => void; submitLabel: string }) {
+  const { requestClose } = useDialog();
+  return (
+    <div className="dialog-foot" style={{ margin: '0 -21px -19px', padding: '15px 21px' }}>
+      <button type="button" className="btn btn-secondary" onClick={requestClose || onClose}>Cancel</button>
+      <button type="submit" className="btn btn-primary">{submitLabel}</button>
+    </div>
   );
 }

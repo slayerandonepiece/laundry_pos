@@ -29,18 +29,20 @@ export default function Expenses({
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: '8px' }}>
         <div>
-          <h1 style={{ fontSize: '22px' }}>Expenses</h1>
+          <h2 style={{ fontSize: '20px', margin: 0, fontWeight: 700 }}>Bills & operational costs</h2>
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
-            Per-outlet and organization-wide costs, side by side
+            Track organization and outlet expenses.
           </p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={onNew}>
-          ＋ Add expense
-        </button>
+        {expenses.length > 0 && (
+          <button type="button" className="btn btn-primary" onClick={onNew}>
+            ＋ Add expense
+          </button>
+        )}
       </div>
 
       <Card>
-        <div className="row" style={{ gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+        <div className="row" style={{ gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <Pill active={selectedOutlet === 'all'} onClick={() => setSelectedOutlet('all')}>
             All
           </Pill>

@@ -14,16 +14,18 @@ interface Props {
 }
 
 export default function Employees({ employees, outlets, search, onSearch, onNew, onEdit, onToggle }: Props) {
+  const unassignedCount = employees.filter(e => e.active && (!e.outlets || e.outlets.length === 0)).length;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: '22px' }}>Employees</h1>
+          <h2 style={{ fontSize: '20px', margin: 0, fontWeight: 700 }}>Team members</h2>
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
-            {employees.length} {employees.length === 1 ? 'employee' : 'employees'} across {outlets.length} {outlets.length === 1 ? 'outlet' : 'outlets'} · deactivating restricts their sign-in to this organization only
+            {employees.length} {employees.length === 1 ? 'employee' : 'employees'}{unassignedCount > 0 ? ` (${unassignedCount} without outlet)` : ''} across {outlets.length} {outlets.length === 1 ? 'outlet' : 'outlets'}
           </p>
         </div>
-        <button className="btn btn-primary" onClick={onNew}>＋ Add employee</button>
+        <button type="button" className="btn btn-primary" onClick={onNew}>＋ Add employee</button>
       </div>
 
       <div className="card">
@@ -60,63 +62,107 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
                 </tr>
               </thead>
               <tbody>
-                {employees.map(employee => (
-                  <tr key={employee.id}>
-                    <td>
-                      <strong>{employee.name}</strong>
-                      <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
-                    </td>
-                    <td>
-                      <span className="row" style={{ gap: '5px', flexWrap: 'wrap' }}>
-                        {employee.outlets?.length ? employee.outlets.map(outlet => (
-                          <Tag key={outlet.id} isDefault={outlet.id === employee.defaultOutletId}>
-                            {outlet.name}
-                          </Tag>
-                        )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>None</span>}
-                      </span>
-                    </td>
-                    <td>
-                      <Badge variant={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <span className="row" style={{ gap: '6px', justifyContent: 'flex-end' }}>
-                        <button className={employee.active ? "btn btn-danger" : "btn btn-primary"} onClick={() => onToggle(employee)}>
-                          {employee.active ? 'Deactivate' : 'Reactivate'}
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => onEdit(employee)}>Manage ↗</button>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {employees.map(employee => {
+                  const hasNoOutlets = !employee.outlets || employee.outlets.length === 0;
+                  return (
+                    <tr key={employee.id}>
+                      <td>
+                        <strong>{employee.name}</strong>
+                        <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+                      </td>
+                      <td>
+                        {employee.active && hasNoOutlets ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                            <Badge tone="warn">No outlet assigned</Badge>
+                            <button
+                              type="button"
+                              className="ad-text-link"
+                              style={{ fontSize: '11.5px', color: 'var(--brand)' }}
+                              onClick={() => onEdit(employee)}
+                            >
+                              Assign outlet →
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="row" style={{ gap: '5px', flexWrap: 'wrap' }}>
+                            {employee.outlets?.length ? employee.outlets.map(outlet => (
+                              <Tag key={outlet.id} isDefault={outlet.id === employee.defaultOutletId}>
+                                {outlet.name}
+                              </Tag>
+                            )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>None</span>}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <Badge tone={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span className="row" style={{ gap: '8px', justifyContent: 'flex-end' }}>
+                          <button type="button" className="btn btn-secondary" onClick={() => onEdit(employee)}>Edit</button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ color: employee.active ? '#b91c1c' : 'var(--brand)', borderColor: employee.active ? '#fca5a5' : undefined }}
+                            onClick={() => onToggle(employee)}
+                          >
+                            {employee.active ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           <div className="employees-cards">
-            {employees.map(employee => (
-              <article key={employee.id} className="employee-card">
-                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <strong>{employee.name}</strong>
-                    <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+            {employees.map(employee => {
+              const hasNoOutlets = !employee.outlets || employee.outlets.length === 0;
+              return (
+                <article key={employee.id} className="employee-card">
+                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <strong>{employee.name}</strong>
+                      <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+                    </div>
+                    <Badge tone={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
                   </div>
-                  <Badge variant={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
-                </div>
-                <span className="row" style={{ gap: '5px', flexWrap: 'wrap' }}>
-                  {employee.outlets?.length ? employee.outlets.map(outlet => (
-                    <Tag key={outlet.id} isDefault={outlet.id === employee.defaultOutletId}>
-                      {outlet.name}
-                    </Tag>
-                  )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>No outlets</span>}
-                </span>
-                <div className="employee-card-actions">
-                  <button className={employee.active ? "btn btn-danger" : "btn btn-primary"} onClick={() => onToggle(employee)}>
-                    {employee.active ? 'Deactivate' : 'Reactivate'}
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => onEdit(employee)}>Manage ↗</button>
-                </div>
-              </article>
-            ))}
+                  {employee.active && hasNoOutlets ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                      <Badge tone="warn">No outlet assigned</Badge>
+                      <button
+                        type="button"
+                        className="ad-text-link"
+                        style={{ fontSize: '11.5px', color: 'var(--brand)' }}
+                        onClick={() => onEdit(employee)}
+                      >
+                        Assign outlet →
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="row" style={{ gap: '5px', flexWrap: 'wrap' }}>
+                      {employee.outlets?.length ? employee.outlets.map(outlet => (
+                        <Tag key={outlet.id} isDefault={outlet.id === employee.defaultOutletId}>
+                          {outlet.name}
+                        </Tag>
+                      )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>No outlets</span>}
+                    </span>
+                  )}
+                  <div className="employee-card-actions" style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => onEdit(employee)}>Edit</button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ flex: 1, color: employee.active ? '#b91c1c' : 'var(--brand)', borderColor: employee.active ? '#fca5a5' : undefined }}
+                      onClick={() => onToggle(employee)}
+                    >
+                      {employee.active ? 'Deactivate' : 'Reactivate'}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
           </>
         )}

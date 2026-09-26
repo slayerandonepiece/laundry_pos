@@ -59,7 +59,7 @@ export default function OutletsList({ outlets }: { outlets: OutletListItem[] }) 
                       <td className="mono">{dateLabel(outlet.openedAt)}</td>
                       <td style={{ textAlign: 'right' }}>
                         <Link href={`/admin/outlets/${outlet.id}`} className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-                          View ↗
+                          View
                         </Link>
                       </td>
                     </tr>
@@ -84,7 +84,7 @@ export default function OutletsList({ outlets }: { outlets: OutletListItem[] }) 
                     {outlet.outletCode} · Opened {dateLabel(outlet.openedAt)}
                   </span>
                   <Link href={`/admin/outlets/${outlet.id}`} className="btn btn-secondary outlet-card-view" style={{ textDecoration: 'none' }}>
-                    View ↗
+                    View
                   </Link>
                 </article>
               );

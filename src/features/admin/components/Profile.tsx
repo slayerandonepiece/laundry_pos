@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { Profile as ProfileType } from '../admin.types';
 import type { OrganizationPaymentMethodDTO } from '@/server/services/platform-payment-methods';
 import type { OutletListItem, StoreDetail } from '@/features/super-admin/types';
-import { Card, CardHeading, Badge, Dialog } from '@/features/admin/components/ui';
+import { Card, CardHeading, Badge, Dialog, useDialog } from '@/features/admin/components/ui';
 import { Button } from './Primitives';
 import PaymentMethodsSettings from './PaymentMethodsSettings';
 import { money, dateLabel } from '@/features/admin/admin.data';
@@ -48,6 +48,17 @@ export default function Profile({
   const [showEdit, setShowEdit] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  const isPasswordValid = Boolean(
+    oldPassword &&
+    newPassword.length >= 8 &&
+    newPassword !== oldPassword &&
+    newPassword === confirmPassword
+  );
 
   return (
     <div className="ad-profile-grid">
@@ -62,13 +73,20 @@ export default function Profile({
             <div><small style={{ color: 'var(--muted)' }}>Username</small><div>{username}</div></div>
             <div><small style={{ color: 'var(--muted)' }}>Phone</small><div>{p.phone}</div></div>
             <div><small style={{ color: 'var(--muted)' }}>Email</small><div>{p.email || '—'}</div></div>
+            <div><small style={{ color: 'var(--muted)' }}>Store name</small><div>{p.store || '—'}</div></div>
+            <div><small style={{ color: 'var(--muted)' }}>Store address</small><div>{p.address || '—'}</div></div>
           </div>
         </Card>
 
         <Card>
           <CardHeading 
             title="Security" 
-            action={<Button secondary onClick={() => setShowPasswordDialog(true)}>Change password</Button>} 
+            action={<Button secondary onClick={() => {
+              setOldPassword('');
+              setNewPassword('');
+              setConfirmPassword('');
+              setShowPasswordDialog(true);
+            }}>Change password</Button>} 
           />
           <div>
             <small style={{ color: 'var(--muted)' }}>Password last changed</small>
@@ -130,7 +148,7 @@ export default function Profile({
       </div>
 
       {showEdit && (
-        <Dialog title="Edit profile" onClose={() => setShowEdit(false)}>
+        <Dialog title="Edit profile" onClose={() => setShowEdit(false)} warnOnChanges>
           <form className="ad-form" onSubmit={e => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -154,15 +172,15 @@ export default function Profile({
             setShowEdit(false);
           }}>
             <div className="ad-form-grid">
-              <label>Owner name<input name="name" defaultValue={p.name} required/></label>
-              <label>Username<input value={username} readOnly/></label>
-              <label>Phone<input name="phone" type="tel" pattern={'[+0-9 ()\\-]{10,18}'} title="Enter a valid phone number with 10 to 15 digits" aria-label="Phone" defaultValue={p.phone} required/></label>
-              <label>Email<input name="email" type="email" defaultValue={p.email}/></label>
+              <label htmlFor="prof-name">Owner name<input id="prof-name" name="name" defaultValue={p.name} required/></label>
+              <label htmlFor="prof-username">Username<input id="prof-username" value={username} readOnly/></label>
+              <label htmlFor="prof-phone">Phone<input id="prof-phone" name="phone" type="tel" pattern={'[+0-9 ()\\-]{10,18}'} title="Enter a valid phone number with 10 to 15 digits" aria-label="Phone" defaultValue={p.phone} required/></label>
+              <label htmlFor="prof-email">Email<input id="prof-email" name="email" type="email" defaultValue={p.email}/></label>
             </div>
-            <label>Store name<input name="store" defaultValue={p.store} required/></label>
-            <label>Store address<textarea name="address" defaultValue={p.address} required/></label>
+            <label htmlFor="prof-store">Store name<input id="prof-store" name="store" defaultValue={p.store} required/></label>
+            <label htmlFor="prof-address">Store address<textarea id="prof-address" name="address" defaultValue={p.address} required/></label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-              <Button secondary type="button" onClick={() => setShowEdit(false)}>Cancel</Button>
+              <DialogCancelButton onClose={() => setShowEdit(false)} />
               <Button type="submit">Save changes</Button>
             </div>
           </form>
@@ -170,33 +188,93 @@ export default function Profile({
       )}
 
       {showPasswordDialog && (
-        <Dialog title="Change password" onClose={() => setShowPasswordDialog(false)}>
+        <Dialog title="Change password" onClose={() => setShowPasswordDialog(false)} warnOnChanges>
           <form className="ad-form" onSubmit={e => {
             e.preventDefault();
-            const form = e.currentTarget;
-            const f = new FormData(form);
-            onPassword(String(f.get('old')), String(f.get('next')), String(f.get('confirm'))).then(ok => {
+            if (!isPasswordValid || savingPassword) return;
+            setSavingPassword(true);
+            onPassword(oldPassword, newPassword, confirmPassword).then(ok => {
+              setSavingPassword(false);
               if (ok) {
-                form.reset();
                 setShowPasswordDialog(false);
               }
+            }).catch(() => {
+              setSavingPassword(false);
             });
           }}>
-            <label>Current password<input name="old" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required/></label>
-            <label>New password<input name="next" type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={8} required/></label>
-            <label>Confirm new password<input name="confirm" type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={8} required/></label>
+            <p style={{ fontSize: '13px', color: 'var(--muted)', margin: '0 0 12px' }}>
+              Passwords must be at least 8 characters and differ from your current password.
+            </p>
+            <label htmlFor="pwd-old">
+              Current password
+              <input 
+                id="pwd-old"
+                name="old" 
+                type={showPassword ? 'text' : 'password'} 
+                value={oldPassword}
+                onChange={e => setOldPassword(e.target.value)}
+                autoComplete="current-password" 
+                required
+              />
+            </label>
+            <label htmlFor="pwd-next">
+              New password
+              <input 
+                id="pwd-next"
+                name="next" 
+                type={showPassword ? 'text' : 'password'} 
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                autoComplete="new-password" 
+                minLength={8} 
+                required
+              />
+              {newPassword.length > 0 && newPassword.length < 8 && (
+                <small style={{ color: 'var(--muted)' }}>{8 - newPassword.length} more characters needed</small>
+              )}
+              {newPassword.length >= 8 && oldPassword && newPassword === oldPassword && (
+                <small style={{ color: '#c0362c' }}>New password must differ from current password</small>
+              )}
+            </label>
+            <label htmlFor="pwd-confirm">
+              Confirm new password
+              <input 
+                id="pwd-confirm"
+                name="confirm" 
+                type={showPassword ? 'text' : 'password'} 
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                autoComplete="new-password" 
+                minLength={8} 
+                required
+              />
+              {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                <small style={{ color: '#c0362c' }}>Passwords do not match</small>
+              )}
+            </label>
             <label className="ad-checkbox">
               <input type="checkbox" checked={showPassword} onChange={e => setShowPassword(e.target.checked)}/>
               Show passwords
             </label>
             {error && <p className="ad-error" role="alert">{error}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-              <Button secondary type="button" onClick={() => setShowPasswordDialog(false)}>Cancel</Button>
-              <Button type="submit">Update password</Button>
+              <DialogCancelButton onClose={() => setShowPasswordDialog(false)} />
+              <Button type="submit" disabled={!isPasswordValid || savingPassword}>
+                {savingPassword ? 'Updating…' : 'Update password'}
+              </Button>
             </div>
           </form>
         </Dialog>
       )}
     </div>
+  );
+}
+
+function DialogCancelButton({ onClose }: { onClose: () => void }) {
+  const { requestClose } = useDialog();
+  return (
+    <Button secondary type="button" onClick={requestClose || onClose}>
+      Cancel
+    </Button>
   );
 }

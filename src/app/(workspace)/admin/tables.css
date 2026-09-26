@@ -181,7 +181,7 @@
 .ad-root .ad-table-card>.ad-toolbar{
  padding:0 var(--table-inset) 16px;margin:0;gap:10px;align-items:center;flex-wrap:wrap;
 }
-.ad-root .ad-table-card .ad-category-tabs{margin:0;align-items:center}
+.ad-root .ad-table-card .ad-category-tabs{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:100%}
 .ad-root .ad-table-card>.ad-table-wrap{
  margin:0 var(--table-inset);width:calc(100% - var(--table-inset) * 2);
  border:1px solid #dce3ed;border-radius:8px;overflow:auto;

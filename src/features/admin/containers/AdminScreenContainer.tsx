@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAdmin } from './AdminProvider';
 import { money, paid, paymentStatus, rangeFor, today, total, within } from '../admin.data';
@@ -12,6 +12,7 @@ import Login from '../components/Login';
 import Dashboard, { type DashboardOutlet, type DashboardOutletSummary } from '../components/Dashboard';
 import { DashboardLoading } from '../components/DashboardStates';
 import DashboardOutletControl from '../components/DashboardOutletControl';
+import DashboardPeriodControl from '../components/DashboardPeriodControl';
 import DashboardLoadBoundary from '../components/DashboardLoadBoundary';
 import Catalogue from '../components/Catalogue';
 import Expenses from '../components/Expenses';
@@ -50,6 +51,13 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
   const [query, setQuery] = useState(''), [status, setStatus] = useState('All'), [payment, setPayment] = useState('All');
   const [modal, setModal] = useState<Modal>(null), [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [optimisticOrders, setOptimisticOrders] = useState<Order[]>([]);
+  const allOrders = useMemo(() => {
+    const server = serverOrders ?? [];
+    const serverIds = new Set(server.map(o => o.id));
+    const pending = optimisticOrders.filter(o => !serverIds.has(o.id));
+    return [...pending, ...server];
+  }, [serverOrders, optimisticOrders]);
   useEffect(() => {
     if (screen !== 'sales' && screen !== 'orders') return;
     // Synchronize the browser-only route drilldown after hydration.
@@ -71,7 +79,6 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
   if (!canAccess(user.role, screen)) return <div className="ad-root ad-loading">Opening your permitted workspace…</div>;
 
   const isOwner = user.role === 'owner', current = today(), search = query.trim().toLowerCase();
-  const allOrders = serverOrders ?? [];
   const allProducts = serverProducts ?? [];
   const allExpenses = serverExpenses ?? [];
   const allOutlets = serverOutlets ?? [];
@@ -153,23 +160,20 @@ export default function AdminScreenContainer({ screen, serverProducts, serverOrd
           }).bars}
           recentOrders={allOrders.filter(order => !order.legacyCancelled).slice().sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id, undefined, { numeric: true }))}
           businessDate={current} yesterday={new Date(Date.parse(current) - 86400000).toISOString().slice(0, 10)}
-          trendTitle={dashboardPeriod === '14d' ? 'Sales trend — last 14 days' : 'Sales trend — selected period'}
-          trendControl={<details className="dashboard-range"><summary className="pill">{dashboardPeriod === '14d' ? '14d' : dashboardPeriod === 'custom' ? 'Custom' : dashboardPeriod} ▾</summary><div className="dashboard-range-menu">
-            <button type="button" className="btn btn-secondary" onClick={() => { setDashboardPeriod('14d'); setDashboardRange({ from: new Date(Date.parse(current) - 13 * 86400000).toISOString().slice(0, 10), to: current }); }}>Last 14 days</button>
-            <DateFilter period={dashboardPeriod === '14d' ? 'custom' : dashboardPeriod} range={dashboardRange} onPeriod={value => { setDashboardPeriod(value); if (value !== 'custom') setDashboardRange(rangeFor(value)); }} onRange={value => { if (value.from && value.to && value.from <= value.to) { setDashboardPeriod('custom'); setDashboardRange(value); } }} />
-          </div></details>}
+          trendTitle={dashboardPeriod === '14d' ? 'Sales trend — last 14 days (2-day buckets)' : 'Sales trend — selected period'}
+          trendControl={<DashboardPeriodControl period={dashboardPeriod} range={dashboardRange} currentDate={current} onPeriodChange={setDashboardPeriod} onRangeChange={setDashboardRange} />}
           summaries={serverSummaries} allOutletsSelected={allOutletsSelected} outlets={dashboardOutlets} outletName={outletName} onSelect={selectOrder} />
       </DashboardLoadBoundary>}
-      {screen === 'products' && <Catalogue readOnly={!isOwner} products={allProducts.filter(product => (product.name + product.category).toLowerCase().includes(search))} search={query} onSearch={setQuery} onEdit={product => open({ type: 'product', product })} onNew={() => open({ type: 'product' })}/>}
+      {screen === 'products' && <Catalogue readOnly={!isOwner} products={allProducts.filter(product => (product.name + product.category).toLowerCase().includes(search))} totalCount={allProducts.length} search={query} onSearch={setQuery} onEdit={product => open({ type: 'product', product })} onNew={() => open({ type: 'product' })}/>}
       {screen === 'sales' && !isOwner && <EmployeeSalesContainer products={allProducts} paymentMethods={serverPaymentMethods ?? []}/>}
-      {(screen === 'orders' || (screen === 'sales' && isOwner)) && <Sales delivery={delivery} onDelivery={value => { setDelivery(value); setAttentionOnly(false); }} orders={orders} matching={matching} employee={!isOwner} attentionOnly={attentionOnly} query={query} status={status} payment={payment} onQuery={setQuery} onStatus={setStatus} onPayment={setPayment} onSelect={selectOrder} onClear={() => { setDelivery('all'); setQuery(''); setStatus('All'); setPayment('All'); setAttentionOnly(false); }}/>}
+      {(screen === 'orders' || (screen === 'sales' && isOwner)) && <Sales delivery={delivery} onDelivery={value => { setDelivery(value); setAttentionOnly(false); }} orders={orders} matching={matching} employee={!isOwner} attentionOnly={attentionOnly} query={query} status={status} payment={payment} onQuery={setQuery} onStatus={setStatus} onPayment={setPayment} onSelect={selectOrder} onClear={() => { setDelivery('all'); setQuery(''); setStatus('All'); setPayment('All'); setAttentionOnly(false); }} outlets={allOutlets.length > 1 ? allOutlets.map(o => ({ id: o.id, name: o.displayName })) : undefined}/>}
       {isOwner && screen === 'employees' && <Employees employees={allEmployees.filter(employee => (employee.name + ' ' + employee.username).toLowerCase().includes(search))} outlets={allOutlets} search={query} onSearch={setQuery} onNew={() => open({ type: 'employee' })} onEdit={employee => open({ type: 'employee', employee })} onToggle={toggleEmployee}/>}
       {screen === 'outlets' && <OutletsList outlets={allOutlets} />}
       {isOwner && screen === 'expenses' && <Expenses expenses={allExpenses.filter(expense => within(expense.due, range) && (expense.title + expense.category).toLowerCase().includes(search))} outlets={allOutlets} onNew={() => open({ type: 'expense' })} onPaid={id => { if (!isOwner) return; setConfirmation({ title: 'Mark expense paid?', description: 'Record this bill as paid today.', confirmLabel: 'Mark paid', onConfirm: () => { markExpensePaidAction(id).then(() => { router.refresh(); setNotice('Expense marked paid'); }).catch(() => setError('Could not mark this expense paid. Try again.')); } }); }}/>}
       {isOwner && screen === 'profile' && <Profile profile={allProfile} paymentMethods={serverOrgPaymentMethods ?? []} outlets={serverOutlets ?? []} storeInfo={storeInfo ?? null} passwordUpdatedAt={passwordUpdatedAt} username={ownerUsername} onLogout={exit} error={error} onSave={profile => { if (!isOwner) return; saveProfileAction(profile).then(result => { if (!result.ok) return setError(result.error || 'Could not save your profile. Try again.'); router.refresh(); setError(''); setNotice('Profile updated'); }).catch(() => setError('Could not save your profile. Try again.')); }} onPassword={async (old, next, confirm) => { if (!isOwner) return false; if (next !== confirm || next === old || next.length < 8) { setError('Use a different password of at least 8 characters and confirm it exactly.'); return false; } try { const result = await changePasswordAction(old, next); if (!result.ok) { setError(result.error || 'Could not update your password. Try again.'); return false; } setError(''); setNotice('Password updated — signing you out for security.'); logout(); router.replace('/login'); return true; } catch { setError('Could not update your password. Try again.'); return false; } }}/>}
       {modal && modal.type !== 'expense' && modal.type !== 'employee' && modal.type !== 'product' && <Panel key={modal.type + (modal.type === 'order' ? modal.id : '')} title={title} headerContent={selected ? <OrderDetailsHeader order={selected} outletName={allOutlets.find(o => o.id === selected.outletId)?.displayName ?? dashboardOutlets?.find(o => o.id === selected.outletId)?.displayName}/> : undefined} variant={modal.type === 'order' ? 'details' : 'default'} onClose={() => setModal(null)} warnOnChanges={modal.type !== 'order'}>
         {selected && <OrderDetails order={selected} paymentMethods={serverPaymentMethods ?? []} canRecordPayment={true} error={error} onStatus={updateStatus} onPayment={recordPayment}/>}
-        {modal.type === 'newOrder' && <OrderEditorContainer products={allProducts} paymentMethods={serverPaymentMethods ?? []} outlets={allOutlets} onSave={(input, outletId) => createOrderAction(input, outletId).then(order => { router.refresh(); open({ type: 'order', id: order.id }); setNotice('Order saved'); })}/>}
+        {modal.type === 'newOrder' && <OrderEditorContainer products={allProducts} paymentMethods={serverPaymentMethods ?? []} outlets={allOutlets} onSave={(input, outletId) => createOrderAction(input, outletId).then(order => { setOptimisticOrders(prev => [order, ...prev.filter(o => o.id !== order.id)]); router.refresh(); open({ type: 'order', id: order.id }); setNotice('Order saved'); })}/>}
       </Panel>}
       {modal?.type === 'product' && isOwner && (
         <ProductEditorContainer product={modal.product} error={error} onClose={() => setModal(null)} onSave={product => { saveProductAction(product).then(() => { router.refresh(); complete('Service saved'); }).catch(() => setError('Could not save the service. Try again.')); }}/>

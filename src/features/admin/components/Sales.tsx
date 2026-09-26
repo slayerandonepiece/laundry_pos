@@ -11,8 +11,9 @@ interface Props {
   onQuery: (value: string) => void; onStatus: (value: string) => void; onPayment: (value: string) => void;
   onClear: () => void; onSelect: (order: Order) => void;
   delivery: string; onDelivery: (value: string) => void;
+  outlets?: { id: string; name: string }[];
 }
-export default function Sales({ orders, matching, employee, attentionOnly, query, status, payment, onQuery, onStatus, onPayment, onClear, onSelect, delivery, onDelivery }: Props) {
+export default function Sales({ orders, matching, employee, attentionOnly, query, status, payment, onQuery, onStatus, onPayment, onClear, onSelect, delivery, onDelivery, outlets }: Props) {
   const scope = delivery === 'today' ? 'Due today · all dates' : delivery === 'late' ? 'Late · all dates' : attentionOnly ? 'Due today or late' : 'In the selected period';
   const hasFilters = Boolean(query.trim()) || status !== 'All' || payment !== 'All' || delivery !== 'all' || attentionOnly;
   const emptyText = hasFilters ? 'No orders match this search. Try another filter.' : 'No orders yet for this period — punch a new sale to get started.';
@@ -34,7 +35,7 @@ export default function Sales({ orders, matching, employee, attentionOnly, query
         <SingleSelectDropdown ariaLabel="Filter payment status" value={payment} onChange={onPayment} options={['All', 'Unpaid', 'Part-paid', 'Paid'].map(value => ({ value, label: value === 'All' ? 'All payment statuses' : value }))}/>
         <button className="ad-text-link" onClick={onClear}>Clear</button>
       </div>
-      <OrderTable orders={matching} onSelect={onSelect} emptyText={emptyText}/>
+      <OrderTable orders={matching} onSelect={onSelect} emptyText={emptyText} outlets={outlets}/>
     </Card>
   </>;
 }

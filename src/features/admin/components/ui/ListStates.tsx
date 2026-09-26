@@ -84,6 +84,24 @@ export interface ErrorBannerProps {
   children?: ReactNode;
 }
 
+export function InfoBanner({
+  message,
+  className = '',
+  children,
+}: {
+  message?: string;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={`info-banner ${className}`.trim()} role="status">
+      <span>
+        ℹ {message || children}
+      </span>
+    </div>
+  );
+}
+
 export function ErrorBanner({
   message,
   onRetry,
@@ -93,9 +111,10 @@ export function ErrorBanner({
   children,
 }: ErrorBannerProps) {
   const isInfo = variant === 'info';
+  const baseClass = isInfo ? 'info-banner' : 'error-banner';
 
   return (
-    <div className={`error-banner ${isInfo ? 'info' : ''} ${className}`.trim()} role={isInfo ? 'status' : 'alert'}>
+    <div className={`${baseClass} ${className}`.trim()} role={isInfo ? 'status' : 'alert'}>
       <span>
         {isInfo ? 'ℹ ' : '⚠ '}
         {message || children || "Couldn't load this data. Check your connection and try again."}

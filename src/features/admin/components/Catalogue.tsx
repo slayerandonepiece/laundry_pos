@@ -4,6 +4,7 @@ import { Badge, ErrorBanner, EmptyState, Card, CardHeading } from '@/features/ad
 
 interface Props {
   products: Product[];
+  totalCount?: number;
   search: string;
   readOnly?: boolean;
   onSearch: (search: string) => void;
@@ -30,6 +31,7 @@ function Pricing({ product }: { product: Product }) {
 
 export default function Catalogue({
   products,
+  totalCount,
   search,
   readOnly = false,
   onSearch,
@@ -40,28 +42,38 @@ export default function Catalogue({
   const hasUnitToConfirm = products.some(product => !product.active && needsUnit(product));
 
   return (
-    <div className="catalogue">
+    <div className="catalogue" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <ErrorBanner variant="info">
         Services are organization-wide — any change applies at every outlet.
       </ErrorBanner>
 
       <Card>
         <CardHeading
-          title={`Service catalogue (${products.length})`}
+          title={isFiltered ? `Services & pricing (${products.length} of ${totalCount ?? products.length})` : `Services & pricing (${products.length})`}
           subtitle={readOnly ? 'Service prices for new orders. Contact the owner for changes.' : 'Manage services and their pricing.'}
           action={!readOnly && <button type="button" className="btn btn-primary" onClick={onNew}>＋ Add service</button>}
         />
 
-        <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="row" style={{ justifyContent: 'space-between', gap: '8px' }}>
           <input
             type="search"
             className="search-input"
-            aria-label="Search products"
+            aria-label="Search services or categories"
             placeholder="Search by service or category…"
             value={search}
             onChange={event => onSearch(event.target.value)}
             style={{ minWidth: '280px' }}
           />
+          {isFiltered && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: '12px', padding: '6px 12px' }}
+              onClick={() => onSearch('')}
+            >
+              Clear search
+            </button>
+          )}
         </div>
 
         {products.length === 0 ? (
@@ -72,6 +84,7 @@ export default function Catalogue({
             firstUseAction={!readOnly ? <button type="button" className="btn btn-primary" onClick={onNew}>＋ Add service</button> : undefined}
             filteredTitle="No matching services"
             filteredDescription="Try adjusting your search terms to find what you are looking for."
+            filteredAction={<button type="button" className="btn btn-secondary" onClick={() => onSearch('')}>Clear search</button>}
           />
         ) : (
           <>
@@ -100,7 +113,7 @@ export default function Catalogue({
                       {!readOnly && (
                         <td style={{ textAlign: 'right' }}>
                           <button type="button" className="btn btn-secondary" aria-label={'Edit ' + product.name} onClick={() => onEdit(product)}>
-                            Edit ↗
+                            Edit
                           </button>
                         </td>
                       )}
@@ -126,9 +139,9 @@ export default function Catalogue({
                         {product.active ? 'Active' : needsUnit(product) ? 'Confirm unit' : 'Inactive'}
                       </Badge>
                     </div>
-                    <span className="mono" style={{ fontSize: '11px', color: 'var(--muted)' }}>{product.id} · {product.category}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--muted)' }}>{product.category}</span>
                     <Pricing product={product}/>
-                    {!readOnly && <span className="catalogue-card-edit">Edit ↗</span>}
+                    {!readOnly && <span className="catalogue-card-edit">Edit</span>}
                   </ProductCard>
                 );
               })}

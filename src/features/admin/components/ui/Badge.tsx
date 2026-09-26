@@ -1,6 +1,11 @@
 import React, { type ReactNode } from 'react';
 
-export type BadgeTone = 'on' | 'off' | 'warn';
+export type BadgeTone = 'on' | 'off' | 'warn' | 'info' | 'ready';
+
+// Work-status tones stay distinct from each other and from payment badges (on / warn).
+export function statusTone(status: string): BadgeTone {
+  return status === 'Delivered' ? 'on' : status === 'Ready' ? 'ready' : status === 'In Progress' ? 'info' : 'off';
+}
 
 export interface BadgeProps {
   children: ReactNode;

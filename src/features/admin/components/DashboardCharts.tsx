@@ -28,7 +28,7 @@ export function SalesChart({ points, previousPoints = [] }: { points: TrendPoint
       <svg viewBox={`0 0 ${plotWidth} 190`} role="img" aria-label="Sales trend, this period compared with the previous period">
         <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".2"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>
         {[20, 65, 110, 155].map(value => <line key={value} x1="10" y1={value} x2={plotWidth - 10} y2={value} stroke="#e9ebef" strokeWidth="1" strokeDasharray="3 3"/>)}
-        {hasData && [1, 2 / 3, 1 / 3].map((value, index) => <text key={value} x={plotWidth - 10} y={24 + index * 45} textAnchor="end" fontSize="10.5" fill="#98a2b0" fontFamily="var(--font-mono)">{axisMoney(maximum * value)}</text>)}
+        {hasData && [1, 2 / 3, 1 / 3].map((value, index) => <text key={value} x={plotWidth - 10} y={24 + index * 45} textAnchor="end" fontSize="11.5" fill="#475569" fontWeight="600" fontFamily="var(--font-mono)">{axisMoney(maximum * value)}</text>)}
         {previousPoints.length > 0 && <path d={line(previousPoints)} fill="none" stroke="#c3d6f9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>}
         {points.length > 0 && <>
           <path d={`${line(points)} L${x(points.length - 1, points.length)},155 L${x(0, points.length)},155 Z`} fill={`url(#${id})`}/>
@@ -37,7 +37,7 @@ export function SalesChart({ points, previousPoints = [] }: { points: TrendPoint
         </>}
         {points.map((point, index) => <circle key={point.label} className="dashboard-chart-point" cx={x(index, points.length)} cy={y(point.amount)} r="10" fill="transparent" tabIndex={0} role="button"
           aria-label={`${point.label}: ${money(point.amount)}`} onFocus={() => setSelected(index)} onBlur={() => setSelected(null)} onMouseEnter={() => setSelected(index)} onMouseLeave={() => setSelected(null)} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(index); } }}><title>{`${point.label}: ${money(point.amount)}`}</title></circle>)}
-        {points.length > 0 && [0, Math.floor((points.length - 1) / 2), points.length - 1].filter((value, index, array) => array.indexOf(value) === index).map(index => <text key={index} x={index === 0 ? 10 : index === points.length - 1 ? plotWidth - 10 : plotWidth / 2} y="175" textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fontSize="10.5" fill="var(--muted)" fontFamily="var(--font-body)">{shortLabel(points[index].label)}</text>)}
+        {points.length > 0 && [0, Math.floor((points.length - 1) / 2), points.length - 1].filter((value, index, array) => array.indexOf(value) === index).map(index => <text key={index} x={index === 0 ? 10 : index === points.length - 1 ? plotWidth - 10 : plotWidth / 2} y="175" textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fontSize="11.5" fill="#475569" fontWeight="500" fontFamily="var(--font-body)">{shortLabel(points[index].label)}</text>)}
       </svg>
       {picked && <output className="dashboard-chart-readout">{picked.label} · {money(picked.amount)}</output>}
       {!points.some(point => point.amount > 0) && <p className="dashboard-chart-empty">No booked sales in this period.</p>}

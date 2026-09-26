@@ -34,17 +34,17 @@ function Navigation({ screen, role, brandName, storeName, multiStore, onNavigate
   return <>
     <Link className="ad-logo" href={role ? homeFor(role) : '/'} onClick={onNavigate}>
       <span className="ad-logo-mark"><Icon name="logo" size="l" /></span>
-      <span><b>{brandName}</b><small>STORE WORKSPACE</small></span>
+      <span><b>{brandName}</b><small style={{ fontSize: '11px', letterSpacing: '0.1em' }}>STORE WORKSPACE</small></span>
     </Link>
-    <p className="ad-nav-label">WORKSPACE</p>
+    <p className="ad-nav-label" style={{ fontSize: '11px', letterSpacing: '0.12em' }}>WORKSPACE</p>
     <nav aria-label="Admin navigation">
-      {role && links.filter(([id]) => role === 'owner' ? id !== 'orders' : ['sales', 'orders'].includes(id)).map(([id, icon, label]) => (
+      {role && links.filter(([id]) => role === 'owner' || ['sales', 'orders'].includes(id)).map(([id, icon, label]) => (
         <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}>
           <Icon name={icon} />{label}
         </Link>
       ))}
     </nav>
-    <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>{storeName}<small>{multiStore ? 'Switch stores from the header above.' : 'One store. Everything in view.'}</small></div><button onClick={onLogout}>Log out ↗</button></div>
+    <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>{storeName}<small>{multiStore ? 'Switch stores from the header above.' : 'Organization workspace'}</small></div><button onClick={onLogout}>Log out &rarr;</button></div>
   </>;
 }
 
