@@ -6,6 +6,12 @@ Prerequisites: installed npm dependencies and PostgreSQL's `initdb`, `pg_ctl`,
 and `psql` on PATH. Verified with PostgreSQL 18.3 and Node 24.11.1. Run as a
 non-root user with permission to start PostgreSQL and allocate shared memory.
 
+On macOS with PostgreSQL 18, the disposable cluster fails to start with
+`FATAL: postmaster became multithreaded during startup` unless a C locale is
+set. Run `LC_ALL=C LANG=C npm run test:subscription-payments`. This is a
+host/toolchain issue, not a repository bug — without it the runner reports
+only `pg_ctl: could not start server` and the suite looks unrunnable.
+
 The runner creates a disposable cluster under `/tmp`, disables TCP listening,
 applies the repository's SQL migrations, and invokes the actual
 `recordSubscriptionPayment()` service. It uses a real Prisma client with
