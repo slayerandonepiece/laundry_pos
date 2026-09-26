@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
-import { useDialogClose } from './Dialog';
+import { useDialogClose, DialogFooter } from './Dialog';
 import { changeStorePlanAction } from '../actions/subscription-plans.actions';
 import PlanPickerCards from './PlanPickerCards';
 import type { StoreDetail, SubscriptionPlanListItem } from '../types';
@@ -69,11 +69,11 @@ export default function ChangePlanDialog({ store, plans, onSaved }: {
 
     <label>Reason (optional, recorded on the subscription)<textarea value={reason} onChange={e => setReason(e.target.value)} placeholder={selectedPlan ? `e.g. Switching to "${selectedPlan.name}" lowers the annual fee` : 'Why is this changing?'} /></label>
 
-    <p className="ad-help">Changing the plan updates the terms on file going forward — the store&apos;s current paid-through date ({store.paidThroughDate || 'current term'}) does not change, and nothing is charged now.</p>
+    <p className="ad-help">Changing the plan updates the terms on file going forward — the organization&apos;s current paid-through date ({store.paidThroughDate || 'current term'}) does not change, and nothing is charged now.</p>
     {error && <p className="ad-error" role="alert">{error}</p>}
-    <div className="ad-form-footer">
+    <DialogFooter>
       <Button secondary type="button" onClick={onCancel}>Cancel</Button>
       <Button type="button" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save plan change'}</Button>
-    </div>
+    </DialogFooter>
   </div>;
 }

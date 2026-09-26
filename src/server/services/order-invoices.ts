@@ -98,11 +98,31 @@ export async function getOrCreateOrderInvoice(storeId: string, orderCode: string
   // insert wins, the other becomes a no-op update of the same row.
   const invoice = await prisma.orderInvoice.upsert({
     where: { orderId: order.id },
-    create: { orderId: order.id, storeId, accessToken: randomBytes(32).toString('base64url') },
+    create: {
+      orderId: order.id,
+      storeId,
+      outletId: order.outletId ?? null,
+      accessToken: randomBytes(32).toString('base64url'),
+    },
     update: {},
   });
 
   return toInvoiceData({ ...invoice, order } as InvoiceRow);
+}
+
+/**
+ * Reads an already-issued invoice without allocating a number or writing data.
+ * This is used by restricted subscriptions, which retain historical read/export
+ * access but must not be able to create a new invoice through a GET request.
+ */
+export async function getExistingOrderInvoice(storeId: string, orderCode: string): Promise<OrderInvoiceData | null> {
+  const orderNumber = parseOrderCode(orderCode);
+  if (orderNumber === null) throw new Error('Order not found.');
+  const invoice = await prisma.orderInvoice.findFirst({
+    where: { storeId, order: { orderNumber } },
+    include: invoiceInclude,
+  });
+  return invoice ? toInvoiceData(invoice) : null;
 }
 
 export async function getOrderInvoiceByToken(accessToken: string): Promise<OrderInvoiceData | null> {

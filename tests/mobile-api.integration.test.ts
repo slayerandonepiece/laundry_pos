@@ -324,11 +324,10 @@ test("B6.2: Four 403 FORBIDDEN reasons return appropriate reason codes", async (
     token: lapsedFixture.token,
     storeId: lapsedFixture.store.id,
   });
+  // Expired subscriptions are read-only: historical GET/export remains
+  // available while every mutation is denied by the normal writable guards.
   const lapsedRes = await ordersRoute.GET(lapsedReq);
-  assert.equal(lapsedRes.status, 403);
-  const lapsedBody = await lapsedRes.json();
-  assert.equal(lapsedBody.error, "Forbidden");
-  assert.equal(lapsedBody.reason, "payment_lapsed");
+  assert.equal(lapsedRes.status, 200);
 });
 
 // B6.3: Idempotent order creation — same key twice, one row

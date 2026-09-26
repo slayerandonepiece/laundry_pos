@@ -40,7 +40,7 @@ export default function PlansScreenContainer({ plans }: { plans: SubscriptionPla
       ? <PlansEmptyState />
       : <SubscriptionPlansTable plans={plans} onEdit={setEditingPlan} onArchive={setArchivingPlan} onDuplicate={duplicate} onDelete={setDeletingPlan} />}
     {editingPlan && (
-      <Dialog title={`Edit ${editingPlan.name}`} description="Changes apply to stores using this plan at their next renewal." onClose={() => setEditingPlan(null)} warnOnChanges>
+      <Dialog title={`Edit ${editingPlan.name}`} description="Changes apply to organizations using this plan at their next renewal." onClose={() => setEditingPlan(null)} warnOnChanges>
         <PlanEditor plan={editingPlan} onSaved={plan => { setEditingPlan(null); setNotice(`${plan.name} updated`); router.refresh(); setTimeout(() => setNotice(''), 4000); }} />
       </Dialog>
     )}
@@ -56,7 +56,7 @@ export default function PlansScreenContainer({ plans }: { plans: SubscriptionPla
     {deletingPlan && (
       <ConfirmationDialog
         title={`Delete ${deletingPlan.name}?`}
-        description="This permanently removes the plan. Only possible because zero stores currently reference it — this can't be undone."
+        description="This permanently removes the plan. Only possible because zero organizations currently reference it — this can't be undone."
         confirmLabel="Delete plan"
         onCancel={() => setDeletingPlan(null)}
         onConfirm={confirmDelete}

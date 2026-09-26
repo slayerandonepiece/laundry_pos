@@ -1,6 +1,16 @@
 import 'server-only';
 import { ZodError } from 'zod';
-import { AuthError, getSessionFromRequest, requireStoreSession, type StoreSession, type SessionUser } from '@/server/auth/session';
+import {
+  AuthError,
+  getSessionFromRequest,
+  requireStoreSession,
+  requireOutletSession,
+  requireSuperAdmin,
+  type StoreSession,
+  type OutletSession,
+  type SessionUser,
+  type StoreSessionOptions,
+} from '@/server/auth/session';
 import { ValidationError } from '@/server/errors';
 import type { Role } from '@/generated/prisma/client';
 
@@ -75,16 +85,52 @@ export function resolveStoreIdFromRequest(req: Request): string | undefined {
   return undefined;
 }
 
+export function resolveOutletIdFromRequest(req: Request): string | undefined {
+  const header = req.headers.get('x-outlet-id') ?? req.headers.get('X-Outlet-Id');
+  if (header?.trim()) return header.trim();
+  try {
+    const url = new URL(req.url);
+    const query = url.searchParams.get('outletId');
+    if (query?.trim()) return query.trim();
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 export async function requireApiAuth(req: Request): Promise<SessionUser> {
   const session = await getSessionFromRequest(req);
   if (!session) throw new AuthError('UNAUTHENTICATED');
   return session;
 }
 
-export async function requireApiStoreSession(req: Request, role?: Role): Promise<StoreSession> {
+export async function requireApiSuperAdmin(req: Request): Promise<SessionUser> {
+  const session = await requireApiAuth(req);
+  return requireSuperAdmin(session);
+}
+
+export async function requireApiStoreSession(
+  req: Request,
+  role?: Role,
+  options?: StoreSessionOptions,
+): Promise<StoreSession> {
   const session = await requireApiAuth(req);
   const storeId = resolveStoreIdFromRequest(req);
-  return requireStoreSession(storeId, role, session);
+  return requireStoreSession(storeId, role, session, options);
+}
+
+export async function requireApiOutletSession(
+  req: Request,
+  role?: Role,
+  options?: StoreSessionOptions,
+): Promise<OutletSession> {
+  const session = await requireApiAuth(req);
+  const storeId = resolveStoreIdFromRequest(req);
+  const outletId = resolveOutletIdFromRequest(req);
+  if (!outletId) {
+    throw new AuthError('FORBIDDEN');
+  }
+  return requireOutletSession(storeId, outletId, role, session, options);
 }
 
 export async function handleApiRoute(handler: () => Promise<Response>): Promise<Response> {

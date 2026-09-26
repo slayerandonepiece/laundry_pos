@@ -4,14 +4,10 @@ import { useRouter } from 'next/navigation';
 import Icon from './Icon';
 import RowMenu from './RowMenu';
 import type { PlatformUserListItem } from '../types';
+import { initials } from '../utils';
 
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || name.slice(0, 2).toUpperCase();
-}
-
-function StoresCell({ memberships }: { memberships: PlatformUserListItem['memberships'] }) {
-  if (!memberships.length) return <span className="muted">No store access</span>;
+function OrgsCell({ memberships }: { memberships: PlatformUserListItem['memberships'] }) {
+  if (!memberships.length) return <span className="muted">No organization access</span>;
   const [first, ...rest] = memberships;
   return <span className="chip">{first.storeName}{rest.length > 0 ? ` +${rest.length}` : ''}</span>;
 }
@@ -60,11 +56,11 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
       </div>
       <div className="stat">
         <div className="stat-top"><span>Owners</span><span className="stat-ic"><Icon name="key" size="s" /></span></div>
-        <strong className="num">{counts.owners}</strong><small>store owners</small>
+        <strong className="num">{counts.owners}</strong><small>organization owners</small>
       </div>
       <div className="stat">
         <div className="stat-top"><span>Employees</span><span className="stat-ic"><Icon name="users" size="s" /></span></div>
-        <strong className="num">{counts.employees}</strong><small>store-scoped access</small>
+        <strong className="num">{counts.employees}</strong><small>organization-scoped access</small>
       </div>
       <div className="stat">
         <div className="stat-top"><span>Inactive</span><span className="stat-ic" style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)' }}><Icon name="lock" size="s" /></span></div>
@@ -92,32 +88,30 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
       </div></div>
     ) : (
       <div className="tablecard">
-        <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Stores</th><th>Status</th><th className="right">Actions</th></tr></thead>
-            <tbody>
-              {filtered.map(user => {
-                const primaryRole = user.memberships.some(m => m.role === 'OWNER') ? 'OWNER' : user.memberships[0]?.role;
-                return <tr key={user.id}>
-                  <td><div className="who"><span className="av">{initials(user.name)}</span><strong onClick={() => router.push(`/super-admin/users/${user.id}`)} style={{ cursor: 'pointer' }}>{user.name}</strong></div></td>
-                  <td className="num">@{user.username}</td>
-                  <td>{primaryRole ? <span className={'badge plain ' + (primaryRole === 'OWNER' ? 'info' : 'gray')}>{primaryRole === 'OWNER' ? 'Owner' : 'Employee'}</span> : '—'}</td>
-                  <td><StoresCell memberships={user.memberships} /></td>
-                  <td><span className={'badge ' + (user.active ? 'good' : 'bad')}>{user.active ? 'Active' : 'Inactive'}</span></td>
-                  <td>
-                    <div className="rowacts">
-                      <RowMenu items={[
-                        { label: 'View profile', icon: 'eye', onClick: () => router.push(`/super-admin/users/${user.id}`) },
-                        { label: 'Reset password', icon: 'key', onClick: () => onReset(user) },
-                        { label: user.active ? 'Deactivate' : 'Reactivate', icon: 'lock', onClick: () => onDeactivate(user), danger: user.active },
-                      ]} />
-                    </div>
-                  </td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
+        <table>
+          <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Organizations</th><th>Status</th><th className="right">Actions</th></tr></thead>
+          <tbody>
+            {filtered.map(user => {
+              const primaryRole = user.memberships.some(m => m.role === 'OWNER') ? 'OWNER' : user.memberships[0]?.role;
+              return <tr key={user.id}>
+                <td><div className="who"><span className="av">{initials(user.name)}</span><strong onClick={() => router.push(`/super-admin/users/${user.id}`)} style={{ cursor: 'pointer' }}>{user.name}</strong></div></td>
+                <td className="num">@{user.username}</td>
+                <td>{primaryRole ? <span className={'badge plain ' + (primaryRole === 'OWNER' ? 'info' : 'gray')}>{primaryRole === 'OWNER' ? 'Owner' : 'Employee'}</span> : '—'}</td>
+                <td><OrgsCell memberships={user.memberships} /></td>
+                <td><span className={'badge ' + (user.active ? 'good' : 'bad')}>{user.active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                  <div className="rowacts">
+                    <RowMenu items={[
+                      { label: 'View profile', icon: 'eye', onClick: () => router.push(`/super-admin/users/${user.id}`) },
+                      { label: 'Reset password', icon: 'key', onClick: () => onReset(user) },
+                      { label: user.active ? 'Deactivate' : 'Reactivate', icon: 'lock', onClick: () => onDeactivate(user), danger: user.active },
+                    ]} />
+                  </div>
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
       </div>
     )}
   </>;

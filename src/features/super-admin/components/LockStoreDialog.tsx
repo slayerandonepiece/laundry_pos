@@ -28,23 +28,23 @@ export default function LockStoreDialog({ store, mode, onDone, onCancel }: {
     const action = mode === 'lock' ? lockStoreAction : unlockStoreAction;
     action(store.id)
       .then(result => {
-        if (!result.ok || !result.store) { setError(result.error || 'Could not update this store. Try again.'); setBusy(false); return; }
+        if (!result.ok || !result.store) { setError(result.error || 'Could not update this organization. Try again.'); setBusy(false); return; }
         onDone(result.store);
       })
-      .catch(() => { setError('Could not update this store. Try again.'); setBusy(false); });
+      .catch(() => { setError('Could not update this organization. Try again.'); setBusy(false); });
   }
 
   return <dialog ref={ref} className="ad-root ad-confirm-dialog" aria-labelledby={id} aria-describedby={id + '-description'} onCancel={event => { event.preventDefault(); onCancel(); }}>
     <h2 id={id}>{mode === 'lock' ? `Lock ${store.name}?` : `Unlock ${store.name}?`}</h2>
     <p id={id + '-description'}>
       {mode === 'lock'
-        ? 'The owner and every employee will immediately lose access to this store — they will not be able to sign in or use any screen until it is unlocked.'
-        : 'The owner and every employee will regain access to this store immediately.'}
+        ? <>The owner and every employee immediately lose access to their data — <strong>they can still sign in</strong>, but every screen returns a 403 until you unlock it.</>
+        : 'The owner and every employee regain data access immediately.'}
     </p>
     {error && <p className="ad-error" role="alert">{error}</p>}
     <div className="ad-confirm-actions">
       <button ref={cancelRef} className="ad-button ad-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-      <button className="ad-button" onClick={confirm} disabled={busy}>{busy ? 'Saving…' : mode === 'lock' ? 'Lock store' : 'Unlock store'}</button>
+      <button className="ad-button" onClick={confirm} disabled={busy}>{busy ? 'Saving…' : mode === 'lock' ? 'Lock organization' : 'Unlock organization'}</button>
     </div>
   </dialog>;
 }

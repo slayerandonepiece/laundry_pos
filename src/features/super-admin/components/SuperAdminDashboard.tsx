@@ -3,26 +3,17 @@ import { money, dateLabel } from '@/features/admin/admin.data';
 import Icon from './Icon';
 import OnboardStoreAction from './OnboardStoreAction';
 import UserAddAction from './UserAddAction';
-import type { DashboardStats, PlatformUserListItem, StoreListItem, SubscriptionPlanListItem } from '../types';
+import { describeActivityEntry, dateTimeLabel } from './StoreActivityTab';
+import type { DashboardStats, PlatformActivityEntry, PlatformUserListItem, StoreListItem, SubscriptionPlanListItem } from '../types';
+import { initials, PAYMENT_STATE_BADGE } from '../utils';
 
-const STATUS_BADGE: Record<StoreListItem['paymentState'], { label: string; cls: string }> = {
-  active: { label: 'Active', cls: 'good' },
-  expiring: { label: 'Expiring', cls: 'warm' },
-  locked: { label: 'Locked', cls: 'bad' },
-  unset: { label: 'Terms not set', cls: 'gray' },
-};
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || name.slice(0, 2).toUpperCase();
-}
-
-export default function SuperAdminDashboard({ stats, stores, users, plans, today }: {
+export default function SuperAdminDashboard({ stats, stores, users, plans, today, recentActivity = [] }: {
   stats: DashboardStats;
   stores: StoreListItem[];
   users: PlatformUserListItem[];
   plans: SubscriptionPlanListItem[];
   today: string;
+  recentActivity?: PlatformActivityEntry[];
 }) {
   const total = stats.totalStores || 1;
   const breakdown: [StoreListItem['paymentState'], number][] = [
@@ -53,7 +44,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
   return <>
     <div className="stats">
       <div className="stat">
-        <div className="stat-top"><span>Live stores</span><span className="stat-ic"><Icon name="store" size="s" /></span></div>
+        <div className="stat-top"><span>Live organizations</span><span className="stat-ic"><Icon name="building" size="s" /></span></div>
         <strong className="num">{stats.totalStores}</strong><small>onboarded so far</small>
       </div>
       <div className="stat">
@@ -73,13 +64,13 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
     <div className="split">
       <div>
         <div className="card">
-          <div className="card-head"><div><h2><Icon name="building" />Store status</h2><p>Where every store stands, right now</p></div></div>
+          <div className="card-head"><div><h2><Icon name="building" />Organization status</h2><p>Where every organization stands, right now</p></div></div>
           <div className="card-body">
             <div className="barh">
               {breakdown.map(([state, count]) => (
                 <div className="barh-row" key={state}>
-                  <span>{STATUS_BADGE[state].label}</span>
-                  <div className="track"><i style={{ width: `${(count / total) * 100}%`, background: `var(--${STATUS_BADGE[state].cls === 'good' ? 'good-fg' : STATUS_BADGE[state].cls === 'warm' ? 'warm-fg' : STATUS_BADGE[state].cls === 'bad' ? 'bad-fg' : 'gray-fg'})` }} /></div>
+                  <span>{PAYMENT_STATE_BADGE[state].label}</span>
+                  <div className="track"><i style={{ width: `${(count / total) * 100}%`, background: `var(--${PAYMENT_STATE_BADGE[state].cls === 'good' ? 'good-fg' : PAYMENT_STATE_BADGE[state].cls === 'warm' ? 'warm-fg' : PAYMENT_STATE_BADGE[state].cls === 'bad' ? 'bad-fg' : 'gray-fg'})` }} /></div>
                   <b className="num">{count}</b>
                 </div>
               ))}
@@ -89,8 +80,8 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
 
         <div className="card">
           <div className="card-head">
-            <div><h2><Icon name="alertTriangle" />Needs attention</h2><p>Stores expiring soon or already locked</p></div>
-            <Link href="/super-admin/stores" style={{ fontSize: 12.5, fontWeight: 600 }}>All stores →</Link>
+            <div><h2><Icon name="alertTriangle" />Needs attention</h2><p>Organizations expiring soon or already locked</p></div>
+            <Link href="/super-admin/stores" style={{ fontSize: 12.5, fontWeight: 600 }}>All organizations →</Link>
           </div>
           {!stats.needsAttention.length ? (
             <div className="card-body"><div className="empty">
@@ -101,7 +92,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table>
-                <thead><tr><th>Store</th><th>Owner</th><th>Paid through</th><th className="right">Annual fee</th><th>Status</th></tr></thead>
+                <thead><tr><th>Organization</th><th>Owner</th><th>Paid through</th><th className="right">Annual fee</th><th>Status</th></tr></thead>
                 <tbody>
                   {stats.needsAttention.map(store => (
                     <tr key={store.id}>
@@ -109,7 +100,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
                       <td>{store.ownerName}</td>
                       <td className="num">{store.paidThroughDate ? dateLabel(store.paidThroughDate) : '—'}</td>
                       <td className="right num">{money(store.annualFeeAmount)}</td>
-                      <td><span className={'badge ' + STATUS_BADGE[store.paymentState].cls}>{STATUS_BADGE[store.paymentState].label}</span></td>
+                      <td><span className={'badge ' + PAYMENT_STATE_BADGE[store.paymentState].cls}>{PAYMENT_STATE_BADGE[store.paymentState].label}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -126,7 +117,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
             <div className="card-body"><div className="empty" style={{ padding: '24px 12px' }}>
               <span className="ic l"><Icon name="check" size="l" /></span>
               <h3>All caught up</h3>
-              <p>Every store has subscription terms set.</p>
+              <p>Every organization has subscription terms set.</p>
             </div></div>
           ) : (
             <div className="card-body" style={{ paddingTop: 6 }}>
@@ -162,23 +153,48 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
           <div className="card-body stack" style={{ gap: 9 }}>
             <OnboardStoreAction plans={plans.filter(p => !p.archivedAt)} variant="block" />
             <UserAddAction stores={stores.map(s => ({ id: s.id, name: s.name }))} variant="block" />
-            <Link className="btn outline block" style={{ justifyContent: 'flex-start' }} href="/super-admin/users"><Icon name="key" size="s" />Manage users</Link>
+            <Link className="btn outline block" style={{ justifyContent: 'flex-start' }} href="/super-admin/users"><Icon name="key" size="s" />Manage people</Link>
           </div>
         </div>
 
         <div className="card">
-          <div className="card-head"><h3><Icon name="history" />Recent activity</h3></div>
-          <div className="card-body"><div className="empty" style={{ padding: '24px 12px' }}>
-            <span className="ic l"><Icon name="history" size="l" /></span>
-            <h3>Not tracked yet</h3>
-            <p>A platform-wide activity log isn&apos;t built yet.</p>
-          </div></div>
+          <div className="card-head">
+            <h3><Icon name="history" />Recent activity</h3>
+            <Link href="/super-admin/activity" style={{ fontSize: 12.5, fontWeight: 600 }}>All activity →</Link>
+          </div>
+          {!recentActivity.length ? (
+            <div className="card-body"><div className="empty" style={{ padding: '24px 12px' }}>
+              <span className="ic l"><Icon name="history" size="l" /></span>
+              <h3>No activity yet</h3>
+              <p>Platform events will appear here as they happen.</p>
+            </div></div>
+          ) : (
+            <div className="card-body" style={{ paddingTop: 0, paddingBottom: 0 }}>
+              <div className="tl">
+                {recentActivity.map(entry => {
+                  const { icon, title } = describeActivityEntry(entry);
+                  return <div className="tl-item" key={entry.id}>
+                    <span className="tl-ic"><Icon name={icon} /></span>
+                    <div className="tl-body">
+                      <b>{title}</b>
+                      {entry.storeName && (
+                        <small style={{ color: 'var(--brand)', fontWeight: 500 }}>
+                          {entry.storeName}
+                        </small>
+                      )}
+                    </div>
+                    <span className="tl-time">{dateTimeLabel(entry.createdAt)}</span>
+                  </div>;
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="card">
           <div className="card-head"><h3><Icon name="card" />Next renewal</h3></div>
           <div className="card-body">
-            {!upcoming.length ? <p>No stores have subscription terms set yet.</p> : (
+            {!upcoming.length ? <p>No organizations have subscription terms set yet.</p> : (
               <>
                 {upcoming.map(store => (
                   <div className="kv" key={store.id}><span>{store.name}</span><strong className="num">{dateLabel(store.paidThroughDate!)}</strong></div>

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
-import { useDialogClose } from './Dialog';
+import { useDialogClose, DialogFooter } from './Dialog';
 import { createPlanAction, updatePlanAction } from '../actions/subscription-plans.actions';
 import type { SubscriptionPlanListItem } from '../types';
 
@@ -52,12 +52,12 @@ export default function PlanEditor({ plan, onSaved }: { plan?: SubscriptionPlanL
       <input type="checkbox" checked={depositWaivedByDefault} onChange={e => setDepositWaivedByDefault(e.target.checked)} />
       Deposit waived by default on this plan
     </label>
-    <p className="ad-help">Stores onboarded with this plan skip the deposit unless overridden — the deposit amount above stays on file as the &quot;charge anyway&quot; figure.</p>
+    <p className="ad-help">Organizations onboarded with this plan skip the deposit unless overridden — the deposit amount above stays on file as the &quot;charge anyway&quot; figure.</p>
     <label>Notes (optional)<textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What this plan is for — shown on the plan card, not to the owner" /></label>
     {error && <p className="ad-error" role="alert">{error}</p>}
-    <div className="ad-form-footer">
+    <DialogFooter>
       <Button secondary type="button" onClick={onCancel}>Cancel</Button>
       <Button type="button" onClick={submit} disabled={busy}>{busy ? 'Saving…' : plan ? 'Save changes' : 'Create plan'}</Button>
-    </div>
+    </DialogFooter>
   </div>;
 }

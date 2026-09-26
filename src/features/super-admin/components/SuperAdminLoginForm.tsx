@@ -26,21 +26,21 @@ export default function SuperAdminLoginForm() {
   return <main className="ad-root ad-login">
     <section className="ad-login-brand">
       <Link href="/" className="ad-logo"><span className="ad-logo-mark">◎</span><span>StoreOps<small>PLATFORM ADMIN</small></span></Link>
-      <div><p className="ad-eyebrow">RUNS THE NETWORK BEHIND THE CARE</p><h1>Every store.<br />One place<br /><em>to run it.</em></h1><p>Onboard owners, track subscriptions,<br />keep every tenant in view.</p></div>
+      <div><p className="ad-eyebrow">RUNS THE NETWORK BEHIND THE CARE</p><h1>Every organization.<br />One place<br /><em>to run it.</em></h1><p>Onboard owners, track subscriptions,<br />keep every tenant in view.</p></div>
       <small>Platform admin only.</small>
     </section>
     <section className="ad-login-form">
       <div>
         <span className="ad-demo">PLATFORM ADMIN</span>
         <h2>Sign in.</h2>
-        <p>This area is for platform admins only — store owners and employees should use the regular sign-in.</p>
+        <p>This area is for platform admins only — organization owners and employees should use the regular sign-in.</p>
         <form onSubmit={submit}>
           <label>Username<input name="username" autoComplete="username" placeholder="Enter your username" required /></label>
           <label>Password<div className="ad-password"><input name="password" type={show ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" required /><button type="button" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button></div></label>
           {error && <p className="ad-error" role="alert">{error}</p>}
           <button className="ad-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in to StoreOps ↗'}</button>
         </form>
-        <div className="ad-demo-help"><strong>Looking for the store workspace?</strong><p>Owners and employees sign in at <Link href="/login">the regular login</Link>.</p></div>
+        <div className="ad-demo-help"><strong>Looking for the organization workspace?</strong><p>Owners and employees sign in at <Link href="/login">the regular login</Link>.</p></div>
       </div>
     </section>
   </main>;

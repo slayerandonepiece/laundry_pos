@@ -4,19 +4,18 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { lockBodyScroll } from '@/features/admin/admin.dialog';
 import { superAdminLogoutAction } from '../actions/auth.actions';
-import Icon from './Icon';
+import Icon, { type IconName } from './Icon';
+import { initials } from '../utils';
 
-const links: [string, import('./Icon').IconName, string][] = [
+const links: [string, IconName, string][] = [
   ['/super-admin', 'dashboard', 'Dashboard'],
-  ['/super-admin/stores', 'store', 'Stores'],
-  ['/super-admin/users', 'users', 'Users'],
+  ['/super-admin/stores', 'store', 'Organizations'],
+  ['/super-admin/users', 'users', 'People'],
   ['/super-admin/subscriptions', 'subscriptions', 'Subscriptions'],
+  ['/super-admin/billing', 'card', 'Billing'],
+  ['/super-admin/payment-methods', 'card', 'Payment methods'],
+  ['/super-admin/activity', 'history', 'Activity'],
 ];
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || name.slice(0, 2).toUpperCase();
-}
 
 function Nav({ pathname, name, onNavigate }: { pathname: string; name: string; onNavigate?: () => void }) {
   return <>
@@ -27,7 +26,16 @@ function Nav({ pathname, name, onNavigate }: { pathname: string; name: string; o
     <p className="nav-label">PLATFORM</p>
     <nav aria-label="Super Admin navigation">
       {links.map(([href, icon, label]) => {
-        const active = href === '/super-admin' ? pathname === href : pathname === href || pathname.startsWith(href + '/');
+        let active = false;
+        if (href === '/super-admin') {
+          active = pathname === '/super-admin';
+        } else if (href === '/super-admin/subscriptions') {
+          active = pathname === '/super-admin/subscriptions' || (pathname.startsWith('/super-admin/subscriptions/') && !pathname.startsWith('/super-admin/subscriptions/billing') && !pathname.startsWith('/super-admin/subscriptions/invoices'));
+        } else if (href === '/super-admin/billing') {
+          active = pathname === '/super-admin/billing' || pathname.startsWith('/super-admin/billing/') || pathname.startsWith('/super-admin/subscriptions/billing') || pathname.startsWith('/super-admin/subscriptions/invoices');
+        } else {
+          active = pathname === href || pathname.startsWith(href + '/');
+        }
         return <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={active ? 'on' : ''} onClick={onNavigate}>
           <Icon name={icon} />{label}
         </Link>;
@@ -53,7 +61,7 @@ function MobileNav({ pathname, name, onClose }: { pathname: string; name: string
     return () => { dialog.close(); unlock(); if (previous?.isConnected) previous.focus(); };
   }, []);
   useEffect(() => {
-    const query = window.matchMedia('(min-width: 900px)');
+    const query = window.matchMedia('(min-width: 769px)');
     const resize = () => { if (query.matches) onClose(); };
     query.addEventListener('change', resize);
     return () => query.removeEventListener('change', resize);

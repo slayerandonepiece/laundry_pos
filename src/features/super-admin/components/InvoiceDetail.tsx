@@ -6,7 +6,7 @@ import type { StoreDetail, StoreInvoice } from '../types';
 
 export default function InvoiceDetail({ invoice, store }: { invoice: StoreInvoice; store: StoreDetail }) {
   return <>
-    <Link className="backlink no-print" href={`/super-admin/stores/${store.id}/subscription`}><Icon name="arrowLeft" size="s" />Back to store</Link>
+    <Link className="backlink no-print" href={`/super-admin/stores/${store.id}/subscription`}><Icon name="arrowLeft" size="s" />Back to organization</Link>
 
     <div className="phead">
       <div className="phead-l">
@@ -25,7 +25,7 @@ export default function InvoiceDetail({ invoice, store }: { invoice: StoreInvoic
         <div className="card-body">
           <div className="grid2">
             <div>
-              <small style={{ fontSize: 11.5, color: 'var(--muted)' }}>Store</small>
+              <small style={{ fontSize: 11.5, color: 'var(--muted)' }}>Organization</small>
               <p style={{ color: 'var(--ink)', fontWeight: 600, margin: '5px 0 3px' }}><Link href={`/super-admin/stores/${store.id}`}>{store.name}</Link></p>
               <p style={{ fontSize: 12.5, lineHeight: 1.65 }}>{store.address || '—'}</p>
             </div>
@@ -69,7 +69,7 @@ export default function InvoiceDetail({ invoice, store }: { invoice: StoreInvoic
       <div className="card">
         <div className="card-head"><h3><Icon name="card" />Subscription</h3></div>
         <div className="card-body">
-          <div className="kv"><span>Store</span><strong><Link href={`/super-admin/stores/${store.id}/subscription`}>{store.name}</Link></strong></div>
+          <div className="kv"><span>Organization</span><strong><Link href={`/super-admin/stores/${store.id}/subscription`}>{store.name}</Link></strong></div>
           <div className="kv"><span>Term</span><strong>Yearly</strong></div>
           <div className="kv"><span>Paid through</span><strong className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</strong></div>
           <Link className="btn outline sm" href={`/super-admin/stores/${store.id}/subscription`} style={{ marginTop: 10, display: 'inline-flex' }}>View subscription</Link>

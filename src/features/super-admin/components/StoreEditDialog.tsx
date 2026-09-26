@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
-import { useDialogClose } from './Dialog';
+import { useDialogClose, DialogFooter } from './Dialog';
 import { updateStoreAction } from '../actions/stores.actions';
 import type { StoreListItem } from '../types';
 
@@ -15,7 +15,7 @@ export default function StoreEditDialog({ store, onSaved }: { store: StoreListIt
   const [busy, setBusy] = useState(false);
 
   function submit() {
-    if (!name.trim()) return setError('Enter a store name.');
+    if (!name.trim()) return setError('Enter an organization name.');
     setBusy(true);
     setError('');
     updateStoreAction(store.id, { name: name.trim(), address: address.trim(), phone: phone.trim(), email: email.trim() })
@@ -27,14 +27,14 @@ export default function StoreEditDialog({ store, onSaved }: { store: StoreListIt
   }
 
   return <div className="ad-form">
-    <label>Store name<input value={name} onChange={e => setName(e.target.value)} required /></label>
+    <label>Organization name<input value={name} onChange={e => setName(e.target.value)} required /></label>
     <label>Address<textarea value={address} onChange={e => setAddress(e.target.value)} placeholder="Optional" /></label>
     <label>Phone<input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Optional" /></label>
     <label>Email<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Optional" /></label>
     {error && <p className="ad-error" role="alert">{error}</p>}
-    <div className="ad-form-footer">
+    <DialogFooter>
       <Button secondary type="button" onClick={onCancel}>Cancel</Button>
       <Button type="button" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Button>
-    </div>
+    </DialogFooter>
   </div>;
 }

@@ -16,6 +16,7 @@ function findAllStores() {
     include: {
       subscription: { include: { plan: true } },
       memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } },
+      _count: { select: { outlets: true } },
     },
     orderBy: { onboardedAt: 'desc' },
   });
@@ -68,6 +69,7 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     status: row.status,
     lastInvoiceSeq: lastInvoice?.invoiceSeq,
     lastInvoiceAt: lastInvoice ? formatCalendarDate(lastInvoice.paidAt) : undefined,
+    outletCount: row._count.outlets,
   };
 }
 
@@ -97,6 +99,7 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
     include: {
       subscription: { include: { plan: true } },
       memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } },
+      _count: { select: { outlets: true } },
     },
   });
   if (!row) return null;
@@ -154,13 +157,47 @@ export async function archiveStore(storeId: string, confirmName: string): Promis
   await prisma.store.update({ where: { id: storeId }, data: { deletedAt: new Date() } });
 }
 
-export async function lookupOwnerByUsername(username: string): Promise<OwnerLookupResult | null> {
-  const normalized = username.trim().toLowerCase();
-  if (!normalized) return null;
-  const user = await prisma.user.findUnique({ where: { username: normalized }, include: { _count: { select: { memberships: true } } } });
-  if (!user || user.isSuperAdmin) return null;
-  return { id: user.id, name: user.name, username: user.username, storeCount: user._count.memberships };
+export async function lookupOwner(query: string): Promise<OwnerLookupResult | null> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  const normalizedUsername = trimmed.toLowerCase();
+
+  const user = await prisma.user.findFirst({
+    where: {
+      isSuperAdmin: false,
+      OR: [
+        { username: normalizedUsername },
+        ...(digitsOnly.length >= 7 ? [
+          { phone: { contains: digitsOnly.slice(-10) } },
+          { memberships: { some: { role: 'OWNER' as const, store: { phone: { contains: digitsOnly.slice(-10) }, deletedAt: null } } } },
+        ] : trimmed.length >= 7 ? [
+          { phone: { contains: trimmed } },
+          { memberships: { some: { role: 'OWNER' as const, store: { phone: { contains: trimmed }, deletedAt: null } } } },
+        ] : []),
+      ],
+    },
+    include: {
+      _count: { select: { memberships: { where: { store: { deletedAt: null } } } } },
+      memberships: {
+        where: { store: { deletedAt: null } },
+        include: { store: { select: { name: true } } },
+      },
+    },
+  });
+
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    phone: user.phone ?? undefined,
+    storeCount: user._count.memberships,
+    storeNames: user.memberships.map((m: { store: { name: string } }) => m.store.name),
+  };
 }
+
+export const lookupOwnerByUsername = lookupOwner;
 
 const usernameSchema = z
   .string()
@@ -404,4 +441,102 @@ export async function getCollectedThisYearStats(): Promise<CollectedThisYearStat
   const deltaPercent = previousYearAmount > 0 ? Math.round(((amount - previousYearAmount) / previousYearAmount) * 100) : undefined;
 
   return { amount, fyLabel: current.label, previousYearAmount, deltaPercent };
+}
+
+export async function setStoreTrial(
+  storeId: string,
+  trialEndsAt: string,
+): Promise<{ trialEndsAt: string; storeId: string }> {
+  const store = await prisma.store.findUnique({ where: { id: storeId } });
+  if (!store || store.deletedAt) {
+    throw new ValidationError('Store not found.');
+  }
+
+  const parsedDate = parseCalendarDate(trialEndsAt);
+  await prisma.subscription.upsert({
+    where: { storeId },
+    create: {
+      storeId,
+      depositAmount: 0,
+      annualFeeAmount: 0,
+      trialEndsAt: parsedDate,
+    },
+    update: {
+      trialEndsAt: parsedDate,
+    },
+  });
+
+  return { storeId, trialEndsAt };
+}
+
+export interface ExpiringSubscriptionItem {
+  storeId: string;
+  storeName: string;
+  phone: string;
+  email: string | null;
+  paidThroughDate: string | null;
+  trialEndsAt: string | null;
+  daysRemaining: number;
+  type: 'TRIAL' | 'SUBSCRIPTION';
+}
+
+export async function listExpiringSubscriptions(withinDays = 30): Promise<ExpiringSubscriptionItem[]> {
+  const today = todayIST();
+  const todayDate = parseCalendarDate(today);
+  const horizonDate = parseCalendarDate(addDays(today, withinDays));
+
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      store: { deletedAt: null },
+      OR: [
+        {
+          trialEndsAt: {
+            lte: horizonDate,
+          },
+        },
+        {
+          paidThroughDate: {
+            lte: horizonDate,
+          },
+        },
+      ],
+    },
+    include: {
+      store: { select: { id: true, name: true, phone: true, email: true } },
+    },
+  });
+
+  const results: ExpiringSubscriptionItem[] = [];
+  for (const s of subscriptions) {
+    const trialDate = s.trialEndsAt ? formatCalendarDate(s.trialEndsAt) : null;
+    const paidDate = s.paidThroughDate ? formatCalendarDate(s.paidThroughDate) : null;
+
+    if (trialDate && !paidDate) {
+      const days = Math.round((parseCalendarDate(trialDate).getTime() - todayDate.getTime()) / 86400000);
+      results.push({
+        storeId: s.store.id,
+        storeName: s.store.name,
+        phone: s.store.phone,
+        email: s.store.email,
+        paidThroughDate: null,
+        trialEndsAt: trialDate,
+        daysRemaining: days,
+        type: 'TRIAL',
+      });
+    } else if (paidDate) {
+      const days = Math.round((parseCalendarDate(paidDate).getTime() - todayDate.getTime()) / 86400000);
+      results.push({
+        storeId: s.store.id,
+        storeName: s.store.name,
+        phone: s.store.phone,
+        email: s.store.email,
+        paidThroughDate: paidDate,
+        trialEndsAt: trialDate,
+        daysRemaining: days,
+        type: 'SUBSCRIPTION',
+      });
+    }
+  }
+
+  return results.sort((a, b) => a.daysRemaining - b.daysRemaining);
 }

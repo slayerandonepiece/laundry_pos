@@ -1,12 +1,18 @@
 'use client';
+
 import { useState } from 'react';
 import Icon from './Icon';
 import InvoicePdfViewer from './InvoicePdfViewer';
+import { formatInvoiceNumber } from '@/lib/invoiceNumber';
+import { printInvoicePdf } from '@/lib/invoicePrint';
+import { getSubscriptionInvoiceAccessAction } from '../actions/subscription-invoices.actions';
 
 export default function InvoiceActions({ invoiceSeq }: { invoiceSeq: number }) {
   const [viewing, setViewing] = useState(false);
   const [toast, setToast] = useState('');
+  const [busy, setBusy] = useState(false);
 
+  const invoiceNumber = formatInvoiceNumber(invoiceSeq);
   const viewUrl = `/super-admin/subscriptions/invoices/${invoiceSeq}/pdf`;
   const downloadUrl = `${viewUrl}?download=1`;
 
@@ -15,64 +21,119 @@ export default function InvoiceActions({ invoiceSeq }: { invoiceSeq: number }) {
     setTimeout(() => setToast(''), 4000);
   }
 
-  async function share() {
-    const absoluteUrl = `${window.location.origin}${downloadUrl}`;
-    const title = `Invoice #${invoiceSeq}`;
-
-    // Prefer sharing the actual PDF file (WhatsApp/Mail/Messages/AirDrop
-    // all accept it) where the platform supports file sharing.
+  async function getPublicDownloadUrl(): Promise<string> {
     try {
-      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
-      if (nav.share && nav.canShare) {
-        const res = await fetch(downloadUrl);
-        const blob = await res.blob();
-        const file = new File([blob], `invoice-${invoiceSeq}.pdf`, { type: 'application/pdf' });
-        if (nav.canShare({ files: [file] })) {
-          await nav.share({ files: [file], title });
-          return;
-        }
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-    }
-
-    // Fall back to sharing just the link when file sharing isn't supported.
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, url: absoluteUrl });
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-      }
-    }
-
-    // No Web Share API at all (mainly desktop Firefox) — copy the link instead.
-    try {
-      await navigator.clipboard.writeText(absoluteUrl);
-      flash('Link copied to clipboard');
+      const { token } = await getSubscriptionInvoiceAccessAction(invoiceSeq);
+      return `${window.location.origin}${viewUrl}?token=${token}&download=1`;
     } catch {
-      flash('Could not share automatically — copy this link: ' + absoluteUrl);
+      return `${window.location.origin}${downloadUrl}`;
     }
   }
 
-  function shareViaWhatsApp() {
-    // Link-only by design: a wa.me link can't carry file bytes, only text.
-    // Opens WhatsApp Web on desktop (if logged in) or hands off to the
-    // native app on mobile — no platform detection needed. The PDF itself
-    // is never attached here; the native OS share sheet above (`share()`)
-    // is the only path that can hand over the actual file.
-    const absoluteUrl = `${window.location.origin}${viewUrl}`;
-    const message = `Invoice #${invoiceSeq}\n${absoluteUrl}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  async function sharePdfFile(url: string, title: string): Promise<boolean> {
+    const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+    if (!nav.share || !nav.canShare) return false;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Could not load invoice PDF.');
+    const blob = await response.blob();
+    const file = new File([blob], `${title}.pdf`, { type: 'application/pdf' });
+    if (!nav.canShare({ files: [file] })) return false;
+    await nav.share({ files: [file], title });
+    return true;
+  }
+
+  function handlePrint() {
+    printInvoicePdf(viewUrl);
+  }
+
+  async function share() {
+    setBusy(true);
+    const title = invoiceNumber;
+    try {
+      const publicUrl = await getPublicDownloadUrl();
+      try {
+        if (await sharePdfFile(downloadUrl, title)) {
+          setBusy(false);
+          return;
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          setBusy(false);
+          return;
+        }
+      }
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title, url: publicUrl });
+          setBusy(false);
+          return;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            setBusy(false);
+            return;
+          }
+        }
+      }
+
+      await navigator.clipboard.writeText(publicUrl);
+      flash('Invoice link copied to clipboard');
+    } catch {
+      flash('Could not share automatically.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function shareViaWhatsApp() {
+    setBusy(true);
+    const title = invoiceNumber;
+    try {
+      try {
+        if (await sharePdfFile(downloadUrl, title)) {
+          setBusy(false);
+          return;
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          setBusy(false);
+          return;
+        }
+      }
+
+      const publicUrl = await getPublicDownloadUrl();
+      const message = `${title}\n${publicUrl}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+    } catch {
+      flash('Could not share via WhatsApp.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="rowacts">
-      <button type="button" className="btn outline sm" onClick={() => window.print()}><Icon name="printer" size="s" />Print</button>
-      <button type="button" className="btn outline sm" onClick={() => setViewing(true)}><Icon name="eye" size="s" />View PDF</button>
-      <button type="button" className="btn outline sm" onClick={share}><Icon name="share" size="s" />Share</button>
-      <button type="button" className="btn outline sm" onClick={shareViaWhatsApp}><Icon name="whatsapp" size="s" />Share via WhatsApp</button>
-      <a className="btn sm" href={downloadUrl}><Icon name="download" size="s" />Download PDF</a>
+      <button type="button" className="btn outline sm" onClick={handlePrint}>
+        <Icon name="printer" size="s" />Print
+      </button>
+      <button type="button" className="btn outline sm" onClick={() => setViewing(true)}>
+        <Icon name="eye" size="s" />View PDF
+      </button>
+      <button
+        type="button"
+        className="btn sm"
+        onClick={shareViaWhatsApp}
+        disabled={busy}
+        style={{ background: '#10b981', borderColor: '#059669', color: '#fff' }}
+      >
+        <Icon name="whatsapp" size="s" />Share via WhatsApp
+      </button>
+      <button type="button" className="btn outline sm" onClick={share} disabled={busy}>
+        <Icon name="share" size="s" />Share
+      </button>
+      <a className="btn outline sm" href={downloadUrl}>
+        <Icon name="download" size="s" />Download
+      </a>
       {viewing && <InvoicePdfViewer invoiceSeq={invoiceSeq} onClose={() => setViewing(false)} />}
       {toast && <div className="ad-toast" role="status">{toast}</div>}
     </div>

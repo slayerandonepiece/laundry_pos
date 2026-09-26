@@ -6,6 +6,11 @@
 // per-store (StoreMembership), not global — the same person can be OWNER of
 // one store and EMPLOYEE of another. Super Admin is a platform-level flag on
 // User, unscoped to any store.
+//
+// Note: `Store` is a temporary code and database name serving as the
+// organization-level tenant during the outlet rollout. Outlets are currently
+// schema-only foundation in this batch and are not yet used for authorization,
+// records, reports, or UI.
 
 generator client {
   provider = "prisma-client"
@@ -57,29 +62,32 @@ enum BillingCycle {
 }
 
 model User {
-  id                String   @id @default(cuid())
-  name              String
-  username          String   @unique
-  passwordHash      String
-  active            Boolean  @default(true)
+  id                 String   @id @default(cuid())
+  name               String
+  username           String   @unique
+  passwordHash       String
+  active             Boolean  @default(true)
   // Platform-level access, unscoped to any store. Not the same thing as
   // owning a store — see StoreMembership for per-store roles.
-  isSuperAdmin      Boolean  @default(false)
-  credentialVersion Int      @default(1)
+  isSuperAdmin       Boolean  @default(false)
+  credentialVersion  Int      @default(1)
   mustChangePassword Boolean  @default(false)
   // Global to the person (not a store's own contact info — see Store.email/
   // Store.phone, which represent the store, not the owner). Optional: most
   // existing users have neither on file yet.
-  email             String?
-  phone             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  email              String?
+  phone              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  sessions         Session[]
-  statusEvents     StatusEvent[]
-  memberships      StoreMembership[]
-  onboardedStores  Store[]               @relation("StoreOnboardedBy")
-  recordedPayments SubscriptionPayment[] @relation("SubscriptionPaymentRecordedBy")
+  sessions          Session[]
+  statusEvents      StatusEvent[]
+  memberships       StoreMembership[]
+  onboardedStores   Store[]               @relation("StoreOnboardedBy")
+  recordedPayments  SubscriptionPayment[] @relation("SubscriptionPaymentRecordedBy")
+  outletMemberships OutletMembership[]
+  createdOutlets    Outlet[]              @relation("OutletCreatedBy")
+  auditLogs         AuditLog[]
 
   @@map("users")
 }
@@ -97,6 +105,9 @@ model Session {
   @@map("sessions")
 }
 
+// Temporary code/database name serving as the organization-level tenant during
+// the outlet rollout. Outlets are schema-only in this batch and are not yet used
+// for authorization, records, reports, or UI.
 model Store {
   id            String      @id @default(cuid())
   name          String
@@ -113,15 +124,22 @@ model Store {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  memberships            StoreMembership[]
-  subscription           Subscription?
-  payments               SubscriptionPayment[]
-  products               Product[]
-  orders                 Order[]
-  orderInvoices          OrderInvoice[]
-  paymentMethods         StorePaymentMethod[]
-  expenses               Expense[]
-  recurringExpenseSeries RecurringExpenseSeries[]
+  memberships                StoreMembership[]
+  subscription               Subscription?
+  payments                   SubscriptionPayment[]
+  products                   Product[]
+  orders                     Order[]
+  orderInvoices              OrderInvoice[]
+  paymentMethods             StorePaymentMethod[]
+  expenses                   Expense[]
+  recurringExpenseSeries     RecurringExpenseSeries[]
+  outlets                    Outlet[]
+  organizationPaymentMethods OrganizationPaymentMethod[]
+  auditLogs                  AuditLog[]
+  orderPayments              Payment[]                   @relation("StoreOrderPayments")
+  storeStatusEvents          StatusEvent[]               @relation("StoreStatusEvents")
+  dailyOutletSummaries        DailyOutletSummary[]
+  dailyOutletServiceSummaries DailyOutletServiceSummary[]
 
   @@map("stores")
 }
@@ -186,6 +204,7 @@ model Subscription {
   // Null until a first payment is recorded. Only an explicit, past date locks
   // the store — a never-set subscription is never auto-locked.
   paidThroughDate DateTime? @db.Date
+  trialEndsAt     DateTime? @db.Date
   notes           String    @default("")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -268,6 +287,8 @@ model Order {
   legacyCancelled Boolean    @default(false)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
+  outletId        String?
+  outlet          Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   lines        OrderLine[]
   payments     Payment[]
@@ -277,6 +298,9 @@ model Order {
   @@index([storeId])
   @@index([status])
   @@index([dueDate])
+  @@index([storeId, outletId, orderDate])
+  @@index([outletId, status])
+  @@index([outletId, dueDate])
   @@map("orders")
 }
 
@@ -298,8 +322,11 @@ model OrderInvoice {
   store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   accessToken String   @unique
   generatedAt DateTime @default(now())
+  outletId    String?
+  outlet      Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   @@index([storeId])
+  @@index([storeId, outletId])
   @@map("order_invoices")
 }
 
@@ -335,15 +362,24 @@ model OrderLine {
 }
 
 model Payment {
-  id             String   @id @default(cuid())
-  orderId        String
-  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  amount         Int // paise
-  method         String
-  paidAt         DateTime @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
-  clientActionId String?  @unique
+  id                      String                 @id @default(cuid())
+  orderId                 String
+  order                   Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount                  Int // paise
+  method                  String
+  paidAt                  DateTime               @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
+  clientActionId          String?                @unique
+  storeId                 String?
+  store                   Store?                 @relation("StoreOrderPayments", fields: [storeId], references: [id], onDelete: Cascade)
+  outletId                String?
+  outlet                  Outlet?                @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  platformPaymentMethodId String?
+  platformPaymentMethod   PlatformPaymentMethod? @relation(fields: [platformPaymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([storeId, outletId, paidAt])
+  @@index([outletId])
+  @@index([platformPaymentMethodId])
   @@map("payments")
 }
 
@@ -355,8 +391,14 @@ model StatusEvent {
   at       DateTime   @default(now())
   byUserId String?
   byUser   User?      @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+  storeId  String?
+  store    Store?     @relation("StoreStatusEvents", fields: [storeId], references: [id], onDelete: Cascade)
+  outletId String?
+  outlet   Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([storeId, outletId, at])
+  @@index([outletId])
   @@map("status_events")
 }
 
@@ -370,10 +412,13 @@ model RecurringExpenseSeries {
   dueDay    Int
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+  outletId  String?
+  outlet    Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   occurrences Expense[]
 
   @@index([storeId])
+  @@index([storeId, outletId])
   @@map("recurring_expense_series")
 }
 
@@ -394,9 +439,159 @@ model Expense {
   periodMonth String?
   createdAt   DateTime                @default(now())
   updatedAt   DateTime                @updatedAt
+  outletId    String?
+  outlet      Outlet?                 @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   @@unique([seriesId, periodMonth])
   @@index([storeId])
   @@index([dueDate])
+  @@index([storeId, outletId, dueDate])
+  @@index([outletId])
   @@map("expenses")
+}
+
+enum OutletStatus {
+  ACTIVE
+  CLOSED
+  RELOCATED
+}
+
+// Schema-only foundation for future organization -> outlet rollout.
+// Not yet used for authorization, records, reports, or UI.
+model Outlet {
+  id          String       @id @default(cuid())
+  outletCode  String       @unique
+  storeId     String
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  displayName String
+  address     String       @default("")
+  phone       String       @default("")
+  status      OutletStatus @default(ACTIVE)
+  createdById String?
+  createdBy   User?        @relation("OutletCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  openedAt    DateTime     @default(now())
+  closedAt    DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  memberships            OutletMembership[]
+  auditLogs              AuditLog[]
+  orders                 Order[]
+  payments               Payment[]
+  expenses               Expense[]
+  recurringExpenseSeries RecurringExpenseSeries[]
+  orderInvoices          OrderInvoice[]
+  statusEvents           StatusEvent[]
+  dailySummaries        DailyOutletSummary[]
+  dailyServiceSummaries DailyOutletServiceSummary[]
+
+  @@index([storeId])
+  @@map("outlets")
+}
+
+model OutletMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outletId  String
+  outlet    Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  active    Boolean  @default(true)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, outletId])
+  @@index([outletId])
+  @@index([userId])
+  @@map("outlet_memberships")
+}
+
+model PlatformPaymentMethod {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationPaymentMethods OrganizationPaymentMethod[]
+  payments                   Payment[]
+
+  @@map("platform_payment_methods")
+}
+
+model OrganizationPaymentMethod {
+  id                      String                @id @default(cuid())
+  storeId                 String
+  store                   Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platformPaymentMethodId String
+  platformPaymentMethod   PlatformPaymentMethod @relation(fields: [platformPaymentMethodId], references: [id], onDelete: Restrict)
+  enabled                 Boolean               @default(true)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  @@unique([storeId, platformPaymentMethodId])
+  @@index([storeId])
+  @@map("organization_payment_methods")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  storeId    String?
+  store      Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  outletId   String?
+  outlet     Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  beforeJson Json?
+  afterJson  Json?
+  createdAt  DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([outletId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+}
+
+model DailyOutletSummary {
+  id                      String   @id @default(cuid())
+  storeId                 String
+  store                   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  outletId                String
+  outlet                  Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  businessDate            DateTime @db.Date
+  ordersCreatedCount      Int      @default(0)
+  ordersCompletedCount    Int      @default(0)
+  grossOrderAmount        Int      @default(0)
+  paymentsCollectedAmount Int      @default(0)
+  expensesAmount          Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([storeId, outletId, businessDate])
+  @@index([storeId, businessDate])
+  @@index([outletId, businessDate])
+  @@map("daily_outlet_summaries")
+}
+
+model DailyOutletServiceSummary {
+  id           String   @id @default(cuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  serviceName  String
+  businessDate DateTime @db.Date
+  piecesCount  Int      @default(0)
+  orderCount   Int      @default(0)
+  amount       Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([storeId, outletId, serviceName, businessDate])
+  @@index([storeId, businessDate])
+  @@index([outletId, businessDate])
+  @@map("daily_outlet_service_summaries")
 }
