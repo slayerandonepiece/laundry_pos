@@ -203,9 +203,20 @@ meaningful within one scope. Key the cursor by outlet client-side.
   id, unique per organization, set only for orders created in the app;
   web-created orders have none (the field is omitted).
 - `create_order` payloads may carry `payload.offlineId`. A retry with the same
-  `offlineId` returns the existing order instead of creating a second one.
+  `offlineId` returns the existing order instead of creating a second one,
+  including when two retries arrive at the same time.
+- `offlineId` is trimmed, at most 64 characters, and must not look like an
+  order code (`EL-<n>`) — that is a 400. Use a UUID.
 - `update_status` / `record_payment` `orderRef` may be an `EL-` code or an
   `offlineId`, including one whose `create_order` synced in an earlier request.
+  `orderRef` and `offlineCode` are trimmed.
+- In bulk-sync, an employee's `update_status` / `record_payment` on an order
+  at an outlet they are not granted comes back `failed` with
+  `"You don't have access to this order's outlet."` — the same rule as the
+  single-order status and payment routes. Other actions in the batch still run.
+- A payment `clientActionId` already recorded on a different order is
+  rejected (`"That payment was already recorded on another order."`); a
+  replay on the same order returns it unchanged.
 - Every order response includes `offlineId` (when set), and each payment
   includes the `clientActionId` it was recorded with (when set), so the client
   can match its offline payments exactly.

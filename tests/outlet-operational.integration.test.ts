@@ -864,3 +864,100 @@ test('B3.13: Concurrent payments with the same clientActionId record one payment
   assert.ok(results.every(r => r.status === 'fulfilled'), JSON.stringify(results));
   assert.equal(await prisma.payment.count({ where: { storeId: ctx.store.id } }), 1);
 });
+
+test('B3.14: Bulk-sync updates respect the employee outlet grant', async () => {
+  const ctx = await setupStoreWithOutlets('b314');
+  const newOrder = (key: string, outletId: string, offlineId?: string) => orders.createOrder(ctx.store.id, {
+    idempotencyKey: key,
+    offlineId,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId,
+  }, ctx.ownerUser.id);
+  const foreign = await newOrder('b314-key-1', ctx.outlet2.id, 'b314-offline-2');
+  const own = await newOrder('b314-key-2', ctx.outlet1.id);
+
+  // Employee 1 is granted outlet 1 only.
+  const results = await bulkSync(ctx.tokenEmp1, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b314-a1', type: 'update_status', orderRef: foreign.id, status: 'Ready' },
+    { clientActionId: 'b314-a2', type: 'update_status', orderRef: 'b314-offline-2', status: 'Ready' },
+    { clientActionId: 'b314-a3', type: 'record_payment', orderRef: foreign.id, amount: 1_000, method: 'Cash' },
+    { clientActionId: 'b314-a4', type: 'update_status', orderRef: own.id, status: 'Ready' },
+    {
+      clientActionId: 'b314-a5',
+      type: 'create_order',
+      offlineCode: 'b314-new',
+      payload: {
+        idempotencyKey: 'b314-key-3',
+        offlineId: 'b314-new',
+        phone: '9876543210',
+        dueDate: '2100-01-01',
+        entries: [{ productId: ctx.product.id, quantity: 1 }],
+        outletId: ctx.outlet1.id,
+      },
+    },
+    { clientActionId: 'b314-a6', type: 'record_payment', orderRef: 'b314-new', amount: 1_000, method: 'Cash' },
+  ]);
+  assert.deepEqual(results.map(r => r.status), ['failed', 'failed', 'failed', 'success', 'success', 'success']);
+  for (const r of results.slice(0, 3)) assert.equal(r.error, "You don't have access to this order's outlet.");
+
+  const untouched = await prisma.order.findFirstOrThrow({ where: { storeId: ctx.store.id, offlineId: 'b314-offline-2' } });
+  assert.equal(untouched.status, 'PENDING');
+  assert.equal(await prisma.payment.count({ where: { orderId: untouched.id } }), 0);
+
+  // The owner can still act on any outlet's order through bulk-sync.
+  const owner = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b314-o1', type: 'update_status', orderRef: 'b314-offline-2', status: 'Ready' },
+  ]);
+  assert.equal(owner[0].status, 'success');
+});
+
+test('B3.15: orderRef is trimmed and an offlineId cannot look like an order code', async () => {
+  const ctx = await setupStoreWithOutlets('b315');
+  const results = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    {
+      clientActionId: 'b315-a1',
+      type: 'create_order',
+      offlineCode: ' b315-offline ',
+      payload: {
+        idempotencyKey: 'b315-key-1',
+        offlineId: ' b315-offline ',
+        phone: '9876543210',
+        dueDate: '2100-01-01',
+        entries: [{ productId: ctx.product.id, quantity: 1 }],
+        outletId: ctx.outlet1.id,
+      },
+    },
+    // Same batch: resolved through the trimmed offlineCode.
+    { clientActionId: 'b315-a2', type: 'update_status', orderRef: 'b315-offline\n', status: 'In Progress' },
+  ]);
+  assert.deepEqual(results.map(r => r.status), ['success', 'success']);
+  assert.equal(results[0].order?.offlineId, 'b315-offline');
+
+  // Later request: resolved through the stored offlineId.
+  const later = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b315-a3', type: 'update_status', orderRef: '  b315-offline', status: 'Ready' },
+  ]);
+  assert.equal(later[0].status, 'success');
+  assert.equal(later[0].order?.status, 'Ready');
+
+  const res = await createOrdersRoute.POST(new NextRequest('http://localhost/api/v1/orders', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ctx.tokenOwner}`,
+      'X-Store-Id': ctx.store.id,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      idempotencyKey: 'b315-key-2',
+      offlineId: 'EL-5',
+      phone: '9876543210',
+      dueDate: '2100-01-01',
+      entries: [{ productId: ctx.product.id, quantity: 1 }],
+      outletId: ctx.outlet1.id,
+    }),
+  }));
+  assert.equal(res.status, 400);
+  assert.equal(await prisma.order.count({ where: { storeId: ctx.store.id } }), 1);
+});

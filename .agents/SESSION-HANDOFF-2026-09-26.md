@@ -50,14 +50,22 @@ Both repositories are on branch `chore/backend-and-setup`.
      SHARE MODE` barrier. The same race on payment `clientActionId` is fixed
      by moving the replay check behind the lock. Test `B3.13`. All three
      tests failed on the old code before the fix.
-  3. *Open, pre-existing:* bulk-sync `update_status`/`record_payment` do not
-     check the target order's outlet against an employee's outlet (the
-     single routes do). Resolving by offlineId inherits this.
-  4. *Open, minor:* `create_order` trims `offlineId` but `orderRef` is not
-     trimmed; an offlineId shaped like `EL-<n>` would be parsed as an order
-     code. Harmless with UUIDs.
-- **Gates after the fixes:** `tsc` 0, `lint` 0 errors, `build` passes,
-  integration suite **53/53**.
+  3. *Fixed:* bulk-sync `update_status`/`record_payment` now check the
+     target order's outlet for employees, same rule as the single-order
+     routes. `bulkSyncOrders` takes an `authorizeOrderOutlet` callback; the
+     route supplies it for employees via `requireOutletSession`. A denied
+     action is `failed` per action, not a whole-batch error. Test `B3.14`.
+  4. *Fixed:* `orderRef` and `offlineCode` are trimmed; an `offlineId`
+     shaped like `EL-<n>` is rejected (400). Test `B3.15`.
+  Commits: `90357a9` (1+2); 3+4 pending the user's go-ahead. Contract §3.5
+  updated for all four.
+- **Gates after all fixes:** `tsc` 0, `lint` 0 errors (2 warnings in the
+  user's untracked `scripts/qa_audit.mjs`), `build` passes, integration
+  suite **55/55**. Every new test was run against the pre-fix code first
+  and failed there.
+- **Discussions this session:** the user asked for a review, tests, then
+  fixes to all four findings, one commit per batch, with no merge to `main`
+  until they say so.
 - **Artifacts:** mobile owner-screen wireframes —
   https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
 - **Discussions:** "store" in the user's words = outlet; web orders keep

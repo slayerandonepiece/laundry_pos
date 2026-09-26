@@ -48,7 +48,13 @@ const entrySchema = z.object({
 });
 const createOrderSchema = z.object({
   idempotencyKey: z.string().min(1),
-  offlineId: z.string().trim().min(1).max(64).optional(),
+  offlineId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .refine((id) => parseOrderCode(id) === null, "offlineId cannot look like an order code.")
+    .optional(),
   customerName: z.string().trim().default(""),
   phone: z.string().regex(/^\+?[0-9]{10,15}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -500,13 +506,13 @@ export async function updateOrderStatus(
 const bulkCreateActionSchema = z.object({
   type: z.literal("create_order"),
   clientActionId: z.string().min(1),
-  offlineCode: z.string().min(1),
+  offlineCode: z.string().trim().min(1),
   payload: createOrderSchema,
 });
 const bulkStatusActionSchema = z.object({
   type: z.literal("update_status"),
   clientActionId: z.string().min(1),
-  orderRef: z.string().min(1),
+  orderRef: z.string().trim().min(1),
   status: z.custom<WorkStatus>(
     (val) => typeof val === "string" && val.trim().length > 0,
     "Status is required",
@@ -515,7 +521,7 @@ const bulkStatusActionSchema = z.object({
 const bulkPaymentActionSchema = z.object({
   type: z.literal("record_payment"),
   clientActionId: z.string().min(1),
-  orderRef: z.string().min(1),
+  orderRef: z.string().trim().min(1),
   amount: z.number().int().positive("Payment must be a positive amount"),
   method: z.string().trim().min(1, "Payment method is required"),
 });
@@ -552,12 +558,17 @@ function errorMessage(err: unknown): string {
  * sync pass without a network round trip in between. An orderRef that is
  * neither a code from this batch nor an EL- code is looked up as the order's
  * offlineId, for orders whose create synced in an earlier request.
+ *
+ * authorizeOrderOutlet, when given, is asked before any update_status or
+ * record_payment whether the caller may act on an order at that outlet
+ * (employees: only outlets they are granted, as on the single-order routes).
  */
 export async function bulkSyncOrders(
   storeId: string,
   actions: BulkSyncAction[],
   actorId: string,
   defaultOutletId?: string,
+  authorizeOrderOutlet?: (outletId: string | null) => Promise<boolean>,
 ): Promise<BulkSyncResult[]> {
   await assertStoreWritable(storeId);
   const codeMap = new Map<string, string>(); // offlineCode -> confirmed order code, this batch only
@@ -630,6 +641,14 @@ export async function bulkSyncOrders(
     }
 
     try {
+      if (authorizeOrderOutlet) {
+        const target = await prisma.order.findFirst({
+          where: { storeId, orderNumber: parseOrderCode(resolvedRef) ?? -1 },
+          select: { outletId: true },
+        });
+        if (target && !(await authorizeOrderOutlet(target.outletId)))
+          throw new Error("You don't have access to this order's outlet.");
+      }
       if (action.type === "update_status") {
         const order = await updateOrderStatus(
           storeId,

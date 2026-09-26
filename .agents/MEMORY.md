@@ -30,7 +30,8 @@ machine-local and do **not** reach cloud sessions — this file does.
   mobile-generated UUID, unique per organization (`@@unique([storeId,
   offlineId])`), null for web orders. Create is idempotent by
   `idempotencyKey` and by `offlineId`; bulk-sync `orderRef` accepts either.
-  Contract §3.5.
+  An `offlineId` may not look like `EL-<n>`; refs are trimmed.
+  Bulk-sync applies the employee outlet check per action. Contract §3.5.
 - Order DTO returns payment `clientActionId`, so the app matches offline
   payments exactly.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`; flow tests
