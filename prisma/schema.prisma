@@ -157,8 +157,9 @@ model StoreMembership {
   // User.active/credentialVersion: moving between stores never touches
   // credentials. Defaults true so existing rows (migrated before this
   // column existed) come in active.
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  active         Boolean  @default(true)
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
 
   @@unique([userId, storeId])
   @@index([storeId])
@@ -275,6 +276,9 @@ model Order {
   store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   orderNumber     Int        @unique @default(autoincrement())
   idempotencyKey  String?    @unique
+  // Client-generated id for orders created in the mobile app (offline-first).
+  // Null for orders created on the web.
+  offlineId       String?
   customerName    String
   phone           String
   // Calendar dates (Asia/Kolkata), not instants — stored without a time
@@ -301,6 +305,7 @@ model Order {
   @@index([storeId, outletId, orderDate])
   @@index([outletId, status])
   @@index([outletId, dueDate])
+  @@unique([storeId, offlineId])
   @@map("orders")
 }
 
@@ -423,24 +428,25 @@ model RecurringExpenseSeries {
 }
 
 model Expense {
-  id          String                  @id @default(cuid())
-  storeId     String
-  store       Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  title       String
-  category    String
-  amount      Int // paise
-  dueDate     DateTime                @db.Date
-  paidAt      DateTime?               @db.Date
-  seriesId    String?
-  series      RecurringExpenseSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  id             String                  @id @default(cuid())
+  storeId        String
+  store          Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  idempotencyKey String?                 @unique
+  title          String
+  category       String
+  amount         Int // paise
+  dueDate        DateTime                @db.Date
+  paidAt         DateTime?               @db.Date
+  seriesId       String?
+  series         RecurringExpenseSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
   // 'YYYY-MM', set only on series-generated occurrences. With seriesId this
   // gives a retry-safe unique key so generating occurrences twice (e.g. two
   // concurrent listExpenses calls) can't create duplicate months.
-  periodMonth String?
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
-  outletId    String?
-  outlet      Outlet?                 @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  periodMonth    String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  outletId       String?
+  outlet         Outlet?                 @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   @@unique([seriesId, periodMonth])
   @@index([storeId])

@@ -48,6 +48,13 @@ const entrySchema = z.object({
 });
 const createOrderSchema = z.object({
   idempotencyKey: z.string().min(1),
+  offlineId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .refine((id) => parseOrderCode(id) === null, "offlineId cannot look like an order code.")
+    .optional(),
   customerName: z.string().trim().default(""),
   phone: z.string().regex(/^\+?[0-9]{10,15}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -73,6 +80,7 @@ type OrderRow = Prisma.OrderGetPayload<{ include: typeof includeForDTO }>;
 function toOrderDTO(row: OrderRow): Order {
   return {
     id: toOrderCode(row.orderNumber),
+    offlineId: row.offlineId ?? undefined,
     outletId: row.outletId ?? undefined,
     name: row.customerName,
     phone: row.phone,
@@ -94,6 +102,7 @@ function toOrderDTO(row: OrderRow): Order {
       amount: payment.amount,
       date: formatCalendarDate(payment.paidAt),
       method: payment.method,
+      clientActionId: payment.clientActionId ?? undefined,
     })),
     notes: row.notes,
     history: row.statusEvents.map((event) => ({
@@ -229,6 +238,7 @@ export async function getOrder(
 
 export interface CreateOrderInput {
   idempotencyKey: string;
+  offlineId?: string;
   customerName?: string;
   phone: string;
   dueDate: string;
@@ -247,14 +257,8 @@ export async function createOrder(
   await assertStoreWritable(storeId);
   const data = createOrderSchema.parse(input);
 
-  const existing = await prisma.order.findUnique({
-    where: { idempotencyKey: data.idempotencyKey },
-    include: includeForDTO,
-  });
-  if (existing) {
-    if (existing.storeId !== storeId) throw new Error("Order not found.");
-    return toOrderDTO(existing);
-  }
+  const existing = await findExistingOrder(storeId, data);
+  if (existing) return existing;
 
   if (
     new Set(data.entries.map((e) => e.productId)).size !== data.entries.length
@@ -332,68 +336,108 @@ export async function createOrder(
     resolvedOutletId = defaultOutlet?.id ?? null;
   }
 
-  const row = await prisma.$transaction(async (tx) => {
-    const created = await tx.order.create({
-      data: {
-        storeId,
-        outletId: resolvedOutletId,
-        idempotencyKey: data.idempotencyKey,
-        customerName: data.customerName ?? "",
-        phone: data.phone,
-        orderDate: today,
-        dueDate: parseCalendarDate(data.dueDate),
-        status: "PENDING",
-        notes: data.notes ?? "",
-        lines: { create: lines },
-        payments: data.initialPayment
-          ? {
-              create: [
-                {
-                  amount: data.initialPayment.amount,
-                  method: initialPaymentMethodName ?? data.initialPayment.method,
-                  platformPaymentMethodId: initialPlatformPaymentMethodId,
-                  paidAt: today,
-                  storeId,
-                  outletId: resolvedOutletId,
-                },
-              ],
-            }
-          : undefined,
-        statusEvents: {
-          create: [
-            {
-              status: "PENDING",
-              byUserId: actorId,
-              storeId,
-              outletId: resolvedOutletId,
-            },
-          ],
-        },
-      },
-      include: includeForDTO,
-    });
-
-    if (resolvedOutletId) {
-      await applyOrderCreationRollup(tx, {
-        storeId,
-        outletId: resolvedOutletId,
-        orderDate: today,
-        lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, amount: l.amount })),
-      });
-      if (data.initialPayment && data.initialPayment.amount > 0) {
-        await applyPaymentRollup(tx, {
+  let row: OrderRow;
+  try {
+    row = await prisma.$transaction(async (tx) => {
+      const created = await tx.order.create({
+        data: {
           storeId,
           outletId: resolvedOutletId,
-          paidAt: today,
-          amount: data.initialPayment.amount,
-        });
-      }
-    }
+          idempotencyKey: data.idempotencyKey,
+          offlineId: data.offlineId ?? null,
+          customerName: data.customerName ?? "",
+          phone: data.phone,
+          orderDate: today,
+          dueDate: parseCalendarDate(data.dueDate),
+          status: "PENDING",
+          notes: data.notes ?? "",
+          lines: { create: lines },
+          payments: data.initialPayment
+            ? {
+                create: [
+                  {
+                    amount: data.initialPayment.amount,
+                    method: initialPaymentMethodName ?? data.initialPayment.method,
+                    platformPaymentMethodId: initialPlatformPaymentMethodId,
+                    paidAt: today,
+                    storeId,
+                    outletId: resolvedOutletId,
+                  },
+                ],
+              }
+            : undefined,
+          statusEvents: {
+            create: [
+              {
+                status: "PENDING",
+                byUserId: actorId,
+                storeId,
+                outletId: resolvedOutletId,
+              },
+            ],
+          },
+        },
+        include: includeForDTO,
+      });
 
-    return created;
-  });
+      if (resolvedOutletId) {
+        await applyOrderCreationRollup(tx, {
+          storeId,
+          outletId: resolvedOutletId,
+          orderDate: today,
+          lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, amount: l.amount })),
+        });
+        if (data.initialPayment && data.initialPayment.amount > 0) {
+          await applyPaymentRollup(tx, {
+            storeId,
+            outletId: resolvedOutletId,
+            paidAt: today,
+            amount: data.initialPayment.amount,
+          });
+        }
+      }
+
+      return created;
+    });
+  } catch (err) {
+    // A concurrent retry with the same idempotencyKey or offlineId passed the
+    // lookup above too; its insert won, so return that order instead.
+    if (isUniqueViolation(err)) {
+      const winner = await findExistingOrder(storeId, data);
+      if (winner) return winner;
+    }
+    throw err;
+  }
 
   return toOrderDTO(row);
+}
+
+async function findExistingOrder(
+  storeId: string,
+  data: { idempotencyKey: string; offlineId?: string },
+): Promise<Order | null> {
+  const byKey = await prisma.order.findUnique({
+    where: { idempotencyKey: data.idempotencyKey },
+    include: includeForDTO,
+  });
+  if (byKey) {
+    if (byKey.storeId !== storeId) throw new Error("Order not found.");
+    return toOrderDTO(byKey);
+  }
+  if (!data.offlineId) return null;
+  const byOfflineId = await prisma.order.findUnique({
+    where: { storeId_offlineId: { storeId, offlineId: data.offlineId } },
+    include: includeForDTO,
+  });
+  return byOfflineId ? toOrderDTO(byOfflineId) : null;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "P2002"
+  );
 }
 
 export async function updateOrderStatus(
@@ -462,13 +506,13 @@ export async function updateOrderStatus(
 const bulkCreateActionSchema = z.object({
   type: z.literal("create_order"),
   clientActionId: z.string().min(1),
-  offlineCode: z.string().min(1),
+  offlineCode: z.string().trim().min(1),
   payload: createOrderSchema,
 });
 const bulkStatusActionSchema = z.object({
   type: z.literal("update_status"),
   clientActionId: z.string().min(1),
-  orderRef: z.string().min(1),
+  orderRef: z.string().trim().min(1),
   status: z.custom<WorkStatus>(
     (val) => typeof val === "string" && val.trim().length > 0,
     "Status is required",
@@ -477,7 +521,7 @@ const bulkStatusActionSchema = z.object({
 const bulkPaymentActionSchema = z.object({
   type: z.literal("record_payment"),
   clientActionId: z.string().min(1),
-  orderRef: z.string().min(1),
+  orderRef: z.string().trim().min(1),
   amount: z.number().int().positive("Payment must be a positive amount"),
   method: z.string().trim().min(1, "Payment method is required"),
 });
@@ -511,13 +555,20 @@ function errorMessage(err: unknown): string {
  * that order's offlineCode as orderRef — this resolves it against the
  * create_order results earlier in the SAME batch before applying the update,
  * so "create then update the same order while still offline" works in one
- * sync pass without a network round trip in between.
+ * sync pass without a network round trip in between. An orderRef that is
+ * neither a code from this batch nor an EL- code is looked up as the order's
+ * offlineId, for orders whose create synced in an earlier request.
+ *
+ * authorizeOrderOutlet, when given, is asked before any update_status or
+ * record_payment whether the caller may act on an order at that outlet
+ * (employees: only outlets they are granted, as on the single-order routes).
  */
 export async function bulkSyncOrders(
   storeId: string,
   actions: BulkSyncAction[],
   actorId: string,
   defaultOutletId?: string,
+  authorizeOrderOutlet?: (outletId: string | null) => Promise<boolean>,
 ): Promise<BulkSyncResult[]> {
   await assertStoreWritable(storeId);
   const codeMap = new Map<string, string>(); // offlineCode -> confirmed order code, this batch only
@@ -571,16 +622,33 @@ export async function bulkSyncOrders(
     } else if (parseOrderCode(action.orderRef) !== null) {
       resolvedRef = action.orderRef;
     } else {
-      results.push({
-        clientActionId: action.clientActionId,
-        type: action.type,
-        status: "skipped",
-        error: "Referenced order was not created yet.",
+      // An order created offline and synced in an EARLIER request: the
+      // device may still only know it by its offlineId.
+      const offlineRow = await prisma.order.findUnique({
+        where: { storeId_offlineId: { storeId, offlineId: action.orderRef } },
+        select: { orderNumber: true },
       });
-      continue;
+      if (!offlineRow) {
+        results.push({
+          clientActionId: action.clientActionId,
+          type: action.type,
+          status: "skipped",
+          error: "Referenced order was not created yet.",
+        });
+        continue;
+      }
+      resolvedRef = toOrderCode(offlineRow.orderNumber);
     }
 
     try {
+      if (authorizeOrderOutlet) {
+        const target = await prisma.order.findFirst({
+          where: { storeId, orderNumber: parseOrderCode(resolvedRef) ?? -1 },
+          select: { outletId: true },
+        });
+        if (target && !(await authorizeOrderOutlet(target.outletId)))
+          throw new Error("You don't have access to this order's outlet.");
+      }
       if (action.type === "update_status") {
         const order = await updateOrderStatus(
           storeId,
@@ -637,18 +705,6 @@ export async function recordPayment(
   const method = z.string().trim().min(1).max(40).parse(methodInput);
 
   const row = await prisma.$transaction(async (tx) => {
-    if (clientActionId) {
-      const existing = await tx.payment.findUnique({
-        where: { clientActionId },
-      });
-      if (existing) {
-        return tx.order.findUniqueOrThrow({
-          where: { orderNumber },
-          include: includeForDTO,
-        });
-      }
-    }
-
     // Lock the order row first so a concurrent payment can't read the same
     // stale balance and double-spend it; only after the lock do we read
     // lines/payments, guaranteeing the balance check sees committed state.
@@ -665,6 +721,23 @@ export async function recordPayment(
     const order = locked[0];
     if (!order || order.legacyCancelled || order.storeId !== storeId)
       throw new Error("Order not found.");
+
+    // Replay of an already-recorded payment. Checked after the lock so a
+    // concurrent duplicate waits for the first and then sees its row.
+    if (clientActionId) {
+      const existing = await tx.payment.findUnique({
+        where: { clientActionId },
+        select: { orderId: true },
+      });
+      if (existing) {
+        if (existing.orderId !== order.id)
+          throw new Error("That payment was already recorded on another order.");
+        return tx.order.findUniqueOrThrow({
+          where: { id: order.id },
+          include: includeForDTO,
+        });
+      }
+    }
 
     const paymentCheck = await resolveActivePaymentMethod(storeId, method, {
       allowLegacy: !order.outletId,

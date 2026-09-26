@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     const { actions } = bulkSyncRequestSchema.parse(body);
 
     let defaultOutletId: string | undefined;
+    let authorizeOrderOutlet: ((outletId: string | null) => Promise<boolean>) | undefined;
     if (session.storeRole === 'EMPLOYEE') {
       const requestedOutletId = resolveOutletIdFromRequest(req);
       if (!requestedOutletId) throw new AuthError('FORBIDDEN');
@@ -30,11 +31,23 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+
+      // Same rule as PATCH /orders/{code}/status and POST /orders/{code}/payments.
+      authorizeOrderOutlet = async (outletId) => {
+        if (!outletId) return false;
+        try {
+          await requireOutletSession(session.storeId, outletId, 'EMPLOYEE', session);
+          return true;
+        } catch (err) {
+          if (err instanceof AuthError) return false;
+          throw err;
+        }
+      };
     } else {
       defaultOutletId = resolveOutletIdFromRequest(req);
     }
 
-    const results = await bulkSyncOrders(session.storeId, actions, session.id, defaultOutletId);
+    const results = await bulkSyncOrders(session.storeId, actions, session.id, defaultOutletId, authorizeOrderOutlet);
     return jsonResponse({ results });
   });
 }

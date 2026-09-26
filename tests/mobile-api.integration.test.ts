@@ -42,6 +42,7 @@ let orderPaymentsRoute: typeof import("../src/app/api/v1/orders/[orderCode]/paym
 let orderStatusRoute: typeof import("../src/app/api/v1/orders/[orderCode]/status/route");
 let orderInvoiceRoute: typeof import("../src/app/api/v1/orders/[orderCode]/invoice/route");
 let employeesRoute: typeof import("../src/app/api/v1/employees/route");
+let expensesRoute: typeof import("../src/app/api/v1/expenses/route");
 let paymentMethodsRoute: typeof import("../src/app/api/v1/payment-methods/route");
 let paymentMethodDetailRoute: typeof import("../src/app/api/v1/payment-methods/[id]/route");
 let profileRoute: typeof import("../src/app/api/v1/profile/route");
@@ -58,6 +59,7 @@ before(async () => {
     orderStatusRoute,
     orderInvoiceRoute,
     employeesRoute,
+    expensesRoute,
     paymentMethodsRoute,
     paymentMethodDetailRoute,
     profileRoute,
@@ -68,6 +70,7 @@ before(async () => {
     import("../src/app/api/v1/orders/[orderCode]/status/route"),
     import("../src/app/api/v1/orders/[orderCode]/invoice/route"),
     import("../src/app/api/v1/employees/route"),
+    import("../src/app/api/v1/expenses/route"),
     import("../src/app/api/v1/payment-methods/route"),
     import("../src/app/api/v1/payment-methods/[id]/route"),
     import("../src/app/api/v1/profile/route"),
@@ -789,4 +792,317 @@ test("Task C: payment methods expose organization methods only", async () => {
     params: Promise.resolve({ id: disabledMethod.id }),
   });
   assert.equal(renameRes.status, 400);
+});
+
+async function waitForBlocked(count: number) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const { rows } = await control.query<{ waiting: number }>(`
+      SELECT count(*)::int AS waiting FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND application_name = 'el-mobile-api-test'
+        AND wait_event_type = 'Lock'
+    `);
+    if (rows[0].waiting >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`${count} calls did not reach the lock barrier.`);
+}
+
+async function raceBehindLock<T>(
+  lockSql: string,
+  calls: (() => Promise<T>)[],
+) {
+  const blocker = await control.connect();
+  await blocker.query("BEGIN");
+  await blocker.query(lockSql);
+  const pending = Promise.allSettled(calls.map((call) => call()));
+  try {
+    await waitForBlocked(calls.length);
+  } finally {
+    await blocker.query("COMMIT");
+    blocker.release();
+  }
+  return pending;
+}
+
+// Task D: Idempotent expense creation (one-off, monthly, cross-store, no key, race)
+test("Task D: POST /api/v1/expenses is idempotent by idempotencyKey", async () => {
+  const storeA = await createTestFixture("exp-idemp-a");
+  const storeB = await createTestFixture("exp-idemp-b");
+
+  // 1. One-off expense: same idempotencyKey twice -> one row, same id
+  const oneOffBody = {
+    idempotencyKey: "exp-key-oneoff-1",
+    title: "Detergent Bulk",
+    category: "Supplies",
+    amount: 25_000,
+    due: "2026-10-05",
+    monthly: false,
+  };
+  const expRes1 = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: oneOffBody,
+    }),
+  );
+  assert.equal(expRes1.status, 201);
+  const exp1 = await expRes1.json();
+  assert.ok(exp1.id);
+  assert.equal(exp1.monthly, false);
+
+  const expRes2 = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: oneOffBody,
+    }),
+  );
+  assert.equal(expRes2.status, 201);
+  const exp2 = await expRes2.json();
+  assert.equal(exp2.id, exp1.id);
+  assert.equal(
+    await prisma.expense.count({
+      where: { storeId: storeA.store.id, idempotencyKey: "exp-key-oneoff-1" },
+    }),
+    1,
+  );
+
+  // 2. Monthly expense: same idempotencyKey twice -> one series + one occurrence row, same id
+  const monthlyBody = {
+    idempotencyKey: "exp-key-monthly-1",
+    title: "Shop Rent",
+    category: "Rent",
+    amount: 1_500_000,
+    due: "2026-10-01",
+    monthly: true,
+  };
+  const mRes1 = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: monthlyBody,
+    }),
+  );
+  assert.equal(mRes1.status, 201);
+  const mExp1 = await mRes1.json();
+  assert.ok(mExp1.id);
+  assert.equal(mExp1.monthly, true);
+  assert.ok(mExp1.seriesId);
+
+  const mRes2 = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: monthlyBody,
+    }),
+  );
+  assert.equal(mRes2.status, 201);
+  const mExp2 = await mRes2.json();
+  assert.equal(mExp2.id, mExp1.id);
+  assert.equal(mExp2.seriesId, mExp1.seriesId);
+  assert.equal(
+    await prisma.recurringExpenseSeries.count({
+      where: { storeId: storeA.store.id },
+    }),
+    1,
+  );
+  assert.equal(
+    await prisma.expense.count({
+      where: { storeId: storeA.store.id, idempotencyKey: "exp-key-monthly-1" },
+    }),
+    1,
+  );
+
+  // 3. Same key from a different store -> rejected (400 Duplicate request key.)
+  const crossStoreRes = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeB.token,
+      storeId: storeB.store.id,
+      body: oneOffBody,
+    }),
+  );
+  assert.equal(crossStoreRes.status, 400);
+  assert.equal((await crossStoreRes.json()).error, "Duplicate request key.");
+
+  // 4. No key -> behaviour unchanged (two calls create two distinct rows)
+  const noKeyBody = {
+    title: "Packaging Bags",
+    category: "Supplies",
+    amount: 5_000,
+    due: "2026-10-10",
+    monthly: false,
+  };
+  const nkRes1 = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: noKeyBody,
+    }),
+  );
+  const nkRes2 = await expensesRoute.POST(
+    createReq("http://localhost/api/v1/expenses", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: noKeyBody,
+    }),
+  );
+  assert.equal(nkRes1.status, 201);
+  assert.equal(nkRes2.status, 201);
+  const nk1 = await nkRes1.json();
+  const nk2 = await nkRes2.json();
+  assert.notEqual(nk1.id, nk2.id);
+
+  // 5. Concurrent race on the same idempotencyKey -> P2002 caught, both return the winner
+  const raceBody = {
+    idempotencyKey: "exp-key-race-1",
+    title: "Water Bill",
+    category: "Utilities",
+    amount: 8_000,
+    due: "2026-10-15",
+    monthly: false,
+  };
+  const raceResults = await raceBehindLock(
+    "LOCK TABLE expenses IN SHARE MODE",
+    [1, 2].map(() => async () => {
+      const res = await expensesRoute.POST(
+        createReq("http://localhost/api/v1/expenses", {
+          token: storeA.token,
+          storeId: storeA.store.id,
+          body: raceBody,
+        }),
+      );
+      assert.equal(res.status, 201);
+      return (await res.json()) as { id: string };
+    }),
+  );
+  assert.ok(
+    raceResults.every((r) => r.status === "fulfilled"),
+    JSON.stringify(raceResults),
+  );
+  const [r1, r2] = raceResults.map(
+    (r) => (r as PromiseFulfilledResult<{ id: string }>).value,
+  );
+  assert.equal(r1.id, r2.id);
+});
+
+// Task E: Idempotent employee creation (retry, cross-store, no key, race)
+test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () => {
+  const storeA = await createTestFixture("emp-idemp-a");
+  const storeB = await createTestFixture("emp-idemp-b");
+
+  const empBody = {
+    idempotencyKey: "emp-key-1",
+    name: "Rohan Verma",
+    username: "rohan.idemp.1",
+    password: "password123",
+    active: true,
+  };
+
+  // 1. First create -> 201
+  const res1 = await employeesRoute.POST(
+    createReq("http://localhost/api/v1/employees", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: empBody,
+    }),
+  );
+  assert.equal(res1.status, 201);
+  const emp1 = await res1.json();
+  assert.ok(emp1.id);
+  assert.equal(emp1.username, "rohan.idemp.1");
+
+  // 2. Retry with same idempotencyKey -> 200/201 with same id (NOT "username already in use")
+  const res2 = await employeesRoute.POST(
+    createReq("http://localhost/api/v1/employees", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: empBody,
+    }),
+  );
+  assert.ok(res2.status === 200 || res2.status === 201);
+  const emp2 = await res2.json();
+  assert.equal(emp2.id, emp1.id);
+  assert.equal(
+    await prisma.storeMembership.count({
+      where: { storeId: storeA.store.id, idempotencyKey: "emp-key-1" },
+    }),
+    1,
+  );
+  assert.equal(
+    await prisma.user.count({ where: { username: "rohan.idemp.1" } }),
+    1,
+  );
+
+  // 3. Same key from a different store -> rejected (400 Duplicate request key.)
+  const crossRes = await employeesRoute.POST(
+    createReq("http://localhost/api/v1/employees", {
+      token: storeB.token,
+      storeId: storeB.store.id,
+      body: {
+        ...empBody,
+        username: "other.username.b",
+      },
+    }),
+  );
+  assert.equal(crossRes.status, 400);
+  assert.equal((await crossRes.json()).error, "Duplicate request key.");
+
+  // 4. No key -> behaviour unchanged (second call with same username fails with 400 username in use)
+  const noKeyBody = {
+    name: "Kiran Rao",
+    username: "kiran.nokey.1",
+    password: "password123",
+    active: true,
+  };
+  const nkRes1 = await employeesRoute.POST(
+    createReq("http://localhost/api/v1/employees", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: noKeyBody,
+    }),
+  );
+  assert.equal(nkRes1.status, 201);
+
+  const nkRes2 = await employeesRoute.POST(
+    createReq("http://localhost/api/v1/employees", {
+      token: storeA.token,
+      storeId: storeA.store.id,
+      body: noKeyBody,
+    }),
+  );
+  assert.equal(nkRes2.status, 400);
+  assert.match((await nkRes2.json()).error, /username is already in use/i);
+
+  // 5. Concurrent race on the same idempotencyKey -> P2002 caught, both return the winner
+  const raceEmpBody = {
+    idempotencyKey: "emp-key-race-1",
+    name: "Priya Nair",
+    username: "priya.race.1",
+    password: "password123",
+    active: true,
+  };
+  const raceResults = await raceBehindLock(
+    "LOCK TABLE users IN SHARE MODE",
+    [1, 2].map(() => async () => {
+      const res = await employeesRoute.POST(
+        createReq("http://localhost/api/v1/employees", {
+          token: storeA.token,
+          storeId: storeA.store.id,
+          body: raceEmpBody,
+        }),
+      );
+      assert.equal(res.status, 201);
+      return (await res.json()) as { id: string };
+    }),
+  );
+  assert.ok(
+    raceResults.every((r) => r.status === "fulfilled"),
+    JSON.stringify(raceResults),
+  );
+  const [e1, e2] = raceResults.map(
+    (r) => (r as PromiseFulfilledResult<{ id: string }>).value,
+  );
+  assert.equal(e1.id, e2.id);
 });

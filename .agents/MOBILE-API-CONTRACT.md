@@ -197,6 +197,30 @@ is the safe pattern for both roles.
 `GET /api/v1/orders/sync` filters by outlet, so its cursor is only
 meaningful within one scope. Key the cursor by outlet client-side.
 
+### 3.5 Two ids per order: `id` and `offlineId`
+
+- `id` is the server order code (`EL-123`). `offlineId` is a client-generated
+  id, unique per organization, set only for orders created in the app;
+  web-created orders have none (the field is omitted).
+- `create_order` payloads may carry `payload.offlineId`. A retry with the same
+  `offlineId` returns the existing order instead of creating a second one,
+  including when two retries arrive at the same time.
+- `offlineId` is trimmed, at most 64 characters, and must not look like an
+  order code (`EL-<n>`) — that is a 400. Use a UUID.
+- `update_status` / `record_payment` `orderRef` may be an `EL-` code or an
+  `offlineId`, including one whose `create_order` synced in an earlier request.
+  `orderRef` and `offlineCode` are trimmed.
+- In bulk-sync, an employee's `update_status` / `record_payment` on an order
+  at an outlet they are not granted comes back `failed` with
+  `"You don't have access to this order's outlet."` — the same rule as the
+  single-order status and payment routes. Other actions in the batch still run.
+- A payment `clientActionId` already recorded on a different order is
+  rejected (`"That payment was already recorded on another order."`); a
+  replay on the same order returns it unchanged.
+- Every order response includes `offlineId` (when set), and each payment
+  includes the `clientActionId` it was recorded with (when set), so the client
+  can match its offline payments exactly.
+
 ---
 
 ## 4. Payment methods — the rule that breaks checkout if you get it wrong
@@ -320,6 +344,15 @@ Notes:
 - Order creation takes a client `idempotencyKey`; the same key returns
   the same order and creates exactly one row (`B6.3`). Generate it once
   per cart and reuse it across retries.
+- `POST /expenses` and `POST /employees` accept an optional
+  `idempotencyKey` (1–64 chars, trimmed, stored on `Expense` and
+  `StoreMembership`, `src/server/services/expenses.ts:92`,
+  `src/server/services/employees.ts:55`): repeating the same key in the
+  same store returns the existing DTO (`201`) without creating a second
+  expense or failing on a taken username; repeating a key across stores
+  returns `400 "Duplicate request key."`
+- To set an employee active/inactive idempotently, use `PUT /employees/{id}` with an explicit `active` (the mobile app will stop using the toggle endpoint).
+- `POST /products` is an upsert by the client-chosen `id`.
 - Payment recording locks the order row before checking the balance, so
   concurrent collection cannot overpay (`B6.4`). A rejected overpayment
   is a 400, not a crash.

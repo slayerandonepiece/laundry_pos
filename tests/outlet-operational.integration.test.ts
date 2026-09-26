@@ -561,3 +561,403 @@ test('B3.6: Conflicting outlet between header and body is rejected, not silently
   assert.match((await res.json()).error, /Conflicting outlet/);
   assert.equal(await prisma.order.count({ where: { idempotencyKey: 'b36-key-1' } }), 0);
 });
+
+type SyncResult = {
+  clientActionId: string;
+  status: string;
+  error?: string;
+  order?: { id: string; offlineId?: string; status: string; payments: { amount: number; clientActionId?: string }[] };
+};
+
+async function bulkSync(token: string, storeId: string, outletId: string, actions: unknown[]) {
+  const res = await bulkSyncRoute.POST(new NextRequest('http://localhost/api/v1/orders/bulk-sync', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-Store-Id': storeId,
+      'X-Outlet-Id': outletId,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ actions }),
+  }));
+  assert.equal(res.status, 200);
+  return ((await res.json()) as { results: SyncResult[] }).results;
+}
+
+test('B3.7: A create retried with the same offlineId returns one order', async () => {
+  const ctx = await setupStoreWithOutlets('b37');
+  const offlineId = '7f1c2d3e-0000-4000-8000-000000000b37';
+  const payload = (idempotencyKey: string) => ({
+    idempotencyKey,
+    offlineId,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  });
+
+  // First attempt: direct create.
+  const first = await createOrdersRoute.POST(new NextRequest('http://localhost/api/v1/orders', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ctx.tokenOwner}`,
+      'X-Store-Id': ctx.store.id,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload('b37-key-1')),
+  }));
+  assert.equal(first.status, 201);
+  const firstOrder = (await first.json()) as { id: string; offlineId?: string };
+  assert.equal(firstOrder.offlineId, offlineId);
+
+  // Retry in a later bulk-sync request, even with a regenerated idempotency key.
+  const results = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b37-a1', type: 'create_order', offlineCode: offlineId, payload: payload('b37-key-2') },
+  ]);
+  assert.equal(results[0].status, 'success');
+  assert.equal(results[0].order?.id, firstOrder.id);
+
+  assert.equal(await prisma.order.count({ where: { storeId: ctx.store.id, offlineId } }), 1);
+  assert.equal(await prisma.order.count({ where: { storeId: ctx.store.id } }), 1);
+
+  // offlineId is unique per organization, not globally: another store may reuse it.
+  const other = await setupStoreWithOutlets('b37-other');
+  const otherOrder = await orders.createOrder(other.store.id, {
+    ...payload('b37-other-key'),
+    entries: [{ productId: other.product.id, quantity: 1 }],
+    outletId: other.outlet1.id,
+  }, other.ownerUser.id);
+  assert.notEqual(otherOrder.id, firstOrder.id);
+  assert.equal(otherOrder.offlineId, offlineId);
+});
+
+test('B3.8: update_status and record_payment resolve an offlineId synced in an earlier request', async () => {
+  const ctx = await setupStoreWithOutlets('b38');
+  const offlineId = '7f1c2d3e-0000-4000-8000-000000000b38';
+
+  // Request 1: only the create syncs.
+  const created = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    {
+      clientActionId: 'b38-a1',
+      type: 'create_order',
+      offlineCode: offlineId,
+      payload: {
+        idempotencyKey: 'b38-key-1',
+        offlineId,
+        phone: '9876543210',
+        dueDate: '2100-01-01',
+        entries: [{ productId: ctx.product.id, quantity: 1 }],
+        outletId: ctx.outlet1.id,
+      },
+    },
+  ]);
+  assert.equal(created[0].status, 'success');
+  const code = created[0].order!.id;
+
+  // Request 2: the device still only knows the order by its offlineId.
+  const later = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b38-a2', type: 'update_status', orderRef: offlineId, status: 'Ready' },
+    { clientActionId: 'b38-a3', type: 'record_payment', orderRef: offlineId, amount: 4_000, method: 'Cash' },
+    { clientActionId: 'b38-a4', type: 'update_status', orderRef: 'never-synced-offline-id', status: 'Ready' },
+  ]);
+  assert.equal(later[0].status, 'success');
+  assert.equal(later[0].order?.id, code);
+  assert.equal(later[0].order?.status, 'Ready');
+  assert.equal(later[1].status, 'success');
+  assert.equal(later[1].order?.id, code);
+  assert.deepEqual(later[1].order?.payments.map(p => p.amount), [4_000]);
+  assert.equal(later[2].status, 'skipped');
+  assert.equal(later[2].error, 'Referenced order was not created yet.');
+
+  // Replaying request 2 does not record the payment twice.
+  const replay = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b38-a3', type: 'record_payment', orderRef: offlineId, amount: 4_000, method: 'Cash' },
+  ]);
+  assert.equal(replay[0].status, 'success');
+  assert.equal(await prisma.payment.count({ where: { order: { storeId: ctx.store.id } } }), 1);
+
+  // Another organization cannot resolve this store's offlineId.
+  const other = await setupStoreWithOutlets('b38-other');
+  const foreign = await bulkSync(other.tokenOwner, other.store.id, other.outlet1.id, [
+    { clientActionId: 'b38-x1', type: 'update_status', orderRef: offlineId, status: 'Delivered' },
+  ]);
+  assert.equal(foreign[0].status, 'skipped');
+  const row = await prisma.order.findFirstOrThrow({ where: { storeId: ctx.store.id, offlineId } });
+  assert.equal(row.status, 'READY');
+});
+
+test('B3.9: Order DTO includes offlineId and payment clientActionId', async () => {
+  const ctx = await setupStoreWithOutlets('b39');
+  const offlineId = '7f1c2d3e-0000-4000-8000-000000000b39';
+  const order = await orders.createOrder(ctx.store.id, {
+    idempotencyKey: 'b39-key-1',
+    offlineId,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  }, ctx.ownerUser.id);
+
+  const paid = await paymentRoute.POST(new NextRequest(`http://localhost/api/v1/orders/${order.id}/payments`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ctx.tokenOwner}`,
+      'X-Store-Id': ctx.store.id,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ amount: 2_500, method: 'Cash', clientActionId: 'b39-pay-1' }),
+  }), { params: Promise.resolve({ orderCode: order.id }) });
+  assert.equal(paid.status, 201);
+
+  const res = await getOrderRoute.GET(new NextRequest(`http://localhost/api/v1/orders/${order.id}`, {
+    headers: { Authorization: `Bearer ${ctx.tokenOwner}`, 'X-Store-Id': ctx.store.id },
+  }), { params: Promise.resolve({ orderCode: order.id }) });
+  assert.equal(res.status, 200);
+  const dto = (await res.json()) as { offlineId?: string; payments: { amount: number; clientActionId?: string }[] };
+  assert.equal(dto.offlineId, offlineId);
+  assert.deepEqual(dto.payments.map(p => [p.amount, p.clientActionId]), [[2_500, 'b39-pay-1']]);
+});
+
+test('B3.10: Web orders have no offlineId', async () => {
+  const ctx = await setupStoreWithOutlets('b310');
+  // The web createOrderAction passes the editor's input straight through,
+  // which never carries an offlineId.
+  const web = (key: string) => orders.createOrder(ctx.store.id, {
+    idempotencyKey: key,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    initialPayment: { amount: 1_000, method: 'Cash' },
+    outletId: ctx.outlet1.id,
+  }, ctx.ownerUser.id);
+
+  // Two web orders both store NULL; the per-organization unique index must not collide.
+  const first = await web('b310-key-1');
+  const second = await web('b310-key-2');
+  assert.notEqual(first.id, second.id);
+  for (const order of [first, second]) {
+    assert.equal(order.offlineId, undefined);
+    assert.equal(order.payments.length, 1);
+    assert.equal(order.payments[0].clientActionId, undefined);
+  }
+  const rows = await prisma.order.findMany({ where: { storeId: ctx.store.id } });
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every(r => r.offlineId === null));
+
+  // Serialized over the API the field is omitted, not null.
+  const res = await getOrderRoute.GET(new NextRequest(`http://localhost/api/v1/orders/${first.id}`, {
+    headers: { Authorization: `Bearer ${ctx.tokenOwner}`, 'X-Store-Id': ctx.store.id },
+  }), { params: Promise.resolve({ orderCode: first.id }) });
+  const json = (await res.json()) as Record<string, unknown> & { payments: Record<string, unknown>[] };
+  assert.equal('offlineId' in json, false);
+  assert.equal('clientActionId' in json.payments[0], false);
+});
+
+test('B3.11: A replayed payment clientActionId cannot read or pay another order', async () => {
+  const a = await setupStoreWithOutlets('b311-a');
+  const b = await setupStoreWithOutlets('b311-b');
+  const newOrder = (ctx: typeof a, key: string) => orders.createOrder(ctx.store.id, {
+    idempotencyKey: key,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  }, ctx.ownerUser.id);
+
+  const orderA = await newOrder(a, 'b311-a-key');
+  const orderB1 = await newOrder(b, 'b311-b-key-1');
+  const orderB2 = await newOrder(b, 'b311-b-key-2');
+  await orders.recordPayment(b.store.id, orderB1.id, 1_000, 'Cash', 'b311-own-pay');
+
+  // Store B replays its own clientActionId against store A's order code.
+  await assert.rejects(
+    orders.recordPayment(b.store.id, orderA.id, 1_000, 'Cash', 'b311-own-pay'),
+    /Order not found/,
+  );
+  // Same store, different order: rejected rather than returning the wrong order.
+  await assert.rejects(
+    orders.recordPayment(b.store.id, orderB2.id, 1_000, 'Cash', 'b311-own-pay'),
+    /already recorded on another order/,
+  );
+  // The genuine replay still returns the original order, unchanged.
+  const replay = await orders.recordPayment(b.store.id, orderB1.id, 1_000, 'Cash', 'b311-own-pay');
+  assert.equal(replay.id, orderB1.id);
+  assert.equal(replay.payments.length, 1);
+  assert.equal(await prisma.payment.count({ where: { storeId: b.store.id } }), 1);
+  assert.equal(await prisma.payment.count({ where: { storeId: a.store.id } }), 0);
+});
+
+async function waitForBlocked(count: number) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const { rows } = await control.query<{ waiting: number }>(`
+      SELECT count(*)::int AS waiting FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND application_name = 'el-outlet-ops-test'
+        AND wait_event_type = 'Lock'
+    `);
+    if (rows[0].waiting >= count) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`${count} calls did not reach the lock barrier.`);
+}
+
+/** Runs the calls while `lockSql` is held, releasing it once all are blocked. */
+async function raceBehindLock<T>(lockSql: string, params: unknown[], calls: (() => Promise<T>)[]) {
+  const blocker = await control.connect();
+  await blocker.query('BEGIN');
+  await blocker.query(lockSql, params);
+  const pending = Promise.allSettled(calls.map(call => call()));
+  try {
+    await waitForBlocked(calls.length);
+  } finally {
+    await blocker.query('COMMIT');
+    blocker.release();
+  }
+  return pending;
+}
+
+test('B3.12: Concurrent creates with the same offlineId or idempotencyKey return one order', async () => {
+  const ctx = await setupStoreWithOutlets('b312');
+  const input = (idempotencyKey: string, offlineId?: string) => ({
+    idempotencyKey,
+    offlineId,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  });
+
+  // Blocking inserts into orders (reads still pass) lets both calls get past
+  // the "already exists?" lookup before either inserts.
+  const cases = [
+    [input('b312-key-1', 'b312-offline'), input('b312-key-2', 'b312-offline')],
+    [input('b312-key-3'), input('b312-key-3')],
+  ];
+  for (const [first, second] of cases) {
+    const results = await raceBehindLock('LOCK TABLE orders IN SHARE MODE', [], [
+      () => orders.createOrder(ctx.store.id, first, ctx.ownerUser.id),
+      () => orders.createOrder(ctx.store.id, second, ctx.ownerUser.id),
+    ]);
+    assert.ok(results.every(r => r.status === 'fulfilled'), JSON.stringify(results));
+    const [a, b] = results.map(r => (r as PromiseFulfilledResult<{ id: string }>).value);
+    assert.equal(a.id, b.id);
+  }
+  assert.equal(await prisma.order.count({ where: { storeId: ctx.store.id } }), 2);
+});
+
+test('B3.13: Concurrent payments with the same clientActionId record one payment', async () => {
+  const ctx = await setupStoreWithOutlets('b313');
+  const order = await orders.createOrder(ctx.store.id, {
+    idempotencyKey: 'b313-key',
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId: ctx.outlet1.id,
+  }, ctx.ownerUser.id);
+
+  const results = await raceBehindLock(
+    'SELECT id FROM orders WHERE "orderNumber" = $1 FOR UPDATE',
+    [Number(order.id.replace('EL-', ''))],
+    [1, 2].map(() => () => orders.recordPayment(ctx.store.id, order.id, 1_000, 'Cash', 'b313-pay')),
+  );
+  assert.ok(results.every(r => r.status === 'fulfilled'), JSON.stringify(results));
+  assert.equal(await prisma.payment.count({ where: { storeId: ctx.store.id } }), 1);
+});
+
+test('B3.14: Bulk-sync updates respect the employee outlet grant', async () => {
+  const ctx = await setupStoreWithOutlets('b314');
+  const newOrder = (key: string, outletId: string, offlineId?: string) => orders.createOrder(ctx.store.id, {
+    idempotencyKey: key,
+    offlineId,
+    phone: '9876543210',
+    dueDate: '2100-01-01',
+    entries: [{ productId: ctx.product.id, quantity: 1 }],
+    outletId,
+  }, ctx.ownerUser.id);
+  const foreign = await newOrder('b314-key-1', ctx.outlet2.id, 'b314-offline-2');
+  const own = await newOrder('b314-key-2', ctx.outlet1.id);
+
+  // Employee 1 is granted outlet 1 only.
+  const results = await bulkSync(ctx.tokenEmp1, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b314-a1', type: 'update_status', orderRef: foreign.id, status: 'Ready' },
+    { clientActionId: 'b314-a2', type: 'update_status', orderRef: 'b314-offline-2', status: 'Ready' },
+    { clientActionId: 'b314-a3', type: 'record_payment', orderRef: foreign.id, amount: 1_000, method: 'Cash' },
+    { clientActionId: 'b314-a4', type: 'update_status', orderRef: own.id, status: 'Ready' },
+    {
+      clientActionId: 'b314-a5',
+      type: 'create_order',
+      offlineCode: 'b314-new',
+      payload: {
+        idempotencyKey: 'b314-key-3',
+        offlineId: 'b314-new',
+        phone: '9876543210',
+        dueDate: '2100-01-01',
+        entries: [{ productId: ctx.product.id, quantity: 1 }],
+        outletId: ctx.outlet1.id,
+      },
+    },
+    { clientActionId: 'b314-a6', type: 'record_payment', orderRef: 'b314-new', amount: 1_000, method: 'Cash' },
+  ]);
+  assert.deepEqual(results.map(r => r.status), ['failed', 'failed', 'failed', 'success', 'success', 'success']);
+  for (const r of results.slice(0, 3)) assert.equal(r.error, "You don't have access to this order's outlet.");
+
+  const untouched = await prisma.order.findFirstOrThrow({ where: { storeId: ctx.store.id, offlineId: 'b314-offline-2' } });
+  assert.equal(untouched.status, 'PENDING');
+  assert.equal(await prisma.payment.count({ where: { orderId: untouched.id } }), 0);
+
+  // The owner can still act on any outlet's order through bulk-sync.
+  const owner = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b314-o1', type: 'update_status', orderRef: 'b314-offline-2', status: 'Ready' },
+  ]);
+  assert.equal(owner[0].status, 'success');
+});
+
+test('B3.15: orderRef is trimmed and an offlineId cannot look like an order code', async () => {
+  const ctx = await setupStoreWithOutlets('b315');
+  const results = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    {
+      clientActionId: 'b315-a1',
+      type: 'create_order',
+      offlineCode: ' b315-offline ',
+      payload: {
+        idempotencyKey: 'b315-key-1',
+        offlineId: ' b315-offline ',
+        phone: '9876543210',
+        dueDate: '2100-01-01',
+        entries: [{ productId: ctx.product.id, quantity: 1 }],
+        outletId: ctx.outlet1.id,
+      },
+    },
+    // Same batch: resolved through the trimmed offlineCode.
+    { clientActionId: 'b315-a2', type: 'update_status', orderRef: 'b315-offline\n', status: 'In Progress' },
+  ]);
+  assert.deepEqual(results.map(r => r.status), ['success', 'success']);
+  assert.equal(results[0].order?.offlineId, 'b315-offline');
+
+  // Later request: resolved through the stored offlineId.
+  const later = await bulkSync(ctx.tokenOwner, ctx.store.id, ctx.outlet1.id, [
+    { clientActionId: 'b315-a3', type: 'update_status', orderRef: '  b315-offline', status: 'Ready' },
+  ]);
+  assert.equal(later[0].status, 'success');
+  assert.equal(later[0].order?.status, 'Ready');
+
+  const res = await createOrdersRoute.POST(new NextRequest('http://localhost/api/v1/orders', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ctx.tokenOwner}`,
+      'X-Store-Id': ctx.store.id,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      idempotencyKey: 'b315-key-2',
+      offlineId: 'EL-5',
+      phone: '9876543210',
+      dueDate: '2100-01-01',
+      entries: [{ productId: ctx.product.id, quantity: 1 }],
+      outletId: ctx.outlet1.id,
+    }),
+  }));
+  assert.equal(res.status, 400);
+  assert.equal(await prisma.order.count({ where: { storeId: ctx.store.id } }), 1);
+});
