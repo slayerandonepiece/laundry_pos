@@ -63,6 +63,20 @@ Both repositories are on branch `chore/backend-and-setup`.
   user's untracked `scripts/qa_audit.mjs`), `build` passes, integration
   suite **55/55**. Every new test was run against the pre-fix code first
   and failed there.
+- **Dev DB + live smoke test (2026-09-26):** the user applied
+  `20260926100000_add_order_offline_id` to the dev Neon database. Smoke test
+  on `npm run dev` with the user's owner browser session (Reddy's Laundry,
+  Chinnapnahalli outlet) passed: create with `offlineId` → `EL-9`; the retry
+  with the same `offlineId` returned `EL-9` via `POST /orders` (3/3) and via
+  bulk-sync; a later bulk-sync request set `In Progress` and recorded ₹10
+  Cash by `offlineId` (with padded spaces); the payment replay didn't
+  duplicate; `GET /orders/EL-9` returns `offlineId` and the payment's
+  `clientActionId`; `offlineId: "EL-5"` → 400. DB confirms one order and one
+  payment. `EL-9` ("SMOKE offline-id", ₹10 Cash) stays in dev data — the
+  payment can't be reversed. One transient 500 on the first direct retry
+  was a Neon adapter connection `ErrorEvent`, not order logic; it didn't
+  recur. Not live-tested: the employee outlet check (owner session only;
+  covered by `B3.14`).
 - **Discussions this session:** the user asked for a review, tests, then
   fixes to all four findings, one commit per batch, with no merge to `main`
   until they say so.
