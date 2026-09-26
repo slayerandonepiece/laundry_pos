@@ -99,6 +99,34 @@ Reconcile it first or `prisma migrate deploy` will fail against production.
 
 ---
 
+## 4b. Left unfinished when this session ended
+
+Documentation only — no code is in an unfinished state, and every repo
+gate was green at the last run.
+
+- **`API_ENDPOINTS.md`**: the outlet header conventions and section 6
+  (Payment Methods) are rewritten and committed. Still stale:
+  - the `POST /api/v1/auth/login` and `GET /api/v1/auth/status` response
+    examples do not show the `organizations[]` array (with
+    `allowedOutlets` / `defaultOutletId`) those routes now return, nor the
+    same two fields added to each `stores[]` row;
+  - `GET /api/v1/dashboard/rollups` and `POST /api/v1/dashboard/reconcile`
+    are implemented but undocumented — `rollups` is outlet-scoped and
+    requires `X-Outlet-Id` for employees;
+  - the Super Admin routes under `/api/v1/super-admin/**` are undocumented,
+    deliberately, as they are not a mobile-client concern.
+  `.agents/MOBILE-API-CONTRACT.md` covers all of the above correctly and is
+  the authoritative source in the meantime.
+- **`.wiki/wiki/references/mobile-api-contract.md`** was not updated. Its
+  "Contract 3" section says the `API_ENDPOINTS.md` outlet gap "does not
+  require any change on the `laundry_pos_mobile` side until that app adopts
+  the outlet/organization model" — that condition is now met, so that
+  paragraph is stale. The wiki is gitignored, so this only matters on the
+  machine that holds it.
+- **Native `~/.claude` memory** for this project records the standing
+  workflow and tooling governance, but nothing from this session's
+  architecture work. That was deliberate: it is all in committed files.
+
 ## 5. Gotchas that cost time
 
 - **The integration suite looks broken but is not.** On PostgreSQL 18 /
