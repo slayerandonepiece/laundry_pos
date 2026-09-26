@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
 import { archiveStore, lookupOwnerByUsername, onboardStore, recordSubscriptionPayment, setStoreStatus, updateStore } from '@/server/services/stores';
 import { ValidationError } from '@/server/errors';
+import { createOutlet, type OutletDTO } from '@/server/services/outlets';
+import { recordStoreActivity } from '@/server/services/activity';
 import type { OnboardStoreInput, OwnerLookupResult, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '../types';
 
 export interface OnboardStoreResult {
@@ -16,6 +18,7 @@ export async function onboardStoreAction(input: OnboardStoreInput): Promise<Onbo
   const session = await requireSuperAdmin();
   try {
     const store = await onboardStore(input, session.id);
+    await recordStoreActivity({ storeId: store.id, actorId: session.id, action: 'ONBOARD_ORGANIZATION', entityType: 'Store', entityId: store.id, after: { name: store.name, ownerUsername: store.ownerUsername } });
     revalidatePath('/super-admin');
     revalidatePath('/super-admin/stores');
     return { ok: true, store };
@@ -25,9 +28,9 @@ export async function onboardStoreAction(input: OnboardStoreInput): Promise<Onbo
   }
 }
 
-export async function lookupOwnerAction(username: string): Promise<OwnerLookupResult | null> {
+export async function lookupOwnerAction(query: string): Promise<OwnerLookupResult | null> {
   await requireSuperAdmin();
-  return lookupOwnerByUsername(username);
+  return lookupOwnerByUsername(query);
 }
 
 export interface UpdateStoreResult {
@@ -37,9 +40,10 @@ export interface UpdateStoreResult {
 }
 
 export async function updateStoreAction(storeId: string, input: UpdateStoreInput): Promise<UpdateStoreResult> {
-  await requireSuperAdmin();
+  const session = await requireSuperAdmin();
   try {
     const store = await updateStore(storeId, input);
+    await recordStoreActivity({ storeId, actorId: session.id, action: 'UPDATE_ORGANIZATION', entityType: 'Store', entityId: storeId, after: { name: store.name, address: store.address, phone: store.phone, email: store.email } });
     revalidatePath('/super-admin/stores');
     revalidatePath(`/super-admin/stores/${storeId}`);
     revalidatePath(`/super-admin/stores/${storeId}/edit`);
@@ -57,9 +61,10 @@ export interface SetStoreStatusResult {
 }
 
 async function setStoreStatusAction(storeId: string, status: 'ACTIVE' | 'LOCKED'): Promise<SetStoreStatusResult> {
-  await requireSuperAdmin();
+  const session = await requireSuperAdmin();
   try {
     const store = await setStoreStatus(storeId, status);
+    await recordStoreActivity({ storeId, actorId: session.id, action: status === 'LOCKED' ? 'LOCK_ORGANIZATION' : 'UNLOCK_ORGANIZATION', entityType: 'Store', entityId: storeId, after: { status } });
     revalidatePath('/super-admin');
     revalidatePath('/super-admin/stores');
     revalidatePath(`/super-admin/stores/${storeId}`);
@@ -84,9 +89,10 @@ export interface ArchiveStoreResult {
 }
 
 export async function archiveStoreAction(storeId: string, confirmName: string): Promise<ArchiveStoreResult> {
-  await requireSuperAdmin();
+  const session = await requireSuperAdmin();
   try {
     await archiveStore(storeId, confirmName);
+    await recordStoreActivity({ storeId, actorId: session.id, action: 'ARCHIVE_ORGANIZATION', entityType: 'Store', entityId: storeId });
     revalidatePath('/super-admin');
     revalidatePath('/super-admin/stores');
     return { ok: true };
@@ -106,11 +112,38 @@ export async function recordSubscriptionPaymentAction(storeId: string, input: Re
   const session = await requireSuperAdmin();
   try {
     const invoice = await recordSubscriptionPayment(storeId, input, session.id);
+    await recordStoreActivity({ storeId, actorId: session.id, action: 'RECORD_SUBSCRIPTION_PAYMENT', entityType: 'SubscriptionPayment', entityId: String(invoice.invoiceSeq), after: { invoiceSeq: invoice.invoiceSeq, amount: invoice.amount, type: invoice.type, paidThroughDate: invoice.coversTo ?? null } });
     revalidatePath('/super-admin/stores');
     revalidatePath(`/super-admin/stores/${storeId}`);
     revalidatePath(`/super-admin/stores/${storeId}/subscription`);
     revalidatePath('/super-admin/subscriptions/billing');
     return { ok: true, invoice };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
+export interface CreateOutletResult {
+  ok: boolean;
+  error?: string;
+  outlet?: OutletDTO;
+}
+
+/** Super-admin-only outlet provisioning. Outlet codes are immutable once created. */
+export async function createOutletAction(storeId: string, input: {
+  outletCode: string;
+  displayName: string;
+  address?: string;
+  phone?: string;
+}): Promise<CreateOutletResult> {
+  const session = await requireSuperAdmin();
+  try {
+    const outlet = await createOutlet({ storeId, createdById: session.id, ...input });
+    await recordStoreActivity({ storeId, outletId: outlet.id, actorId: session.id, action: 'CREATE_OUTLET', entityType: 'Outlet', entityId: outlet.id, after: { outletCode: outlet.outletCode, displayName: outlet.displayName } });
+    revalidatePath(`/super-admin/stores/${storeId}`);
+    revalidatePath(`/super-admin/stores/${storeId}/outlets`);
+    return { ok: true, outlet };
   } catch (error) {
     if (error instanceof ValidationError) return { ok: false, error: error.message };
     throw error;

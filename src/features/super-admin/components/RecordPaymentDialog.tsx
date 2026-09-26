@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
-import { useDialogClose } from './Dialog';
+import { useDialogClose, DialogFooter } from './Dialog';
 import { recordSubscriptionPaymentAction } from '../actions/stores.actions';
 import type { PaymentMethod, StoreInvoice } from '../types';
 
@@ -48,9 +48,9 @@ export default function RecordPaymentDialog({ storeId, storeName, onSaved }: {
     <label>Reference (optional)<input value={reference} onChange={e => setReference(e.target.value)} placeholder="UPI transaction ID, etc." /></label>
     <label>Notes (optional)<textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" /></label>
     {error && <p className="ad-error" role="alert">{error}</p>}
-    <div className="ad-form-footer">
+    <DialogFooter>
       <Button secondary type="button" onClick={onCancel}>Cancel</Button>
       <Button type="button" onClick={submit} disabled={busy}>{busy ? 'Recording…' : 'Record payment'}</Button>
-    </div>
+    </DialogFooter>
   </div>;
 }

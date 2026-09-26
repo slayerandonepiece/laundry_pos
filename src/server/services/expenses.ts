@@ -4,6 +4,8 @@ import { prisma } from '@/server/db';
 import { parseCalendarDate, formatCalendarDate, todayIST } from '@/server/dates';
 import type { Expense } from '@/features/admin/admin.types';
 import type { Prisma } from '@/generated/prisma/client';
+import { assertStoreWritable } from '@/server/auth/session';
+import { applyExpensePaidRollup } from '@/server/services/dashboard-rollups';
 
 function nextMonthKey(month: string): string {
   const [year, monthNumber] = month.split('-').map(Number);
@@ -25,6 +27,7 @@ type ExpenseRow = Awaited<ReturnType<typeof prisma.expense.findFirstOrThrow>>;
 function toDTO(row: ExpenseRow): Expense {
   return {
     id: row.id,
+    outletId: row.outletId ?? undefined,
     title: row.title,
     category: row.category,
     amount: row.amount,
@@ -38,10 +41,10 @@ function toDTO(row: ExpenseRow): Expense {
 // Extend each active recurring series' occurrences through next month, without
 // touching existing (possibly already-paid) rows. The (seriesId, periodMonth)
 // unique constraint makes this safe to call repeatedly/concurrently.
-async function ensureRecurringOccurrences(storeId: string): Promise<void> {
+async function ensureRecurringOccurrences(storeId: string, outletId?: string): Promise<void> {
   const horizon = nextMonthKey(todayIST().slice(0, 7));
   const series = await prisma.recurringExpenseSeries.findMany({
-    where: { storeId, active: true },
+    where: { storeId, active: true, ...(outletId ? { outletId } : {}) },
     include: { occurrences: { orderBy: { dueDate: 'asc' } } },
   });
 
@@ -54,6 +57,7 @@ async function ensureRecurringOccurrences(storeId: string): Promise<void> {
       if (!existingMonths.has(cursor)) {
         creates.push({
           storeId,
+          outletId: s.outletId,
           title: s.title,
           category: s.category,
           amount: s.amount,
@@ -69,13 +73,24 @@ async function ensureRecurringOccurrences(storeId: string): Promise<void> {
   if (creates.length) await prisma.expense.createMany({ data: creates, skipDuplicates: true });
 }
 
-export async function listExpenses(storeId: string): Promise<Expense[]> {
-  await ensureRecurringOccurrences(storeId);
-  const rows = await prisma.expense.findMany({ where: { storeId }, orderBy: { dueDate: 'asc' } });
+export interface ListExpensesOptions {
+  outletId?: string;
+}
+
+export async function listExpenses(storeId: string, options?: ListExpensesOptions): Promise<Expense[]> {
+  await ensureRecurringOccurrences(storeId, options?.outletId);
+  const rows = await prisma.expense.findMany({
+    where: {
+      storeId,
+      ...(options?.outletId ? { outletId: options.outletId } : {}),
+    },
+    orderBy: { dueDate: 'asc' },
+  });
   return rows.map(toDTO);
 }
 
 const createExpenseSchema = z.object({
+  outletId: z.string().trim().optional(),
   title: z.string().trim().min(1),
   category: z.string().trim().min(1),
   amount: z.number().int().positive(),
@@ -86,29 +101,118 @@ const createExpenseSchema = z.object({
 
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 
-export async function createExpense(storeId: string, input: CreateExpenseInput): Promise<Expense> {
+export async function createExpense(
+  storeId: string,
+  input: CreateExpenseInput,
+  explicitOutletId?: string,
+): Promise<Expense> {
+  await assertStoreWritable(storeId);
   const data = createExpenseSchema.parse(input);
   const dueDate = parseCalendarDate(data.due);
   const paidAt = data.paidToday ? parseCalendarDate(todayIST()) : null;
+  const outletId = explicitOutletId ?? data.outletId ?? null;
+
+  if (outletId) {
+    const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
+    if (!outlet || outlet.storeId !== storeId || outlet.status !== 'ACTIVE') {
+      throw new Error('Invalid outlet.');
+    }
+  }
 
   if (!data.monthly) {
-    const row = await prisma.expense.create({ data: { storeId, title: data.title, category: data.category, amount: data.amount, dueDate, paidAt } });
+    const row = await prisma.$transaction(async tx => {
+      const expense = await tx.expense.create({
+        data: {
+          storeId,
+          outletId,
+          title: data.title,
+          category: data.category,
+          amount: data.amount,
+          dueDate,
+          paidAt,
+        },
+      });
+      if (paidAt && outletId) {
+        await applyExpensePaidRollup(tx, {
+          storeId,
+          outletId,
+          paidAt,
+          amount: data.amount,
+        });
+      }
+      return expense;
+    });
     return toDTO(row);
   }
 
   const dueDay = Number(data.due.slice(-2));
   const row = await prisma.$transaction(async tx => {
-    const series = await tx.recurringExpenseSeries.create({ data: { storeId, title: data.title, category: data.category, amount: data.amount, dueDay } });
-    return tx.expense.create({
-      data: { storeId, title: data.title, category: data.category, amount: data.amount, dueDate, paidAt, seriesId: series.id, periodMonth: data.due.slice(0, 7) },
+    const series = await tx.recurringExpenseSeries.create({
+      data: {
+        storeId,
+        outletId,
+        title: data.title,
+        category: data.category,
+        amount: data.amount,
+        dueDay,
+      },
     });
+    const expense = await tx.expense.create({
+      data: {
+        storeId,
+        outletId,
+        title: data.title,
+        category: data.category,
+        amount: data.amount,
+        dueDate,
+        paidAt,
+        seriesId: series.id,
+        periodMonth: data.due.slice(0, 7),
+      },
+    });
+    if (paidAt && outletId) {
+      await applyExpensePaidRollup(tx, {
+        storeId,
+        outletId,
+        paidAt,
+        amount: data.amount,
+      });
+    }
+    return expense;
   });
   return toDTO(row);
 }
 
 export async function markExpensePaid(storeId: string, id: string): Promise<Expense> {
-  const existing = await prisma.expense.findUnique({ where: { id }, select: { storeId: true } });
-  if (!existing || existing.storeId !== storeId) throw new Error('Expense not found.');
-  const row = await prisma.expense.update({ where: { id }, data: { paidAt: parseCalendarDate(todayIST()) } });
+  await assertStoreWritable(storeId);
+  const paidAt = parseCalendarDate(todayIST());
+
+  const row = await prisma.$transaction(async tx => {
+    const existing = await tx.expense.findUnique({
+      where: { id },
+      select: { storeId: true, outletId: true, amount: true, paidAt: true },
+    });
+    if (!existing || existing.storeId !== storeId) throw new Error('Expense not found.');
+    if (existing.paidAt) {
+      return tx.expense.findUniqueOrThrow({ where: { id } });
+    }
+
+    const updated = await tx.expense.update({
+      where: { id },
+      data: { paidAt },
+    });
+
+    if (existing.outletId) {
+      await applyExpensePaidRollup(tx, {
+        storeId,
+        outletId: existing.outletId,
+        paidAt,
+        amount: existing.amount,
+      });
+    }
+
+    return updated;
+  });
+
   return toDTO(row);
 }

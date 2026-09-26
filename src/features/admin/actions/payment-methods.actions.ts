@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireStoreSession } from '@/server/auth/session';
 import { createStorePaymentMethod, renameStorePaymentMethod, setStorePaymentMethodActive } from '@/server/services/payment-methods';
+import { setOrganizationPaymentMethodEnabled } from '@/server/services/platform-payment-methods';
 import { ValidationError } from '@/server/errors';
 import type { StorePaymentMethod } from '../admin.types';
 
@@ -38,4 +39,17 @@ export async function renamePaymentMethodAction(methodId: string, name: string):
 export async function setPaymentMethodActiveAction(methodId: string, active: boolean): Promise<Result> {
   const session = await requireStoreSession(undefined, 'OWNER');
   return resultFor(() => setStorePaymentMethodActive(session.storeId, methodId, active));
+}
+
+/** Owners configure only Super Admin-defined methods for new outlet payments. */
+export async function setOrganizationPaymentMethodEnabledAction(methodId: string, enabled: boolean): Promise<Result> {
+  const session = await requireStoreSession(undefined, 'OWNER');
+  try {
+    await setOrganizationPaymentMethodEnabled(session.storeId, methodId, enabled);
+    refreshPaymentMethodScreens();
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
 }

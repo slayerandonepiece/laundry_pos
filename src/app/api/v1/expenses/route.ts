@@ -1,13 +1,19 @@
 import { NextRequest } from 'next/server';
 import { listExpenses, createExpense } from '@/server/services/expenses';
-import { handleApiRoute, jsonResponse, requireApiStoreSession } from '@/server/api/handler';
+import {
+  handleApiRoute,
+  jsonResponse,
+  requireApiStoreSession,
+  resolveOutletIdFromRequest,
+} from '@/server/api/handler';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
     const session = await requireApiStoreSession(req, 'OWNER');
-    const expenses = await listExpenses(session.storeId);
+    const outletId = resolveOutletIdFromRequest(req);
+    const expenses = await listExpenses(session.storeId, { outletId });
     return jsonResponse(expenses);
   });
 }
@@ -16,7 +22,8 @@ export async function POST(req: NextRequest) {
   return handleApiRoute(async () => {
     const session = await requireApiStoreSession(req, 'OWNER');
     const body = await req.json();
-    const expense = await createExpense(session.storeId, body);
+    const outletId = resolveOutletIdFromRequest(req);
+    const expense = await createExpense(session.storeId, body, outletId);
     return jsonResponse(expense, 201);
   });
 }

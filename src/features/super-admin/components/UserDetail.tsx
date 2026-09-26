@@ -2,11 +2,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Badge, Button } from '@/features/admin/components/Primitives';
 import { updateUserAction } from '../actions/users.actions';
+import Icon from './Icon';
 import ResetPasswordDialog from './ResetPasswordDialog';
 import DeactivateUserDialog from './DeactivateUserDialog';
 import type { PlatformRole, PlatformUserDetail } from '../types';
+import { initials } from '../utils';
 
 export default function UserDetail({ user, stores }: { user: PlatformUserDetail; stores: { id: string; name: string }[] }) {
   const router = useRouter();
@@ -24,10 +25,19 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
   const [deactivateOpen, setDeactivateOpen] = useState(false);
 
   function submit() {
-    if (!name.trim() || !/^[a-z0-9._-]{3,40}$/.test(username)) return setError('Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.');
+    if (!name.trim() || !/^[a-z0-9._-]{3,40}$/.test(username)) {
+      return setError('Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.');
+    }
     setBusy(true);
     setError('');
-    updateUserAction(user.id, { name: name.trim(), username, email: email.trim(), phone: phone.trim(), storeId: storeId || undefined, role: storeId ? role : undefined })
+    updateUserAction(user.id, {
+      name: name.trim(),
+      username,
+      email: email.trim(),
+      phone: phone.trim(),
+      storeId: storeId || undefined,
+      role: storeId ? role : undefined,
+    })
       .then(result => {
         setBusy(false);
         if (!result.ok) { setError(result.error || 'Could not save changes. Try again.'); return; }
@@ -38,45 +48,105 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
       .catch(() => { setBusy(false); setError('Could not save changes. Try again.'); });
   }
 
-  return <section className="ad-card">
+  return <>
     {notice && <div className="ad-toast" role="status">✓ {notice}</div>}
-    <div className="ad-card-heading">
-      <div>
-        <h2>{user.name} <Badge>{user.active ? 'Active' : 'Inactive'}</Badge></h2>
-        <p>{user.username}</p>
+    <Link className="backlink" href="/super-admin/users"><Icon name="arrowLeft" size="s" />Back to people</Link>
+
+    <div className="phead">
+      <div className="phead-l">
+        <span className="av sq" style={{ width: 46, height: 46, fontSize: 15 }}>{initials(user.name)}</span>
+        <div>
+          <h1>{user.name} <span className={'badge ' + (user.active ? 'good' : 'bad')}>{user.active ? 'Active' : 'Inactive'}</span></h1>
+          <p>
+            @{user.username}
+            {user.lastSignInAt
+              ? ` · Last sign-in ${new Date(user.lastSignInAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+              : ' · Never signed in'}
+          </p>
+        </div>
       </div>
-      <Link className="ad-button ad-secondary" href="/super-admin/users">← Back to users</Link>
+      <div className="phead-r">
+        <button type="button" className="btn outline" onClick={() => setResetOpen(true)}>
+          <Icon name="key" size="s" />Reset password
+        </button>
+        <button
+          type="button"
+          className={'btn ' + (user.active ? 'danger-outline' : 'outline')}
+          onClick={() => setDeactivateOpen(true)}
+        >
+          <Icon name="lock" size="s" />{user.active ? 'Deactivate account' : 'Reactivate account'}
+        </button>
+      </div>
     </div>
 
-    <div className="ad-form">
-      <h3>Profile</h3>
-      <label>Name<input value={name} onChange={e => setName(e.target.value)} required /></label>
-      <label>Username<input value={username} onChange={e => setUsername(e.target.value.toLowerCase())} required /></label>
-      <label>Email (optional)<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="owner@example.com" /></label>
-      <label>Phone (optional)<input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91…" /></label>
+    <div className="grid2" style={{ alignItems: 'start' }}>
+      <div className="card">
+        <div className="card-head"><h2><Icon name="users" />Profile</h2></div>
+        <div className="card-body stack">
+          <div className="field">
+            <label htmlFor="user-name">Full name</label>
+            <input id="user-name" type="text" value={name} onChange={e => setName(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label htmlFor="user-username">Username</label>
+            <input id="user-username" type="text" value={username} onChange={e => setUsername(e.target.value.toLowerCase())} required />
+          </div>
+          <div className="field">
+            <label htmlFor="user-email">Email (optional)</label>
+            <input id="user-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" />
+          </div>
+          <div className="field">
+            <label htmlFor="user-phone">Phone (optional)</label>
+            <input id="user-phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91…" />
+          </div>
 
-      <h3>Store access</h3>
-      <label>Store
-        <select value={storeId} onChange={e => setStoreId(e.target.value)}>
-          <option value="">No store</option>
-          {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
-        </select>
-      </label>
-      {storeId && <label>Role<select value={role} onChange={e => setRole(e.target.value as PlatformRole)}>
-        <option value="EMPLOYEE">Employee</option>
-        <option value="OWNER">Owner</option>
-      </select></label>}
-      {currentMembership && <p className="ad-help"><Link className="ad-text-link" href={`/super-admin/stores/${currentMembership.storeId}`}>View {currentMembership.storeName} →</Link></p>}
-      {user.memberships.length > 1 && <p className="ad-help">This user has {user.memberships.length} store memberships. Saving here replaces all of them with the single selection above.</p>}
+          {error && <p className="ad-error" role="alert">{error}</p>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+            <button type="button" className="btn" onClick={submit} disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        </div>
+      </div>
 
-      {error && <p className="ad-error" role="alert">{error}</p>}
-      <Button type="button" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Button>
+      <div className="card">
+        <div className="card-head"><h2><Icon name="building" />Organization access</h2></div>
+        <div className="card-body stack">
+          <div className="field">
+            <label htmlFor="user-org">Organization</label>
+            <select id="user-org" value={storeId} onChange={e => setStoreId(e.target.value)}>
+              <option value="">No organization</option>
+              {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+            </select>
+          </div>
 
-      <h3>Security</h3>
-      <p className="ad-help">Last sign-in: {user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never'}</p>
-      <div className="ad-row">
-        <Button secondary type="button" onClick={() => setResetOpen(true)}>Reset password</Button>
-        <Button secondary type="button" onClick={() => setDeactivateOpen(true)}>{user.active ? 'Deactivate user' : 'Reactivate user'}</Button>
+          {storeId && (
+            <div className="field">
+              <label htmlFor="user-role">Role</label>
+              <select id="user-role" value={role} onChange={e => setRole(e.target.value as PlatformRole)}>
+                <option value="EMPLOYEE">Employee</option>
+                <option value="OWNER">Owner</option>
+              </select>
+            </div>
+          )}
+
+          {currentMembership && (
+            <div className="notice" style={{ marginTop: 4 }}>
+              <Icon name="building" size="s" />
+              <span>
+                Currently assigned to <strong>{currentMembership.storeName}</strong> ({currentMembership.role.toLowerCase()}).{' '}
+                <Link href={`/super-admin/stores/${currentMembership.storeId}`}>View organization →</Link>
+              </span>
+            </div>
+          )}
+
+          {user.memberships.length > 1 && (
+            <div className="notice warn">
+              <Icon name="alertTriangle" size="s" />
+              <span>This person holds {user.memberships.length} organization memberships. Saving changes here replaces all of them with the single selection above.</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
 
@@ -92,8 +162,8 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
       <DeactivateUserDialog
         user={user}
         onCancel={() => setDeactivateOpen(false)}
-        onDone={updated => { setDeactivateOpen(false); setNotice(updated.active ? 'User reactivated' : 'User deactivated'); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
+        onDone={updated => { setDeactivateOpen(false); setNotice(updated.active ? 'Account reactivated' : 'Account deactivated'); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
       />
     )}
-  </section>;
+  </>;
 }

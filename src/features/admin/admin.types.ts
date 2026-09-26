@@ -13,7 +13,7 @@ export type PaymentMethod = string;
 export interface StorePaymentMethod { id: string; name: string; active: boolean }
 export interface Payment { id: string; amount: number; date: string; method: PaymentMethod }
 export interface StatusEvent { status: WorkStatus; at: string; by: string }
-export interface Order { history?: StatusEvent[]; id: string; name: string; phone: string; date: string; due: string; completed?: string; legacyCancelled?: boolean; status: WorkStatus; lines: Line[]; payments: Payment[]; notes: string }
-export interface Expense { id: string; title: string; category: string; amount: number; due: string; paid?: string; monthly: boolean; seriesId?: string }
+export interface Order { history?: StatusEvent[]; id: string; name: string; phone: string; date: string; due: string; completed?: string; legacyCancelled?: boolean; status: WorkStatus; lines: Line[]; payments: Payment[]; notes: string; outletId?: string }
+export interface Expense { id: string; title: string; category: string; amount: number; due: string; paid?: string; monthly: boolean; seriesId?: string; outletId?: string }
 export interface Profile { name: string; phone: string; email: string; store: string; address: string; status?: string; isLocked?: boolean }
 export interface DateRange { from: string; to: string }

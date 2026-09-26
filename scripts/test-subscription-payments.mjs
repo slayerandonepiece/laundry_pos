@@ -29,6 +29,12 @@ try {
     'tests/subscription-payments.integration.test.ts',
     'tests/customer-invoices-and-payment-methods.integration.test.ts',
     'tests/mobile-api.integration.test.ts',
+    'tests/outlet-auth.integration.test.ts',
+    'tests/outlet-operational.integration.test.ts',
+    'tests/platform-payment-methods.integration.test.ts',
+    'tests/subscription-restrictions.integration.test.ts',
+    'tests/dashboard-rollups.integration.test.ts',
+    'tests/multi-outlet-lifecycle.integration.test.ts',
   ], {
     cwd: root,
     stdio: 'inherit',

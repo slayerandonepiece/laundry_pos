@@ -5,6 +5,8 @@ import OrderInvoicePdfViewer from './OrderInvoicePdfViewer';
 import { getOrderInvoiceAccessAction } from '../actions/order-invoices.actions';
 import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 
+import { printInvoicePdf } from '@/lib/invoicePrint';
+
 type InvoiceAccess = { invoiceSeq: number; accessToken: string };
 
 export default function OrderInvoiceActions({ orderCode }: { orderCode: string }) {
@@ -45,8 +47,7 @@ export default function OrderInvoiceActions({ orderCode }: { orderCode: string }
   async function printInvoice() {
     try { await ensureInvoiceAccess(); }
     catch { return flash('Could not open the invoice. Try again.'); }
-    const win = window.open(viewUrl, '_blank');
-    win?.addEventListener('load', () => win.print());
+    printInvoicePdf(viewUrl);
   }
 
   async function view() {

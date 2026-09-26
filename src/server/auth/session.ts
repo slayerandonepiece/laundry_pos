@@ -1,8 +1,8 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { prisma } from '@/server/db';
-import { formatCalendarDate, todayIST } from '@/server/dates';
-import type { Role } from '@/generated/prisma/client';
+import { formatCalendarDate, todayIST, addDays } from '@/server/dates';
+import type { Role, OutletStatus } from '@/generated/prisma/client';
 import { generateSessionToken, isValidSessionToken } from './token';
 
 const COOKIE_NAME = 'el_session';
@@ -16,6 +16,10 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // way requireStoreSession() already re-verifies storeId server-side.
 const STORE_SELECT_COOKIE = 'el_selected_store';
 const DASHBOARD_ALL_COOKIE = 'el_dashboard_all_stores';
+// The active physical outlet is independent from the legacy organization
+// selector above. It is a convenience only: every read/write still verifies
+// the outlet against live memberships through requireOutletSession().
+const OUTLET_SELECT_COOKIE = 'el_selected_outlet';
 const STORE_SELECT_TTL_MS = SESSION_TTL_MS;
 
 // A user's identity only — role is per-store (see StoreSession) and
@@ -33,6 +37,34 @@ export interface StoreSession extends SessionUser {
   storeName: string;
   storeRole: Role;
 }
+
+// A user's identity plus their role in one specific store and outlet.
+export interface OutletSession extends StoreSession {
+  outletId: string;
+  outletCode: string;
+  outletName: string;
+}
+
+export interface AllowedOutlet {
+  id: string;
+  outletCode: string;
+  displayName: string;
+  isDefault: boolean;
+  status: OutletStatus;
+}
+
+export interface OutletSelection {
+  outletId: string | null;
+  options: AllowedOutlet[];
+  allOutletsSelected: boolean;
+}
+
+export type SubscriptionAccessState =
+  | 'ACTIVE'
+  | 'TRIAL'
+  | 'TRIAL_ENDING'
+  | 'SUBSCRIPTION_ENDING'
+  | 'RESTRICTED';
 
 export async function createSessionRow(userId: string, credentialVersion: number): Promise<{ id: string; token: string; expiresAt: Date }> {
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
@@ -183,7 +215,49 @@ export async function requireSuperAdminFromRequest(req: Request): Promise<Sessio
 // access at *other* stores the same person belongs to is unaffected, and
 // access here resumes automatically the moment the underlying condition
 // clears (membership reactivated, store unlocked, renewal recorded).
-export async function requireStoreSession(storeId?: string, role?: Role, sessionOverride?: SessionUser): Promise<StoreSession> {
+export interface StoreSessionOptions {
+  allowRestricted?: boolean;
+}
+
+export async function assertStoreWritable(storeId: string): Promise<void> {
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: {
+      status: true,
+      deletedAt: true,
+      subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
+    },
+  });
+  if (!store) throw new AuthError('FORBIDDEN');
+  if (store.status === 'LOCKED') throw new AuthError('FORBIDDEN', 'store_locked');
+  if (store.deletedAt) throw new AuthError('FORBIDDEN', 'store_archived');
+
+  const paidThroughDate = store.subscription?.paidThroughDate
+    ? formatCalendarDate(store.subscription.paidThroughDate)
+    : undefined;
+  const trialEndsAt = store.subscription?.trialEndsAt
+    ? formatCalendarDate(store.subscription.trialEndsAt)
+    : undefined;
+  const today = todayIST();
+
+  let isLapsed = false;
+  if (trialEndsAt && today > trialEndsAt && (!paidThroughDate || today > paidThroughDate)) {
+    isLapsed = true;
+  } else if (paidThroughDate && today > paidThroughDate) {
+    isLapsed = true;
+  }
+
+  if (isLapsed) {
+    throw new AuthError('FORBIDDEN', 'payment_lapsed');
+  }
+}
+
+export async function requireStoreSession(
+  storeId?: string,
+  role?: Role,
+  sessionOverride?: SessionUser,
+  options?: StoreSessionOptions,
+): Promise<StoreSession> {
   const session = sessionOverride ?? (await getSession());
   if (!session) throw new AuthError('UNAUTHENTICATED');
 
@@ -197,26 +271,48 @@ export async function requireStoreSession(storeId?: string, role?: Role, session
 
   const store = await prisma.store.findUnique({
     where: { id: membership.storeId },
-    select: { name: true, status: true, deletedAt: true, subscription: { select: { paidThroughDate: true } } },
+    select: {
+      name: true,
+      status: true,
+      deletedAt: true,
+      subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
+    },
   });
   if (!store) throw new AuthError('FORBIDDEN');
   if (store.status === 'LOCKED') throw new AuthError('FORBIDDEN', 'store_locked');
   if (store.deletedAt) throw new AuthError('FORBIDDEN', 'store_archived');
 
-  const paidThroughDate = store.subscription?.paidThroughDate ? formatCalendarDate(store.subscription.paidThroughDate) : undefined;
-  // Only an explicit, past date denies access — a subscription that was
-  // never set (no payment ever recorded) is never auto-locked, matching
-  // paidThroughDate's existing "null means never locked" semantics
-  // (paymentStateFor in stores.ts treats a null date as 'unset', not 'locked').
-  if (paidThroughDate && paidThroughDate < todayIST()) throw new AuthError('FORBIDDEN', 'payment_lapsed');
+  const paidThroughDate = store.subscription?.paidThroughDate
+    ? formatCalendarDate(store.subscription.paidThroughDate)
+    : undefined;
+  const trialEndsAt = store.subscription?.trialEndsAt
+    ? formatCalendarDate(store.subscription.trialEndsAt)
+    : undefined;
+  const today = todayIST();
+
+  let isLapsed = false;
+  if (trialEndsAt && today > trialEndsAt && (!paidThroughDate || today > paidThroughDate)) {
+    isLapsed = true;
+  } else if (paidThroughDate && today > paidThroughDate) {
+    isLapsed = true;
+  }
+
+  if (isLapsed && !options?.allowRestricted) {
+    throw new AuthError('FORBIDDEN', 'payment_lapsed');
+  }
 
   return { ...session, storeId: membership.storeId, storeName: store.name, storeRole: membership.role };
 }
 
-export async function requireStoreSessionFromRequest(req: Request, storeId?: string, role?: Role): Promise<StoreSession> {
+export async function requireStoreSessionFromRequest(
+  req: Request,
+  storeId?: string,
+  role?: Role,
+  options?: StoreSessionOptions,
+): Promise<StoreSession> {
   const session = await getSessionFromRequest(req);
   if (!session) throw new AuthError('UNAUTHENTICATED');
-  return requireStoreSession(storeId, role, session);
+  return requireStoreSession(storeId, role, session, options);
 }
 
 async function onlyActiveMembership(userId: string) {
@@ -323,9 +419,82 @@ export async function setDashboardAllStores(allStores: boolean): Promise<void> {
   }
 }
 
+/**
+ * Resolves the active outlet for the current organization. Owners start on
+ * the organization-wide dashboard; all operational screens select a concrete
+ * outlet. Employees always resolve to one of their assigned outlets.
+ */
+export async function resolveOutletSelection(
+  storeSession: StoreSession,
+  dashboard = false,
+): Promise<OutletSelection> {
+  const { allowedOutlets, defaultOutletId } = await resolveAllowedOutlets(
+    storeSession.id,
+    storeSession.storeId,
+    storeSession.storeRole,
+  );
+  const cookieStore = await cookies();
+  const requested = cookieStore.get(OUTLET_SELECT_COOKIE)?.value;
+  const outletId = requested && allowedOutlets.some(outlet => outlet.id === requested)
+    ? requested
+    : defaultOutletId;
+  return {
+    outletId,
+    options: allowedOutlets,
+    allOutletsSelected: dashboard && storeSession.storeRole === 'OWNER' && !requested,
+  };
+}
+
+/** Persist a requested outlet only after validating current organization access. */
+export async function setSelectedOutlet(outletId: string): Promise<boolean> {
+  const session = await getSession();
+  if (!session) return false;
+  const selection = await resolveStoreSelection(false);
+  if (!selection) return false;
+  let storeSession: StoreSession;
+  try {
+    storeSession = await requireStoreSession(selection.storeId, undefined, session, { allowRestricted: true });
+  } catch {
+    return false;
+  }
+  const { allowedOutlets } = await resolveAllowedOutlets(session.id, storeSession.storeId, storeSession.storeRole);
+  if (!allowedOutlets.some(outlet => outlet.id === outletId)) return false;
+  const cookieStore = await cookies();
+  cookieStore.set(OUTLET_SELECT_COOKIE, outletId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: STORE_SELECT_TTL_MS / 1000,
+  });
+  return true;
+}
+
+/** Return an owner to the organization-wide Dashboard view. */
+export async function setDashboardAllOutlets(): Promise<boolean> {
+  const session = await getSession();
+  if (!session) return false;
+  const selection = await resolveStoreSelection(false);
+  if (!selection) return false;
+  try {
+    await requireStoreSession(selection.storeId, 'OWNER', session, { allowRestricted: true });
+  } catch {
+    return false;
+  }
+  const cookieStore = await cookies();
+  cookieStore.delete(OUTLET_SELECT_COOKIE);
+  return true;
+}
+
 // Days before paidThroughDate that the store workspace should start showing
 // an owner/employee warning banner (see Item 3, .agents/2026-09-brainstorm-plan.md).
-export const PAYMENT_WARNING_DAYS = 7;
+// Store teams and super admins need a month of notice before access changes.
+export const PAYMENT_WARNING_DAYS = 30;
+
+// Days before trialEndsAt that the store workspace should start showing a
+// "free trial ends soon" banner. Kept shorter than PAYMENT_WARNING_DAYS since
+// a trial is a shorter commitment than a paid subscription term.
+export const TRIAL_WARNING_DAYS = 7;
 
 export interface StoreAccessStatus {
   storeId: string;
@@ -335,6 +504,8 @@ export interface StoreAccessStatus {
   // The subscription's paidThroughDate (if any), regardless of blocked state —
   // callers use this to decide whether to show the pre-expiry warning banner.
   paidThroughDate?: string;
+  trialEndsAt?: string;
+  subscriptionState?: SubscriptionAccessState;
 }
 
 // Non-throwing sibling of requireStoreSession, for UI surfaces (the client
@@ -353,15 +524,167 @@ export async function getStoreAccessStatus(userId: string, storeId?: string): Pr
 
   const store = await prisma.store.findUnique({
     where: { id: membership.storeId },
-    select: { status: true, deletedAt: true, subscription: { select: { paidThroughDate: true } } },
+    select: { status: true, deletedAt: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true } } },
   });
   if (!store) return null;
 
   const paidThroughDate = store.subscription?.paidThroughDate ? formatCalendarDate(store.subscription.paidThroughDate) : undefined;
+  const trialEndsAt = store.subscription?.trialEndsAt ? formatCalendarDate(store.subscription.trialEndsAt) : undefined;
+  const today = todayIST();
+
+  let subscriptionState: SubscriptionAccessState = 'ACTIVE';
+  if (trialEndsAt) {
+    if (today > trialEndsAt) {
+      if (!paidThroughDate || today > paidThroughDate) {
+        subscriptionState = 'RESTRICTED';
+      } else if (paidThroughDate <= addDays(today, PAYMENT_WARNING_DAYS)) {
+        subscriptionState = 'SUBSCRIPTION_ENDING';
+      } else {
+        subscriptionState = 'ACTIVE';
+      }
+    } else if (trialEndsAt <= addDays(today, TRIAL_WARNING_DAYS)) {
+      subscriptionState = 'TRIAL_ENDING';
+    } else {
+      subscriptionState = 'TRIAL';
+    }
+  } else if (paidThroughDate) {
+    if (today > paidThroughDate) {
+      subscriptionState = 'RESTRICTED';
+    } else if (paidThroughDate <= addDays(today, PAYMENT_WARNING_DAYS)) {
+      subscriptionState = 'SUBSCRIPTION_ENDING';
+    } else {
+      subscriptionState = 'ACTIVE';
+    }
+  }
+
   let blockedReason: AccessDeniedReason | undefined;
   if (store.status === 'LOCKED') blockedReason = 'store_locked';
   else if (store.deletedAt) blockedReason = 'store_archived';
-  else if (paidThroughDate && paidThroughDate < todayIST()) blockedReason = 'payment_lapsed';
+  else if (subscriptionState === 'RESTRICTED') blockedReason = 'payment_lapsed';
+  else if (paidThroughDate && paidThroughDate < today) blockedReason = 'payment_lapsed';
 
-  return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate };
+  return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate, trialEndsAt, subscriptionState };
+}
+
+/**
+ * Resolves active outlets available to a user in an organization.
+ * Owners can access all active outlets. Employees can only access outlets
+ * where they hold an active OutletMembership.
+ */
+export async function resolveAllowedOutlets(
+  userId: string,
+  storeId: string,
+  role: Role,
+): Promise<{ allowedOutlets: AllowedOutlet[]; defaultOutletId: string | null }> {
+  if (role === 'OWNER') {
+    const outlets = await prisma.outlet.findMany({
+      where: { storeId, status: 'ACTIVE' },
+      orderBy: { createdAt: 'asc' },
+    });
+    const allowedOutlets: AllowedOutlet[] = outlets.map((o, idx) => ({
+      id: o.id,
+      outletCode: o.outletCode,
+      displayName: o.displayName,
+      isDefault: idx === 0,
+      status: o.status,
+    }));
+    return {
+      allowedOutlets,
+      defaultOutletId: allowedOutlets[0]?.id ?? null,
+    };
+  }
+
+  const memberships = await prisma.outletMembership.findMany({
+    where: {
+      userId,
+      active: true,
+      outlet: { storeId, status: 'ACTIVE' },
+    },
+    include: {
+      outlet: true,
+    },
+    orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+  });
+
+  const allowedOutlets: AllowedOutlet[] = memberships.map(m => ({
+    id: m.outlet.id,
+    outletCode: m.outlet.outletCode,
+    displayName: m.outlet.displayName,
+    isDefault: m.isDefault,
+    status: m.outlet.status,
+  }));
+
+  const defaultOutlet = allowedOutlets.find(o => o.isDefault) ?? allowedOutlets[0];
+  return {
+    allowedOutlets,
+    defaultOutletId: defaultOutlet?.id ?? null,
+  };
+}
+
+/**
+ * Enforces organization and outlet-scoped authorization.
+ * Validates:
+ * 1. Outlet exists, is ACTIVE, and matches storeId (if storeId is provided).
+ * 2. Caller has an active StoreMembership for the outlet's organization.
+ * 3. If caller is an OWNER: automatically permitted across all active outlets in their store.
+ * 4. If caller is an EMPLOYEE: must hold an active OutletMembership for that specific outlet.
+ * 5. Re-verifies organization status (not locked, not archived, active subscription).
+ */
+export async function requireOutletSession(
+  storeId: string | undefined,
+  outletId: string | undefined,
+  role?: Role,
+  sessionOverride?: SessionUser,
+  options?: StoreSessionOptions,
+): Promise<OutletSession> {
+  if (!outletId || !outletId.trim()) {
+    throw new AuthError('FORBIDDEN');
+  }
+  const cleanOutletId = outletId.trim();
+
+  const outlet = await prisma.outlet.findUnique({
+    where: { id: cleanOutletId },
+  });
+  if (!outlet || outlet.status !== 'ACTIVE') {
+    throw new AuthError('FORBIDDEN');
+  }
+
+  if (storeId && outlet.storeId !== storeId) {
+    throw new AuthError('FORBIDDEN');
+  }
+
+  const storeSession = await requireStoreSession(outlet.storeId, role, sessionOverride, options);
+
+  if (storeSession.storeRole === 'EMPLOYEE') {
+    const membership = await prisma.outletMembership.findUnique({
+      where: {
+        userId_outletId: {
+          userId: storeSession.id,
+          outletId: outlet.id,
+        },
+      },
+    });
+    if (!membership || !membership.active) {
+      throw new AuthError('FORBIDDEN', 'membership_inactive');
+    }
+  }
+
+  return {
+    ...storeSession,
+    outletId: outlet.id,
+    outletCode: outlet.outletCode,
+    outletName: outlet.displayName,
+  };
+}
+
+export async function requireOutletSessionFromRequest(
+  req: Request,
+  storeId?: string,
+  outletId?: string,
+  role?: Role,
+  options?: StoreSessionOptions,
+): Promise<OutletSession> {
+  const session = await getSessionFromRequest(req);
+  if (!session) throw new AuthError('UNAUTHENTICATED');
+  return requireOutletSession(storeId, outletId, role, session, options);
 }

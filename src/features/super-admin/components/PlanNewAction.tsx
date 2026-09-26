@@ -12,7 +12,7 @@ export default function PlanNewAction() {
   return <>
     <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />New plan</button>
     {open && (
-      <Dialog title="Create plan" description="Set reusable subscription terms for stores." onClose={() => setOpen(false)} warnOnChanges>
+      <Dialog title="Create plan" description="Set reusable subscription terms for organizations." onClose={() => setOpen(false)} warnOnChanges>
         <PlanEditor onSaved={() => { setOpen(false); router.refresh(); }} />
       </Dialog>
     )}

@@ -16,7 +16,7 @@ export default async function Page() {
   const [users, stores] = await Promise.all([listUsers(), listStores()]);
   return (
     <>
-      <PageHeading icon="users" title="Users" subtitle="Every account on the platform, independent of store onboarding." action={<UserAddAction stores={stores.map(s => ({ id: s.id, name: s.name }))} />} />
+      <PageHeading icon="users" title="People" subtitle="Every account on the platform, independent of organization onboarding." action={<UserAddAction stores={stores.map(s => ({ id: s.id, name: s.name }))} />} />
       <UsersScreenContainer users={users} />
     </>
   );

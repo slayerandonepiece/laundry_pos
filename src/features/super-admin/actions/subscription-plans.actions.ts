@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
 import { archivePlan, changeStorePlan, createPlan, updatePlan, duplicatePlan, deletePlan, listPlanStores, type ChangeStorePlanInput } from '@/server/services/subscription-plans';
 import { ValidationError } from '@/server/errors';
+import { recordStoreActivity } from '@/server/services/activity';
 import type { PlanInput, SubscriptionPlanListItem } from '../types';
 
 export interface PlanActionResult {
@@ -94,9 +95,10 @@ export interface ChangeStorePlanResult {
 }
 
 export async function changeStorePlanAction(storeId: string, input: ChangeStorePlanInput): Promise<ChangeStorePlanResult> {
-  await requireSuperAdmin();
+  const session = await requireSuperAdmin();
   try {
     await changeStorePlan(storeId, input);
+    await recordStoreActivity({ storeId, actorId: session.id, action: 'CHANGE_SUBSCRIPTION_PLAN', entityType: 'Subscription', entityId: storeId, after: { planId: input.planId, depositAmount: input.depositAmount ?? null, annualFeeAmount: input.annualFeeAmount ?? null, discountAmount: input.discountAmount ?? null } });
     revalidatePath('/super-admin/subscriptions');
     revalidatePath(`/super-admin/stores/${storeId}`);
     revalidatePath(`/super-admin/stores/${storeId}/subscription`);

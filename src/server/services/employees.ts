@@ -2,7 +2,7 @@ import 'server-only';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { hashPassword } from '@/server/auth/password';
-import { revokeAllSessionsForUser } from '@/server/auth/session';
+import { revokeAllSessionsForUser, assertStoreWritable } from '@/server/auth/session';
 import { ValidationError } from '@/server/errors';
 import type { Employee } from '@/features/admin/admin.types';
 
@@ -43,6 +43,7 @@ const createEmployeeSchema = z.object({
 });
 
 export async function createEmployee(storeId: string, input: unknown): Promise<Employee> {
+  await assertStoreWritable(storeId);
   const data = createEmployeeSchema.parse(input);
   const existing = await prisma.user.findUnique({ where: { username: data.username } });
   if (existing) throw new ValidationError('This username is already in use. Choose another.');
@@ -90,6 +91,20 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
   const credentialsChanged = usernameChanged || passwordChanged;
   const passwordHash = passwordChanged ? await hashPassword(data.password!) : undefined;
 
+  if (data.active) {
+    const otherActive = await prisma.storeMembership.findFirst({
+      where: {
+        userId: data.id,
+        role: 'EMPLOYEE',
+        active: true,
+        storeId: { not: storeId },
+      },
+    });
+    if (otherActive) {
+      throw new ValidationError('An employee cannot be active in more than one organization.');
+    }
+  }
+
   const [user, updatedMembership] = await prisma.$transaction([
     prisma.user.update({
       where: { id: data.id },
@@ -119,6 +134,20 @@ export async function toggleEmployeeActive(storeId: string, id: string): Promise
     include: { user: true },
   });
   if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
+
+  if (!membership.active) {
+    const otherActive = await prisma.storeMembership.findFirst({
+      where: {
+        userId: id,
+        role: 'EMPLOYEE',
+        active: true,
+        storeId: { not: storeId },
+      },
+    });
+    if (otherActive) {
+      throw new ValidationError('An employee cannot be active in more than one organization.');
+    }
+  }
 
   const updated = await prisma.storeMembership.update({
     where: { userId_storeId: { userId: id, storeId } },

@@ -6,6 +6,7 @@ import {
   jsonResponse,
   requireApiStoreSession,
 } from "@/server/api/handler";
+import { requireOutletSession, AuthError } from "@/server/auth/session";
 
 export const runtime = "nodejs";
 
@@ -14,12 +15,18 @@ export async function GET(
   { params }: { params: Promise<{ orderCode: string }> },
 ) {
   return handleApiRoute(async () => {
-    const session = await requireApiStoreSession(req);
+    const session = await requireApiStoreSession(req, undefined, { allowRestricted: true });
     const { orderCode } = await params;
 
     const order = await getOrder(session.storeId, orderCode);
     if (!order) {
       return jsonResponse({ error: "Order not found." }, 404);
+    }
+
+    if (session.storeRole === "EMPLOYEE") {
+      // Legacy pre-outlet orders cannot be safely attributed to an employee.
+      if (!order.outletId) throw new AuthError("FORBIDDEN");
+      await requireOutletSession(session.storeId, order.outletId, 'EMPLOYEE', session, { allowRestricted: true });
     }
 
     const orderNumber = parseOrderCode(orderCode);

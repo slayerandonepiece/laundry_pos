@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
-import { useDialogClose } from './Dialog';
+import { useDialogClose, DialogFooter } from './Dialog';
 import { createUserAction } from '../actions/users.actions';
 import type { PlatformRole, PlatformUserListItem } from '../types';
 
@@ -35,9 +35,9 @@ export default function UserAddDialog({ stores, onSaved }: {
     <label>Name<input value={name} onChange={e => setName(e.target.value)} required /></label>
     <label>Username<input value={username} onChange={e => setUsername(e.target.value.toLowerCase())} placeholder="letters, numbers, dots, underscores, hyphens" required /></label>
     <label>Temporary password<input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" required /></label>
-    <label>Store (optional)
+    <label>Organization (optional)
       <select value={storeId} onChange={e => setStoreId(e.target.value)}>
-        <option value="">No store — assign later</option>
+        <option value="">No organization — assign later</option>
         {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
       </select>
     </label>
@@ -46,9 +46,9 @@ export default function UserAddDialog({ stores, onSaved }: {
       <option value="OWNER">Owner</option>
     </select></label>}
     {error && <p className="ad-error" role="alert">{error}</p>}
-    <div className="ad-form-footer">
+    <DialogFooter>
       <Button secondary type="button" onClick={onCancel}>Cancel</Button>
       <Button type="button" onClick={submit} disabled={busy}>{busy ? 'Adding…' : 'Add user'}</Button>
-    </div>
+    </DialogFooter>
   </div>;
 }

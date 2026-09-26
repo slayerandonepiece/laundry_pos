@@ -10,6 +10,8 @@ import {
   getStoreAccessStatus,
   resolveStoreSelection,
   setSelectedStore,
+  setSelectedOutlet,
+  setDashboardAllOutlets,
   setDashboardAllStores,
   PAYMENT_WARNING_DAYS,
   type AccessDeniedReason,
@@ -20,6 +22,28 @@ export interface LoginResult {
   ok: boolean;
   error?: string;
   user?: { id: string; name: string; isSuperAdmin: boolean; storeRole?: Role };
+  redirectTo?: LoginDestination;
+}
+
+export type LoginDestination = '/' | '/admin/sales' | '/super-admin';
+
+export async function loginDestinationFor(isSuperAdmin: boolean, storeRole?: Role): Promise<LoginDestination | null> {
+  if (isSuperAdmin) return '/super-admin';
+  if (storeRole === 'OWNER') return '/';
+  if (storeRole === 'EMPLOYEE') return '/admin/sales';
+  return null;
+}
+
+export async function resolveLoginDestination(userId: string, isSuperAdmin: boolean): Promise<LoginDestination | null> {
+  if (isSuperAdmin) return '/super-admin';
+  const memberships = await prisma.storeMembership.findMany({ where: { userId, active: true } });
+  const storeRole =
+    memberships.length === 1
+      ? memberships[0].role
+      : memberships.length > 1 && memberships.every(membership => membership.role === 'OWNER')
+        ? 'OWNER'
+        : undefined;
+  return loginDestinationFor(isSuperAdmin, storeRole);
 }
 
 export async function loginAction(username: string, password: string): Promise<LoginResult> {
@@ -28,8 +52,6 @@ export async function loginAction(username: string, password: string): Promise<L
 
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) return { ok: false, error: 'Invalid username or password' };
-
-  await createSession(user.id, user.credentialVersion);
 
   // Resolve role from the user's active membership(s) — a stale inactive
   // membership at a previous store (see Item 1: an employee can move stores
@@ -43,7 +65,12 @@ export async function loginAction(username: string, password: string): Promise<L
   const storeRole =
     memberships.length === 1 ? memberships[0].role : memberships.length > 1 && memberships.every(membership => membership.role === 'OWNER') ? 'OWNER' : undefined;
 
-  return { ok: true, user: { id: user.id, name: user.name, isSuperAdmin: user.isSuperAdmin, storeRole } };
+  const redirectTo = await loginDestinationFor(user.isSuperAdmin, storeRole);
+  if (!redirectTo) return { ok: false, error: 'This account is not assigned to a workspace.' };
+
+  await createSession(user.id, user.credentialVersion);
+
+  return { ok: true, redirectTo, user: { id: user.id, name: user.name, isSuperAdmin: user.isSuperAdmin, storeRole } };
 }
 
 export async function logoutAction(): Promise<void> {
@@ -116,4 +143,13 @@ export async function selectDashboardAllStoresAction(): Promise<{ ok: boolean }>
   if (!session) return { ok: false };
   await setDashboardAllStores(true);
   return { ok: true };
+}
+
+/** The selected outlet is UI state only; authorization is repeated by callers. */
+export async function selectOutletAction(outletId: string): Promise<{ ok: boolean }> {
+  return { ok: await setSelectedOutlet(outletId) };
+}
+
+export async function selectDashboardAllOutletsAction(): Promise<{ ok: boolean }> {
+  return { ok: await setDashboardAllOutlets() };
 }

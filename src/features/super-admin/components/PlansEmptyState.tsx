@@ -7,8 +7,8 @@ import Icon from './Icon';
 import PlanEditor from './PlanEditor';
 
 const EXAMPLES = [
-  { name: 'Standard', description: 'What most new stores pay', deposit: 1000000, fee: 500000 },
-  { name: 'No-deposit — extra branch', description: "For a returning owner's 2nd store", deposit: 0, fee: 500000 },
+  { name: 'Standard', description: 'What most new organizations pay', deposit: 1000000, fee: 500000 },
+  { name: 'No-deposit — extra branch', description: "For a returning owner's 2nd organization", deposit: 0, fee: 500000 },
 ];
 
 export default function PlansEmptyState() {
@@ -20,8 +20,8 @@ export default function PlansEmptyState() {
       <span className="ic l"><Icon name="card" size="l" /></span>
       <h3>No plans yet</h3>
       <p>
-        Every store today has its own deposit and fee typed in during onboarding. Create a plan to reuse
-        the same terms next time — or keep setting terms per store, that still works too.
+        Every organization today has its own deposit and fee typed in during onboarding. Create a plan to reuse
+        the same terms next time — or keep setting terms per organization, that still works too.
       </p>
       <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />Create your first plan</button>
     </div></div>
@@ -40,7 +40,7 @@ export default function PlansEmptyState() {
     </div>
 
     {open && (
-      <Dialog title="Create plan" description="Set reusable subscription terms for stores." onClose={() => setOpen(false)} warnOnChanges>
+      <Dialog title="Create plan" description="Set reusable subscription terms for organizations." onClose={() => setOpen(false)} warnOnChanges>
         <PlanEditor onSaved={() => { setOpen(false); router.refresh(); }} />
       </Dialog>
     )}
