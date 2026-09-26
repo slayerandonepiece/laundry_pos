@@ -57,7 +57,18 @@ export async function POST(req: NextRequest) {
       await requireOutletSession(session.storeId, requestedOutletId, 'EMPLOYEE', session);
       outletId = requestedOutletId;
     } else {
-      outletId = resolveOutletIdFromRequest(req) ?? (typeof body?.outletId === 'string' ? body.outletId : undefined);
+      const headerOutletId = resolveOutletIdFromRequest(req);
+      const bodyOutletId = typeof body?.outletId === 'string' ? body.outletId : undefined;
+      // createOrder lets the explicit (header) outlet win over the body, so two
+      // disagreeing values would silently file the order against the header's
+      // outlet. Fail loudly instead of guessing which one the caller meant.
+      if (headerOutletId && bodyOutletId && headerOutletId !== bodyOutletId) {
+        return jsonResponse(
+          { error: 'Conflicting outlet: X-Outlet-Id and body.outletId must match.' },
+          400,
+        );
+      }
+      outletId = headerOutletId ?? bodyOutletId;
     }
 
     const order = await createOrder(session.storeId, body, session.id, outletId);

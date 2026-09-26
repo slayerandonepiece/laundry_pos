@@ -1,0 +1,243 @@
+# Session handoff — 2026-09-26
+
+Point-in-time snapshot, written so work can continue in a fresh session
+(including a cloud session, which gets the repositories and nothing else).
+**It is not live state.** Check git and the source before relying on any
+claim here; the durable documents it points to are the authoritative ones.
+
+Both repositories are on branch `chore/backend-and-setup`.
+
+## 0. Update — end of the 2026-09-26 cloud session (read this first)
+
+- **Branches:** `chore/backend-and-setup` is merged into `main` in both repos
+  (here via PR #13). One working branch per repo, named per side:
+  `backend/offline-id` here, `frontend/offline-id` in the mobile repo.
+  Backend and frontend are worked in separate chats with separate prompts.
+  Superseded branch `claude/nifty-newton-8w8fhh` (both repos) is for the user
+  to delete. The old
+  `chore/backend-and-setup` branches are fully merged; the session could not
+  delete them (git proxy 403), the user deletes them on GitHub. `staging` and
+  `production` were left alone. See `.agents/MEMORY.md` for working rules.
+- **Current task:** two ids per order (`id` + `offlineId`), a syncing screen
+  after login, and local-first mobile screens. Full plan and findings:
+  `laundry_pos_mobile/docs/OFFLINE-ID-SYNC-PLAN.md`.
+- **Done here (working branch):** `Order.offlineId` + unique
+  `(storeId, offlineId)` (migration `20260926100000_add_order_offline_id`);
+  create idempotent by `offlineId`; bulk-sync `orderRef` resolves an
+  `offlineId` via DB lookup across requests; order DTO returns `offlineId`
+  and payment `clientActionId`; contract §3.5.
+- **Verified (local Mac session, same day):** logic reviewed; gates `tsc` 0,
+  `lint` 0 errors, `build` passes, integration suite **50/50** (46 existing
+  + new `B3.7`–`B3.10` in `tests/outlet-operational.integration.test.ts`:
+  offlineId retry → one order, including across a regenerated
+  idempotencyKey and a later request; offlineId unique per organization,
+  not global; `update_status`/`record_payment` by offlineId in a later
+  request, replay-safe, unknown ref skipped, not resolvable cross-org; DTO
+  carries `offlineId` + payment `clientActionId`; web orders store NULL,
+  two NULLs don't collide, field omitted from JSON). Run `npx prisma
+  generate` after pulling a schema change — the generated client is not
+  committed. Tests and docs committed on `backend/offline-id` (`c5262ae`); not merged to `main`.
+- **Review findings:**
+  1. *Fixed:* cross-tenant read via `recordPayment`'s `clientActionId`
+     replay (it returned the order by `orderNumber` with no `storeId`
+     check). The replay check now runs after the order row lock, only
+     returns when the existing payment belongs to that same order, and
+     otherwise throws. Test `B3.11`.
+  2. *Fixed:* concurrent creates with the same `offlineId` or
+     `idempotencyKey` surfaced the loser's unique violation (`P2002`) as a
+     500. `createOrder` now catches `P2002` and returns the winning order
+     (`findExistingOrder`). Test `B3.12`, using a `LOCK TABLE orders IN
+     SHARE MODE` barrier. The same race on payment `clientActionId` is fixed
+     by moving the replay check behind the lock. Test `B3.13`. All three
+     tests failed on the old code before the fix.
+  3. *Fixed:* bulk-sync `update_status`/`record_payment` now check the
+     target order's outlet for employees, same rule as the single-order
+     routes. `bulkSyncOrders` takes an `authorizeOrderOutlet` callback; the
+     route supplies it for employees via `requireOutletSession`. A denied
+     action is `failed` per action, not a whole-batch error. Test `B3.14`.
+  4. *Fixed:* `orderRef` and `offlineCode` are trimmed; an `offlineId`
+     shaped like `EL-<n>` is rejected (400). Test `B3.15`.
+  Commits: `90357a9` (1+2); 3+4 pending the user's go-ahead. Contract §3.5
+  updated for all four.
+- **Gates after all fixes:** `tsc` 0, `lint` 0 errors (2 warnings in the
+  user's untracked `scripts/qa_audit.mjs`), `build` passes, integration
+  suite **55/55**. Every new test was run against the pre-fix code first
+  and failed there.
+- **Idempotent expense/staff create (2026-09-26, later):** `POST /expenses`
+  and `POST /employees` accept an optional `idempotencyKey`, stored unique on
+  `Expense` / `StoreMembership` (migration
+  `20260926120000_add_expense_and_staff_idempotency_key`, additive, already
+  applied on dev Neon). Same key + same organization → the first row is
+  returned (staff: checked before the username-taken check); a key from
+  another organization → 400 "Duplicate request key."; a `P2002` race
+  returns the winner. Contract updated, incl. "set active with an explicit
+  `PUT /employees/{id}`" and "`POST /products` is an upsert by client id".
+  Tests Task D (expenses) and Task E (employees) in
+  `tests/mobile-api.integration.test.ts`; suite **57/57**; both tests fail
+  when the key isn't stored. The mobile app sends the keys since
+  `frontend/offline-id` `b76c2c2`.
+- **Dev DB + live smoke test (2026-09-26):** the user applied
+  `20260926100000_add_order_offline_id` to the dev Neon database. Smoke test
+  on `npm run dev` with the user's owner browser session (Reddy's Laundry,
+  Chinnapnahalli outlet) passed: create with `offlineId` → `EL-9`; the retry
+  with the same `offlineId` returned `EL-9` via `POST /orders` (3/3) and via
+  bulk-sync; a later bulk-sync request set `In Progress` and recorded ₹10
+  Cash by `offlineId` (with padded spaces); the payment replay didn't
+  duplicate; `GET /orders/EL-9` returns `offlineId` and the payment's
+  `clientActionId`; `offlineId: "EL-5"` → 400. DB confirms one order and one
+  payment. `EL-9` ("SMOKE offline-id", ₹10 Cash) stays in dev data — the
+  payment can't be reversed. One transient 500 on the first direct retry
+  was a Neon adapter connection `ErrorEvent`, not order logic; it didn't
+  recur. Not live-tested: the employee outlet check (owner session only;
+  covered by `B3.14`).
+- **Discussions this session:** the user asked for a review, tests, then
+  fixes to all four findings, one commit per batch, with no merge to `main`
+  until they say so.
+- **Artifacts:** mobile owner-screen wireframes —
+  https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
+- **Discussions:** "store" in the user's words = outlet; web orders keep
+  `offlineId` null on the server (recommended: an id the app assigns to a web
+  order stays on the phone — pending user confirmation).
+
+Everything below is the earlier snapshot.
+
+---
+
+## 1. Read these first, in this order
+
+| Document | Repo | What it is |
+| --- | --- | --- |
+| `.agents/MOBILE-API-CONTRACT.md` | laundry_pos | **Backend-authoritative** `/api/v1` contract: headers, outlet rules, payment-method resolution, full endpoint inventory. Every claim carries file:line. |
+| `docs/OUTLET-PARITY-SPEC.md` | laundry_pos_mobile | The client-side plan the mobile implementation followed (O0–O11). |
+| `docs/OUTLET-DEVICE-TEST.md` | laundry_pos_mobile | Live on-device verification log — what passed, what is still blocked, findings F1–F6. |
+| `.agents/ui-review/FIX-STATUS.md` | laundry_pos | The M0–M9 workspace UI review round and its verification evidence. |
+| `.agents/CURRENT-STATE.md` | laundry_pos | Long-form implemented state. Some sections carry dated corrections; trust the newest. |
+
+Anything not written down here or in those files did not survive the
+session. In particular: **`.wiki/` is gitignored in both repositories and
+native `~/.claude` memory is machine-local — neither reaches a cloud
+session.** Only committed files travel.
+
+---
+
+## 2. What landed
+
+### laundry_pos
+
+- `fix(workspace): M2-M9 UI review fixes and parent corrections` — the
+  Antigravity M2–M9 round plus the corrections found verifying it. Headline
+  fixes: a Super Admin freeze breach (global `admin.css` leaking into
+  `soa ad-root`), silent phone-number corruption, all-amber status badges,
+  and an outlet filter whose "Clear" emptied the table.
+- `feat(api): outlet-correct orders and organization payment methods for mobile`
+  — six API changes, summarised in §0 of the contract doc.
+
+Gates at that point: `tsc` 0, `lint` 0 errors, `build` passes, integration
+suite **46/46**.
+
+### laundry_pos_mobile
+
+- `docs: outlet parity implementation spec`
+- `feat: outlet-aware app, plus the web parity fixes that came with it` —
+  `OutletScopeCubit`, `OutletSwitcher`, `OutletRequiredScreen`,
+  `phone_normalizer`, outlet-keyed caches and per-outlet offline sync,
+  server-driven payment methods, violet `Ready`.
+
+Gates: `flutter analyze` clean, **273 tests pass**.
+
+---
+
+## 3. Open decisions — not bugs, someone must choose
+
+1. **Outlet-less orders are auto-assigned to the organization's oldest
+   active outlet** (`src/server/services/orders.ts:320`). Every order the
+   pre-outlet mobile app created went there. Changing it would re-attribute
+   historical data and affect the workspace, so it was documented rather
+   than altered. Moot once every client sends an outlet explicitly.
+2. **`/payment-methods/platform` and `/payment-methods/platform/{id}`** are
+   now duplicates of the canonical pair. Nothing calls them but test `B4.2`.
+   Left in place, marked deprecated; delete when someone is confident no
+   deployed client uses them.
+3. **An organization with zero enabled payment methods** ("One Wash" in dev
+   data) can take no prepaid order and collect no balance. No API change
+   fixes this — its owner must enable a method.
+4. **Employee phone is not persisted on save** in the workspace. Needs a
+   server change; owner's call.
+5. **F6 from the device log**: the org has both a method named "COD" and a
+   "Pay on delivery" checkout choice. Confusing for staff; data/product fix.
+
+---
+
+## 4. Next steps
+
+**Mobile, to finish verification** (`docs/OUTLET-DEVICE-TEST.md`):
+
+- Owner path: A7, A9, A14–A18 still ⏳ — notably the offline two-outlet
+  bulk-sync case (A18), which is the one that used to misattribute orders.
+- Sections B, C and D are 🚫, blocked on test accounts: an employee with one
+  outlet, one with two, one with zero, and a One Wash owner sign-in.
+- Findings F1–F5 are low severity and unfixed. F1 is real but cosmetic: the
+  payment-method model still guesses a `type`, so Card and COD both show a
+  "Cash" subtitle.
+
+**Backend, optional:**
+
+- Decide open items 1 and 2 above.
+- `tsconfig.tsbuildinfo` is tracked (inherited from `main`, not introduced
+  here) and dirties the tree on every build — worth untracking plus a
+  `.gitignore` entry.
+
+**Before any production deploy:** `.agents/CURRENT-STATE.md` records that
+production's `_prisma_migrations` still lists the pre-squash history.
+Reconcile it first or `prisma migrate deploy` will fail against production.
+
+---
+
+## 4b. Left unfinished when this session ended
+
+Documentation only — no code is in an unfinished state, and every repo
+gate was green at the last run.
+
+- **`API_ENDPOINTS.md`**: the outlet header conventions and section 6
+  (Payment Methods) are rewritten and committed. Still stale:
+  - the `POST /api/v1/auth/login` and `GET /api/v1/auth/status` response
+    examples do not show the `organizations[]` array (with
+    `allowedOutlets` / `defaultOutletId`) those routes now return, nor the
+    same two fields added to each `stores[]` row;
+  - `GET /api/v1/dashboard/rollups` and `POST /api/v1/dashboard/reconcile`
+    are implemented but undocumented — `rollups` is outlet-scoped and
+    requires `X-Outlet-Id` for employees;
+  - the Super Admin routes under `/api/v1/super-admin/**` are undocumented,
+    deliberately, as they are not a mobile-client concern.
+  `.agents/MOBILE-API-CONTRACT.md` covers all of the above correctly and is
+  the authoritative source in the meantime.
+- **`.wiki/wiki/references/mobile-api-contract.md`** was not updated. Its
+  "Contract 3" section says the `API_ENDPOINTS.md` outlet gap "does not
+  require any change on the `laundry_pos_mobile` side until that app adopts
+  the outlet/organization model" — that condition is now met, so that
+  paragraph is stale. The wiki is gitignored, so this only matters on the
+  machine that holds it.
+- **Native `~/.claude` memory** for this project records the standing
+  workflow and tooling governance, but nothing from this session's
+  architecture work. That was deliberate: it is all in committed files.
+
+## 5. Gotchas that cost time
+
+- **The integration suite looks broken but is not.** On PostgreSQL 18 /
+  macOS the disposable cluster dies with *"postmaster became multithreaded
+  during startup"*, surfaced only as `pg_ctl: could not start server`. Run
+  `LC_ALL=C LANG=C npm run test:subscription-payments`. Also in
+  `tests/README.md`.
+- **`admin.css` is global.** Super Admin renders as `soa ad-root`, so any
+  `.ad-*` change reaches the frozen Super Admin UI. Scope workspace-only
+  changes under `.ad-app`.
+- **Employees must send `X-Outlet-Id`** on `/orders`, `/orders/sync`,
+  `/orders/bulk-sync` and `/dashboard/rollups`, or every call 403s. This is
+  deliberate and will not be relaxed.
+- **`/api/v1/dashboard` ignores the header** and reads `?outletId=` only.
+- **Payments are irreversible** — no void, refund or correction path exists
+  anywhere in the services. Never record one without explicit user intent.
+- **`scripts/qa_audit.mjs`** is an untracked leftover QA harness with
+  hardcoded absolute paths; it is the only source of the repo's two lint
+  warnings and is intentionally not committed. It will not exist in a fresh
+  clone.

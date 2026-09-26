@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { verifyPassword } from '@/server/auth/password';
-import { createSessionRow, getStoreAccessStatus, resolveAllowedOutlets } from '@/server/auth/session';
+import { createSessionRow } from '@/server/auth/session';
+import { buildMembershipContext } from '@/server/api/membership-context';
 import { checkLoginThrottle, recordFailedLoginAttempt, clearLoginThrottle } from '@/server/auth/throttle';
 import { handleApiRoute, jsonResponse } from '@/server/api/handler';
 
@@ -46,48 +47,7 @@ export async function POST(req: NextRequest) {
 
     const session = await createSessionRow(user.id, user.credentialVersion);
 
-    const memberships = await prisma.storeMembership.findMany({
-      where: { userId: user.id, active: true },
-      include: { store: { select: { id: true, name: true, status: true, deletedAt: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const stores = await Promise.all(
-      memberships.map(async m => {
-        const access = await getStoreAccessStatus(user.id, m.storeId);
-        const isLocked = access?.blockedReason === 'store_locked' || m.store.status === 'LOCKED';
-        return {
-          storeId: m.storeId,
-          storeName: m.store.name,
-          role: m.role,
-          status: m.store.status,
-          isLocked,
-          blockedReason: access?.blockedReason ?? null,
-          paidThroughDate: access?.paidThroughDate ?? null,
-        };
-      }),
-    );
-
-    const organizations = await Promise.all(
-      memberships.map(async m => {
-        const access = await getStoreAccessStatus(user.id, m.storeId);
-        const isLocked = access?.blockedReason === 'store_locked' || m.store.status === 'LOCKED';
-        const { allowedOutlets, defaultOutletId } = await resolveAllowedOutlets(user.id, m.storeId, m.role);
-        return {
-          id: m.storeId,
-          name: m.store.name,
-          role: m.role,
-          status: m.store.status,
-          isLocked,
-          blockedReason: access?.blockedReason ?? null,
-          paidThroughDate: access?.paidThroughDate ?? null,
-          trialEndsAt: access?.trialEndsAt ?? null,
-          subscriptionState: access?.subscriptionState ?? 'ACTIVE',
-          allowedOutlets,
-          defaultOutletId,
-        };
-      }),
-    );
+    const { stores, organizations } = await buildMembershipContext(user.id);
 
     return jsonResponse({
       token: session.token,

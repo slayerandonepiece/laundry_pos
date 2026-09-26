@@ -11,7 +11,15 @@ type MembershipRow = Awaited<ReturnType<typeof findAll>>[number];
 function findAll(storeId: string) {
   return prisma.storeMembership.findMany({
     where: { storeId, role: 'EMPLOYEE' },
-    include: { user: true },
+    include: {
+      user: {
+        include: {
+          outletMemberships: {
+            include: { outlet: true }
+          }
+        }
+      }
+    },
     orderBy: { createdAt: 'asc' },
   });
 }
@@ -21,7 +29,15 @@ function findAll(storeId: string) {
 // other store they may (per stale-membership policy) still hold. See
 // .agents/2026-09-brainstorm-plan.md Item 1.
 function toDTO(row: MembershipRow): Employee {
-  return { id: row.user.id, name: row.user.name, username: row.user.username, active: row.active, credentialVersion: row.user.credentialVersion };
+  return { 
+    id: row.user.id, 
+    name: row.user.name, 
+    username: row.user.username, 
+    active: row.active, 
+    credentialVersion: row.user.credentialVersion,
+    outlets: row.user.outletMemberships?.map(om => ({ id: om.outlet.id, name: om.outlet.displayName })) || [],
+    defaultOutletId: row.user.outletMemberships?.find(om => om.isDefault)?.outletId
+  };
 }
 
 export async function listEmployees(storeId: string): Promise<Employee[]> {
@@ -36,25 +52,105 @@ const usernameSchema = z
   .regex(/^[a-z0-9._-]{3,40}$/, 'Enter a username with 3–40 letters, numbers, dots, underscores or hyphens.');
 
 const createEmployeeSchema = z.object({
+  idempotencyKey: z.string().trim().min(1).max(64).optional(),
   name: z.string().trim().min(1),
   username: usernameSchema,
   password: z.string().min(8),
   active: z.boolean(),
+  outlets: z.array(z.string()).optional(),
+  defaultOutletId: z.string().optional(),
 });
+
+async function findExistingEmployee(
+  storeId: string,
+  idempotencyKey?: string,
+): Promise<Employee | null> {
+  if (!idempotencyKey) return null;
+  const byKey = await prisma.storeMembership.findUnique({
+    where: { idempotencyKey },
+    include: {
+      user: {
+        include: {
+          outletMemberships: {
+            include: { outlet: true },
+          },
+        },
+      },
+    },
+  });
+  if (!byKey) return null;
+  if (byKey.storeId !== storeId || byKey.role !== 'EMPLOYEE') {
+    throw new ValidationError('Duplicate request key.');
+  }
+  return toDTO(byKey);
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === 'P2002'
+  );
+}
 
 export async function createEmployee(storeId: string, input: unknown): Promise<Employee> {
   await assertStoreWritable(storeId);
   const data = createEmployeeSchema.parse(input);
+
+  const existingByKey = await findExistingEmployee(storeId, data.idempotencyKey);
+  if (existingByKey) return existingByKey;
+
   const existing = await prisma.user.findUnique({ where: { username: data.username } });
   if (existing) throw new ValidationError('This username is already in use. Choose another.');
 
   const passwordHash = await hashPassword(data.password);
-  const row = await prisma.$transaction(async tx => {
-    // The User row itself is always created active — "active" as entered on
-    // this form is this store's membership flag, not a platform-wide state.
-    const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash, mustChangePassword: true } });
-    return tx.storeMembership.create({ data: { role: 'EMPLOYEE', storeId, userId: user.id, active: data.active }, include: { user: true } });
-  });
+  let row: MembershipRow;
+  try {
+    row = await prisma.$transaction(async tx => {
+      // The User row itself is always created active — "active" as entered on
+      // this form is this store's membership flag, not a platform-wide state.
+      const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash, mustChangePassword: true } });
+      await tx.storeMembership.create({
+        data: {
+          role: 'EMPLOYEE',
+          storeId,
+          userId: user.id,
+          active: data.active,
+          idempotencyKey: data.idempotencyKey ?? null,
+        },
+      });
+      
+      if (data.outlets && data.outlets.length > 0) {
+        await tx.outletMembership.createMany({
+          data: data.outlets.map(outletId => ({
+            userId: user.id,
+            outletId,
+            active: true,
+            isDefault: outletId === data.defaultOutletId
+          }))
+        });
+      }
+      
+      return tx.storeMembership.findUniqueOrThrow({
+        where: { userId_storeId: { userId: user.id, storeId } },
+        include: {
+          user: {
+            include: {
+              outletMemberships: {
+                include: { outlet: true }
+              }
+            }
+          }
+        }
+      });
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      const winner = await findExistingEmployee(storeId, data.idempotencyKey);
+      if (winner) return winner;
+    }
+    throw err;
+  }
   return toDTO(row);
 }
 
@@ -64,13 +160,15 @@ const updateEmployeeSchema = z.object({
   username: usernameSchema,
   password: z.union([z.string().min(8), z.literal('')]).optional(),
   active: z.boolean(),
+  outlets: z.array(z.string()).optional(),
+  defaultOutletId: z.string().optional(),
 });
 
 export async function updateEmployee(storeId: string, input: unknown): Promise<Employee> {
   const data = updateEmployeeSchema.parse(input);
   const membership = await prisma.storeMembership.findUnique({
     where: { userId_storeId: { userId: data.id, storeId } },
-    include: { user: true },
+    include: { user: { include: { outletMemberships: { include: { outlet: true } } } } },
   });
   if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
   const current = membership.user;
@@ -105,8 +203,8 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
     }
   }
 
-  const [user, updatedMembership] = await prisma.$transaction([
-    prisma.user.update({
+  const row = await prisma.$transaction(async tx => {
+    await tx.user.update({
       where: { id: data.id },
       data: {
         name: data.name,
@@ -115,12 +213,39 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
         credentialVersion: credentialsChanged ? { increment: 1 } : undefined,
         mustChangePassword: passwordChanged ? true : undefined,
       },
-    }),
-    prisma.storeMembership.update({ where: { userId_storeId: { userId: data.id, storeId } }, data: { active: data.active } }),
-  ]);
+    });
+    await tx.storeMembership.update({ where: { userId_storeId: { userId: data.id, storeId } }, data: { active: data.active } });
 
-  if (credentialsChanged) await revokeAllSessionsForUser(user.id);
-  return { id: user.id, name: user.name, username: user.username, active: updatedMembership.active, credentialVersion: user.credentialVersion };
+    if (data.outlets) {
+      await tx.outletMembership.deleteMany({ where: { userId: data.id, outlet: { storeId } } });
+      if (data.outlets.length > 0) {
+        await tx.outletMembership.createMany({
+          data: data.outlets.map(outletId => ({
+            userId: data.id,
+            outletId,
+            active: true,
+            isDefault: outletId === data.defaultOutletId
+          }))
+        });
+      }
+    }
+
+    return tx.storeMembership.findUniqueOrThrow({
+      where: { userId_storeId: { userId: data.id, storeId } },
+      include: {
+        user: {
+          include: {
+            outletMemberships: {
+              include: { outlet: true }
+            }
+          }
+        }
+      }
+    });
+  });
+
+  if (credentialsChanged) await revokeAllSessionsForUser(data.id);
+  return toDTO(row);
 }
 
 // Deliberately store-scoped: flips this store's StoreMembership.active only.
@@ -131,7 +256,7 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
 export async function toggleEmployeeActive(storeId: string, id: string): Promise<Employee> {
   const membership = await prisma.storeMembership.findUnique({
     where: { userId_storeId: { userId: id, storeId } },
-    include: { user: true },
+    include: { user: { include: { outletMemberships: { include: { outlet: true } } } } },
   });
   if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
 
@@ -152,7 +277,15 @@ export async function toggleEmployeeActive(storeId: string, id: string): Promise
   const updated = await prisma.storeMembership.update({
     where: { userId_storeId: { userId: id, storeId } },
     data: { active: !membership.active },
-    include: { user: true },
+    include: {
+      user: {
+        include: {
+          outletMemberships: {
+            include: { outlet: true }
+          }
+        }
+      }
+    },
   });
   return toDTO(updated);
 }

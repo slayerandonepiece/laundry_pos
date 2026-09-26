@@ -73,6 +73,8 @@ const createUserSchema = z
     name: z.string().trim().min(1),
     username: usernameSchema,
     password: z.string().min(8),
+    email: z.string().trim().default(''),
+    phone: z.string().trim().default(''),
     storeId: z.string().min(1).optional(),
     role: roleSchema.optional(),
   })
@@ -90,7 +92,15 @@ export async function createUser(input: CreateUserInput): Promise<PlatformUserLi
 
   const passwordHash = await hashPassword(data.password);
   const userId = await prisma.$transaction(async tx => {
-    const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash } });
+    const user = await tx.user.create({
+      data: {
+        name: data.name,
+        username: data.username,
+        passwordHash,
+        email: data.email || null,
+        phone: data.phone || null,
+      },
+    });
     if (data.storeId && data.role) {
       await tx.storeMembership.create({ data: { userId: user.id, storeId: data.storeId, role: data.role } });
     }

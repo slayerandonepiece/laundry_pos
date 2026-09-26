@@ -47,6 +47,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
   const [plans, setPlans] = useState(initialPlans);
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [error, setError] = useState('');
+  const [lookupError, setLookupError] = useState('');
   const [busy, setBusy] = useState(false);
   const [lookupBusy, setLookupBusy] = useState(false);
   const [createdStore, setCreatedStore] = useState<StoreListItem | null>(null);
@@ -63,7 +64,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
         if (!draft.ownerName.trim() || !/^[a-z0-9._-]{3,40}$/.test(draft.ownerUsername)) return 'Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.';
         if (draft.ownerPassword.length < 8) return 'Use a temporary password with at least 8 characters.';
       } else if (!draft.existingOwner) {
-        return 'Look up an existing owner by username first.';
+        return 'Look up an existing owner by phone number or username first.';
       }
     }
     if (step === 2) {
@@ -82,19 +83,45 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
     if (message) return setError(message);
     setStep(s => Math.min(s + 1, STEPS.length - 1));
   }
-  function back() { setError(''); setStep(s => Math.max(s - 1, 0)); }
-  function jump(index: number) { setError(''); setStep(index); }
+  function back() { setError(''); setLookupError(''); setStep(s => Math.max(s - 1, 0)); }
+  function jump(index: number) { setError(''); setLookupError(''); setStep(index); }
 
   function lookupOwner() {
-    if (!draft.existingUsername.trim()) return;
+    const query = draft.existingUsername.trim();
+    if (!query) return;
     setLookupBusy(true);
+    setLookupError('');
     setError('');
-    lookupOwnerAction(draft.existingUsername)
+
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      setLookupBusy(false);
+      setLookupError('Search timed out after 30 seconds. Please try again.');
+    }, 30000);
+
+    lookupOwnerAction(query)
       .then(result => {
-        if (!result) { setError('No customer account found with that mobile number or username.'); change({ existingOwner: null }); return; }
+        if (timedOut) return;
+        clearTimeout(timeoutId);
+        if (!result) {
+          setLookupError('No customer account found with that mobile number or username.');
+          change({ existingOwner: null });
+          return;
+        }
         change({ existingOwner: result });
       })
-      .finally(() => setLookupBusy(false));
+      .catch(() => {
+        if (timedOut) return;
+        clearTimeout(timeoutId);
+        setLookupError('Search failed. Please check your connection and try again.');
+      })
+      .finally(() => {
+        if (!timedOut) {
+          clearTimeout(timeoutId);
+          setLookupBusy(false);
+        }
+      });
   }
 
   function selectPlan(planId: string) {
@@ -240,31 +267,46 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
         <label>Username<input value={draft.ownerUsername} onChange={e => change({ ownerUsername: e.target.value.toLowerCase() })} placeholder="letters, numbers, dots, underscores, hyphens" required /></label>
         <label>Temporary password<input type="text" value={draft.ownerPassword} onChange={e => change({ ownerPassword: e.target.value })} placeholder="At least 8 characters" required /></label>
       </> : <>
-        <label>
-          Search customer by phone or username
+        <div className="field">
+          <label htmlFor="customer-search-input">Search customer by phone or username</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
+              id="customer-search-input"
               style={{ flex: 1 }}
               value={draft.existingUsername}
-              onChange={e => change({ existingUsername: e.target.value, existingOwner: null })}
+              onChange={e => {
+                change({ existingUsername: e.target.value, existingOwner: null });
+                setLookupError('');
+              }}
               placeholder="Enter 10-digit mobile number or username..."
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); lookupOwner(); } }}
             />
-            <Button type="button" secondary onClick={lookupOwner} disabled={lookupBusy} style={{ flexShrink: 0 }}>
+            <Button
+              type="button"
+              secondary
+              onClick={lookupOwner}
+              disabled={lookupBusy || !draft.existingUsername.trim()}
+              style={{ flexShrink: 0, minWidth: 140 }}
+            >
               {lookupBusy ? 'Searching…' : 'Search customer'}
             </Button>
           </div>
-        </label>
+          {lookupError && (
+            <div className="ad-error" style={{ marginTop: 6, fontSize: 12.5 }} role="alert">
+              {lookupError}
+            </div>
+          )}
+        </div>
         {draft.existingOwner && (
-          <div style={{ background: 'var(--brand-soft)', border: '1px solid #d8e5fb', borderRadius: 10, padding: '12px 16px', marginTop: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--brand)', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>
+          <div style={{ background: 'var(--brand-soft)', border: '1px solid #d8e5fb', borderRadius: 10, padding: '14px 16px', marginTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--brand)', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
               <Icon name="check" size="s" /> Verified Customer Account
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink)' }}>
+            <div style={{ fontSize: 13, color: 'var(--ink)' }}>
               <strong>{draft.existingOwner.name}</strong> (@{draft.existingOwner.username})
-              {draft.existingOwner.phone && <span> · 📞 {draft.existingOwner.phone}</span>}
+              {draft.existingOwner.phone && <span style={{ marginLeft: 6, color: 'var(--ink-2)' }}>· 📞 {draft.existingOwner.phone}</span>}
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--muted)' }}>
               Already owns {draft.existingOwner.storeCount} organization{draft.existingOwner.storeCount === 1 ? '' : 's'}{draft.existingOwner.storeNames?.length ? `: ${draft.existingOwner.storeNames.join(', ')}` : ''}.
             </p>
           </div>

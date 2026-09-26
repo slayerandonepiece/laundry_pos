@@ -1,0 +1,141 @@
+/* ---------------------------------------------------------------------------
+ * app.css — the single root stylesheet for the whole application.
+ *
+ * Phase 0 of the CSS/theme refactor (.agents/css-refactor/). It is imported
+ * FIRST in src/app/layout.tsx, ahead of globals.css / admin.css / the feature
+ * sheets, so nothing defined here can override what already exists. Phase 0 is
+ * a zero-visual-change phase: this file only makes Tailwind compile and
+ * publishes the design tokens. No utility class is used anywhere yet.
+ *
+ * Token values are taken verbatim from `.soa` (src/app/super-admin/
+ * super-admin.css) because Super Admin is the reference design. The Owner
+ * Workspace 2.0 canvas's `--border: #e4e8ee` resolves to `--color-line-2`.
+ *
+ * NOTE — Preflight is deliberately NOT imported yet. `@import "tailwindcss"`
+ * pulls in Tailwind's base reset, which includes `*{margin:0;padding:0}` and
+ * `h1-h6{font-size:inherit}`. Those sit in `@layer base`, so every unlayered
+ * rule in the existing stylesheets beats them — but they would still strip UA
+ * defaults that NO existing rule sets (list padding, <h4>/<ul>/<li> margins
+ * outside `.soa`/`.ad-root`), which is a visual change and therefore a Phase 0
+ * defect. Importing the theme and utilities layers on their own is Tailwind's
+ * documented way to opt out of Preflight. Border utilities do not depend on it
+ * (v4 emits `border-style` itself via the `--tw-border-style` @property), so
+ * nothing downstream is blocked. Adopt Preflight deliberately in a later phase,
+ * with the Phase 0 screenshot baseline in hand to diff against.
+ * ------------------------------------------------------------------------- */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+
+/* NOTE — the utilities layer and its `@source` scan are deliberately NOT
+ * enabled yet. Tailwind generates a utility for any bare token it finds in
+ * source that happens to be a valid utility name, and several of this app's
+ * *semantic* class names are valid utility names. Enabling utilities in
+ * Phase 0 produced two confirmed regressions:
+ *
+ *   .grid    -> `display:grid`. Seven workspace components render
+ *               `<table className="grid">`, and `table.grid`
+ *               (owner-workspace.css) never declares `display`, so the table
+ *               display model was destroyed — measured on /admin/products,
+ *               the ID header cell was 35px wide against a 306px body column,
+ *               and thead/tbody computed to `display:block`.
+ *   .outline -> `outline-width:1px`. Super Admin uses `btn outline` in 17
+ *               files; `.soa .btn.outline` (super-admin.css:83) sets only
+ *               background/border-color/color, so every outline button gained
+ *               a 1px outline. That breaks the Super Admin freeze.
+ *
+ * Phase 0's contract is zero visual change, and nothing uses a utility
+ * intentionally yet, so the tokens below are the whole useful payload today.
+ * Utilities get switched on in Phase 2, when they are first genuinely needed
+ * and the colliding semantic names are being retired anyway. The durable fix
+ * is a `legacy` cascade layer declared AFTER `utilities`, holding the app's
+ * existing stylesheets so they win regardless of specificity — see
+ * .agents/css-refactor/STATUS.md, cross-phase finding F2.
+ *
+ * @import "tailwindcss/utilities.css" layer(utilities);
+ * @source "../";
+ */
+
+@theme {
+  --color-brand: #0758d6;
+  --color-brand-ink: #064bbb;
+  --color-brand-soft: #eef3ff;
+  --color-ink: #102039;
+  --color-ink-2: #3d4a60;
+  --color-muted: #5b6879;
+  --color-faint: #94a1b3;
+  --color-line: #ecf0f4;
+  --color-line-2: #e0e6ee;
+  --color-head: #f6f5f0;
+
+  /* semantic pairs, taken verbatim from .soa */
+  --color-good-fg: #146d4e;
+  --color-good-bg: #edf7f2;
+  --color-warm-fg: #94631c;
+  --color-warm-bg: #fcf5e8;
+  --color-bad-fg: #ab3434;
+  --color-bad-bg: #fff0ef;
+  --color-info-fg: #0758d6;
+  --color-info-bg: #edf3ff;
+  --color-gray-fg: #5b6879;
+  --color-gray-bg: #f1f3f6;
+
+  --radius-card: 14px;
+  --radius-ctl: 10px;
+
+  --font-display: 'Manrope Variable', system-ui, sans-serif;
+  --font-body: 'DM Sans Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', SFMono-Regular, Menlo, monospace;
+}
+
+/* Base layer — every rule below is layered, so any unlayered rule in the
+   existing stylesheets wins over it regardless of specificity or order. These
+   become the real defaults only once those sheets are deleted in later phases. */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: #fff;
+    color: var(--color-ink);
+    font: 400 14px/1.5 var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 3px solid #80adf4;
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms;
+      animation-iteration-count: 1;
+      transition-duration: 0.01ms;
+      scroll-behavior: auto;
+    }
+  }
+}
+
+/* Global keyframes. Both names are already defined later in
+   owner-workspace.css with identical bodies; a later @keyframes of the same
+   name wins, so these are inert until that file is deleted. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

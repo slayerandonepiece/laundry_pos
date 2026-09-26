@@ -164,6 +164,8 @@ export interface CreateUserInput {
   name: string;
   username: string;
   password: string;
+  phone?: string;
+  email?: string;
   storeId?: string;
   role?: PlatformRole;
 }
