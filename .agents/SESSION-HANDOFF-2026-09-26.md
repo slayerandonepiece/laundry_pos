@@ -63,6 +63,19 @@ Both repositories are on branch `chore/backend-and-setup`.
   user's untracked `scripts/qa_audit.mjs`), `build` passes, integration
   suite **55/55**. Every new test was run against the pre-fix code first
   and failed there.
+- **Idempotent expense/staff create (2026-09-26, later):** `POST /expenses`
+  and `POST /employees` accept an optional `idempotencyKey`, stored unique on
+  `Expense` / `StoreMembership` (migration
+  `20260926120000_add_expense_and_staff_idempotency_key`, additive, already
+  applied on dev Neon). Same key + same organization → the first row is
+  returned (staff: checked before the username-taken check); a key from
+  another organization → 400 "Duplicate request key."; a `P2002` race
+  returns the winner. Contract updated, incl. "set active with an explicit
+  `PUT /employees/{id}`" and "`POST /products` is an upsert by client id".
+  Tests Task D (expenses) and Task E (employees) in
+  `tests/mobile-api.integration.test.ts`; suite **57/57**; both tests fail
+  when the key isn't stored. The mobile app sends the keys since
+  `frontend/offline-id` `b76c2c2`.
 - **Dev DB + live smoke test (2026-09-26):** the user applied
   `20260926100000_add_order_offline_id` to the dev Neon database. Smoke test
   on `npm run dev` with the user's owner browser session (Reddy's Laundry,

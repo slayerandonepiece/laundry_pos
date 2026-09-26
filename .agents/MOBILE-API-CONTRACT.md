@@ -344,6 +344,15 @@ Notes:
 - Order creation takes a client `idempotencyKey`; the same key returns
   the same order and creates exactly one row (`B6.3`). Generate it once
   per cart and reuse it across retries.
+- `POST /expenses` and `POST /employees` accept an optional
+  `idempotencyKey` (1–64 chars, trimmed, stored on `Expense` and
+  `StoreMembership`, `src/server/services/expenses.ts:92`,
+  `src/server/services/employees.ts:55`): repeating the same key in the
+  same store returns the existing DTO (`201`) without creating a second
+  expense or failing on a taken username; repeating a key across stores
+  returns `400 "Duplicate request key."`
+- To set an employee active/inactive idempotently, use `PUT /employees/{id}` with an explicit `active` (the mobile app will stop using the toggle endpoint).
+- `POST /products` is an upsert by the client-chosen `id`.
 - Payment recording locks the order row before checking the balance, so
   concurrent collection cannot overpay (`B6.4`). A rejected overpayment
   is a 400, not a crash.

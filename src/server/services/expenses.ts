@@ -5,6 +5,7 @@ import { parseCalendarDate, formatCalendarDate, todayIST } from '@/server/dates'
 import type { Expense } from '@/features/admin/admin.types';
 import type { Prisma } from '@/generated/prisma/client';
 import { assertStoreWritable } from '@/server/auth/session';
+import { ValidationError } from '@/server/errors';
 import { applyExpensePaidRollup } from '@/server/services/dashboard-rollups';
 
 function nextMonthKey(month: string): string {
@@ -90,6 +91,7 @@ export async function listExpenses(storeId: string, options?: ListExpensesOption
 }
 
 const createExpenseSchema = z.object({
+  idempotencyKey: z.string().trim().min(1).max(64).optional(),
   outletId: z.string().trim().optional(),
   title: z.string().trim().min(1),
   category: z.string().trim().min(1),
@@ -101,6 +103,29 @@ const createExpenseSchema = z.object({
 
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 
+async function findExistingExpense(
+  storeId: string,
+  idempotencyKey?: string,
+): Promise<Expense | null> {
+  if (!idempotencyKey) return null;
+  const byKey = await prisma.expense.findUnique({
+    where: { idempotencyKey },
+  });
+  if (!byKey) return null;
+  if (byKey.storeId !== storeId) {
+    throw new ValidationError('Duplicate request key.');
+  }
+  return toDTO(byKey);
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === 'P2002'
+  );
+}
+
 export async function createExpense(
   storeId: string,
   input: CreateExpenseInput,
@@ -108,6 +133,10 @@ export async function createExpense(
 ): Promise<Expense> {
   await assertStoreWritable(storeId);
   const data = createExpenseSchema.parse(input);
+
+  const existing = await findExistingExpense(storeId, data.idempotencyKey);
+  if (existing) return existing;
+
   const dueDate = parseCalendarDate(data.due);
   const paidAt = data.paidToday ? parseCalendarDate(todayIST()) : null;
   const outletId = explicitOutletId ?? data.outletId ?? null;
@@ -119,67 +148,78 @@ export async function createExpense(
     }
   }
 
-  if (!data.monthly) {
-    const row = await prisma.$transaction(async tx => {
-      const expense = await tx.expense.create({
-        data: {
-          storeId,
-          outletId,
-          title: data.title,
-          category: data.category,
-          amount: data.amount,
-          dueDate,
-          paidAt,
-        },
-      });
-      if (paidAt && outletId) {
-        await applyExpensePaidRollup(tx, {
-          storeId,
-          outletId,
-          paidAt,
-          amount: data.amount,
+  let row: ExpenseRow;
+  try {
+    if (!data.monthly) {
+      row = await prisma.$transaction(async tx => {
+        const expense = await tx.expense.create({
+          data: {
+            storeId,
+            outletId,
+            idempotencyKey: data.idempotencyKey ?? null,
+            title: data.title,
+            category: data.category,
+            amount: data.amount,
+            dueDate,
+            paidAt,
+          },
         });
-      }
-      return expense;
-    });
-    return toDTO(row);
-  }
-
-  const dueDay = Number(data.due.slice(-2));
-  const row = await prisma.$transaction(async tx => {
-    const series = await tx.recurringExpenseSeries.create({
-      data: {
-        storeId,
-        outletId,
-        title: data.title,
-        category: data.category,
-        amount: data.amount,
-        dueDay,
-      },
-    });
-    const expense = await tx.expense.create({
-      data: {
-        storeId,
-        outletId,
-        title: data.title,
-        category: data.category,
-        amount: data.amount,
-        dueDate,
-        paidAt,
-        seriesId: series.id,
-        periodMonth: data.due.slice(0, 7),
-      },
-    });
-    if (paidAt && outletId) {
-      await applyExpensePaidRollup(tx, {
-        storeId,
-        outletId,
-        paidAt,
-        amount: data.amount,
+        if (paidAt && outletId) {
+          await applyExpensePaidRollup(tx, {
+            storeId,
+            outletId,
+            paidAt,
+            amount: data.amount,
+          });
+        }
+        return expense;
+      });
+    } else {
+      const dueDay = Number(data.due.slice(-2));
+      row = await prisma.$transaction(async tx => {
+        const series = await tx.recurringExpenseSeries.create({
+          data: {
+            storeId,
+            outletId,
+            title: data.title,
+            category: data.category,
+            amount: data.amount,
+            dueDay,
+          },
+        });
+        const expense = await tx.expense.create({
+          data: {
+            storeId,
+            outletId,
+            idempotencyKey: data.idempotencyKey ?? null,
+            title: data.title,
+            category: data.category,
+            amount: data.amount,
+            dueDate,
+            paidAt,
+            seriesId: series.id,
+            periodMonth: data.due.slice(0, 7),
+          },
+        });
+        if (paidAt && outletId) {
+          await applyExpensePaidRollup(tx, {
+            storeId,
+            outletId,
+            paidAt,
+            amount: data.amount,
+          });
+        }
+        return expense;
       });
     }
-    return expense;
-  });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      const winner = await findExistingExpense(storeId, data.idempotencyKey);
+      if (winner) return winner;
+    }
+    throw err;
+  }
+
   return toDTO(row);
 }
 

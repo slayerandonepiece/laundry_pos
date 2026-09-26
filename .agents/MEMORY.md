@@ -34,6 +34,11 @@ machine-local and do **not** reach cloud sessions — this file does.
   Bulk-sync applies the employee outlet check per action. Contract §3.5.
 - Order DTO returns payment `clientActionId`, so the app matches offline
   payments exactly.
+- Expense and staff create are idempotent by `idempotencyKey` (unique on
+  `Expense` / `StoreMembership`), same pattern as orders: lookup first,
+  cross-organization key → 400, `P2002` race → return the winner.
+  `POST /employees/{id}/toggle-active` flips and is not retry-safe; the app
+  uses `PUT /employees/{id}` with an explicit `active`.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`; flow tests
   `LC_ALL=C LANG=C npm run test:subscription-payments` (needs Postgres;
   local `initdb`/`pg_ctl`/`psql` from Homebrew work on the user's Mac).

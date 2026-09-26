@@ -52,6 +52,7 @@ const usernameSchema = z
   .regex(/^[a-z0-9._-]{3,40}$/, 'Enter a username with 3–40 letters, numbers, dots, underscores or hyphens.');
 
 const createEmployeeSchema = z.object({
+  idempotencyKey: z.string().trim().min(1).max(64).optional(),
   name: z.string().trim().min(1),
   username: usernameSchema,
   password: z.string().min(8),
@@ -60,43 +61,96 @@ const createEmployeeSchema = z.object({
   defaultOutletId: z.string().optional(),
 });
 
+async function findExistingEmployee(
+  storeId: string,
+  idempotencyKey?: string,
+): Promise<Employee | null> {
+  if (!idempotencyKey) return null;
+  const byKey = await prisma.storeMembership.findUnique({
+    where: { idempotencyKey },
+    include: {
+      user: {
+        include: {
+          outletMemberships: {
+            include: { outlet: true },
+          },
+        },
+      },
+    },
+  });
+  if (!byKey) return null;
+  if (byKey.storeId !== storeId || byKey.role !== 'EMPLOYEE') {
+    throw new ValidationError('Duplicate request key.');
+  }
+  return toDTO(byKey);
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === 'P2002'
+  );
+}
+
 export async function createEmployee(storeId: string, input: unknown): Promise<Employee> {
   await assertStoreWritable(storeId);
   const data = createEmployeeSchema.parse(input);
+
+  const existingByKey = await findExistingEmployee(storeId, data.idempotencyKey);
+  if (existingByKey) return existingByKey;
+
   const existing = await prisma.user.findUnique({ where: { username: data.username } });
   if (existing) throw new ValidationError('This username is already in use. Choose another.');
 
   const passwordHash = await hashPassword(data.password);
-  const row = await prisma.$transaction(async tx => {
-    // The User row itself is always created active — "active" as entered on
-    // this form is this store's membership flag, not a platform-wide state.
-    const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash, mustChangePassword: true } });
-    await tx.storeMembership.create({ data: { role: 'EMPLOYEE', storeId, userId: user.id, active: data.active } });
-    
-    if (data.outlets && data.outlets.length > 0) {
-      await tx.outletMembership.createMany({
-        data: data.outlets.map(outletId => ({
+  let row: MembershipRow;
+  try {
+    row = await prisma.$transaction(async tx => {
+      // The User row itself is always created active — "active" as entered on
+      // this form is this store's membership flag, not a platform-wide state.
+      const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash, mustChangePassword: true } });
+      await tx.storeMembership.create({
+        data: {
+          role: 'EMPLOYEE',
+          storeId,
           userId: user.id,
-          outletId,
-          active: true,
-          isDefault: outletId === data.defaultOutletId
-        }))
+          active: data.active,
+          idempotencyKey: data.idempotencyKey ?? null,
+        },
       });
-    }
-    
-    return tx.storeMembership.findUniqueOrThrow({
-      where: { userId_storeId: { userId: user.id, storeId } },
-      include: {
-        user: {
-          include: {
-            outletMemberships: {
-              include: { outlet: true }
+      
+      if (data.outlets && data.outlets.length > 0) {
+        await tx.outletMembership.createMany({
+          data: data.outlets.map(outletId => ({
+            userId: user.id,
+            outletId,
+            active: true,
+            isDefault: outletId === data.defaultOutletId
+          }))
+        });
+      }
+      
+      return tx.storeMembership.findUniqueOrThrow({
+        where: { userId_storeId: { userId: user.id, storeId } },
+        include: {
+          user: {
+            include: {
+              outletMemberships: {
+                include: { outlet: true }
+              }
             }
           }
         }
-      }
+      });
     });
-  });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      const winner = await findExistingEmployee(storeId, data.idempotencyKey);
+      if (winner) return winner;
+    }
+    throw err;
+  }
   return toDTO(row);
 }
 
