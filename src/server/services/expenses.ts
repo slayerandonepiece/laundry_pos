@@ -23,6 +23,12 @@ function dueDateForMonth(month: string, dueDay: number): string {
   return `${month}-${String(day).padStart(2, '0')}`;
 }
 
+// Serialize reminders and mutations so a deleted recurring bill cannot be regenerated
+// by a concurrent read, and paid rollups are reversed exactly once.
+async function lockExpenses(tx: Prisma.TransactionClient, storeId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ 'expenses:' + storeId }, 0))`;
+}
+
 type ExpenseRow = Awaited<ReturnType<typeof prisma.expense.findFirstOrThrow>>;
 
 function toDTO(row: ExpenseRow): Expense {
@@ -43,35 +49,38 @@ function toDTO(row: ExpenseRow): Expense {
 // touching existing (possibly already-paid) rows. The (seriesId, periodMonth)
 // unique constraint makes this safe to call repeatedly/concurrently.
 async function ensureRecurringOccurrences(storeId: string, outletId?: string): Promise<void> {
-  const horizon = nextMonthKey(todayIST().slice(0, 7));
-  const series = await prisma.recurringExpenseSeries.findMany({
-    where: { storeId, active: true, ...(outletId ? { outletId } : {}) },
-    include: { occurrences: { orderBy: { dueDate: 'asc' } } },
-  });
+  await prisma.$transaction(async tx => {
+    await lockExpenses(tx, storeId);
+    const horizon = nextMonthKey(todayIST().slice(0, 7));
+    const series = await tx.recurringExpenseSeries.findMany({
+      where: { storeId, active: true, ...(outletId ? { outletId } : {}) },
+      include: { occurrences: { orderBy: { dueDate: 'asc' } } },
+    });
 
-  const creates: Prisma.ExpenseCreateManyInput[] = [];
-  for (const s of series) {
-    if (!s.occurrences.length) continue;
-    const existingMonths = new Set(s.occurrences.map(o => formatCalendarDate(o.dueDate).slice(0, 7)));
-    let cursor = formatCalendarDate(s.occurrences[0].dueDate).slice(0, 7);
-    while (cursor <= horizon) {
-      if (!existingMonths.has(cursor)) {
-        creates.push({
-          storeId,
-          outletId: s.outletId,
-          title: s.title,
-          category: s.category,
-          amount: s.amount,
-          dueDate: parseCalendarDate(dueDateForMonth(cursor, s.dueDay)),
-          seriesId: s.id,
-          periodMonth: cursor,
-        });
+    const creates: Prisma.ExpenseCreateManyInput[] = [];
+    for (const s of series) {
+      if (!s.occurrences.length) continue;
+      const existingMonths = new Set(s.occurrences.map(o => formatCalendarDate(o.dueDate).slice(0, 7)));
+      let cursor = formatCalendarDate(s.occurrences[0].dueDate).slice(0, 7);
+      while (cursor <= horizon) {
+        if (!existingMonths.has(cursor)) {
+          creates.push({
+            storeId,
+            outletId: s.outletId,
+            title: s.title,
+            category: s.category,
+            amount: s.amount,
+            dueDate: parseCalendarDate(dueDateForMonth(cursor, s.dueDay)),
+            seriesId: s.id,
+            periodMonth: cursor,
+          });
+        }
+        cursor = nextMonthKey(cursor);
       }
-      cursor = nextMonthKey(cursor);
     }
-  }
 
-  if (creates.length) await prisma.expense.createMany({ data: creates, skipDuplicates: true });
+    if (creates.length) await tx.expense.createMany({ data: creates, skipDuplicates: true });
+  });
 }
 
 export interface ListExpensesOptions {
@@ -152,6 +161,7 @@ export async function createExpense(
   try {
     if (!data.monthly) {
       row = await prisma.$transaction(async tx => {
+        await lockExpenses(tx, storeId);
         const expense = await tx.expense.create({
           data: {
             storeId,
@@ -177,6 +187,7 @@ export async function createExpense(
     } else {
       const dueDay = Number(data.due.slice(-2));
       row = await prisma.$transaction(async tx => {
+        await lockExpenses(tx, storeId);
         const series = await tx.recurringExpenseSeries.create({
           data: {
             storeId,
@@ -223,11 +234,14 @@ export async function createExpense(
   return toDTO(row);
 }
 
-export async function markExpensePaid(storeId: string, id: string): Promise<Expense> {
+export async function markExpensePaid(storeId: string, id: string, paidDate = todayIST()): Promise<Expense> {
   await assertStoreWritable(storeId);
-  const paidAt = parseCalendarDate(todayIST());
+  let paidAt: Date;
+  try { paidAt = parseCalendarDate(paidDate); } catch { throw new ValidationError('Choose a valid paid date.'); }
+  if (paidDate > todayIST()) throw new ValidationError('Paid date cannot be in the future.');
 
   const row = await prisma.$transaction(async tx => {
+    await lockExpenses(tx, storeId);
     const existing = await tx.expense.findUnique({
       where: { id },
       select: { storeId: true, outletId: true, amount: true, paidAt: true },
@@ -255,4 +269,64 @@ export async function markExpensePaid(storeId: string, id: string): Promise<Expe
   });
 
   return toDTO(row);
+}
+
+// Recompute the affected date rather than subtracting from a possibly missing
+// historical summary. Other daily metrics stay untouched.
+async function refreshExpenseTotal(tx: Prisma.TransactionClient, storeId: string, outletId: string, paidAt: Date): Promise<void> {
+  const result = await tx.expense.aggregate({ where: { storeId, outletId, paidAt }, _sum: { amount: true } });
+  const expensesAmount = result._sum.amount ?? 0;
+  await tx.dailyOutletSummary.upsert({
+    where: { storeId_outletId_businessDate: { storeId, outletId, businessDate: paidAt } },
+    create: { storeId, outletId, businessDate: paidAt, expensesAmount },
+    update: { expensesAmount },
+  });
+}
+
+const updateExpenseSchema = createExpenseSchema.pick({ title: true, category: true, amount: true, due: true, outletId: true });
+export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
+
+export async function updateExpense(storeId: string, id: string, input: UpdateExpenseInput): Promise<Expense> {
+  await assertStoreWritable(storeId);
+  const data = updateExpenseSchema.parse(input);
+  const dueDate = parseCalendarDate(data.due);
+  const outletId = data.outletId || null;
+  const row = await prisma.$transaction(async tx => {
+    await lockExpenses(tx, storeId);
+    const existing = await tx.expense.findFirst({ where: { id, storeId } });
+    if (!existing) throw new ValidationError('Expense not found.');
+    if (outletId && !await tx.outlet.findFirst({ where: { id: outletId, storeId, status: 'ACTIVE' } })) {
+      throw new ValidationError('Choose an active outlet in this store.');
+    }
+    if (existing.seriesId && data.due.slice(0, 7) !== existing.periodMonth) {
+      throw new ValidationError('Keep a monthly bill in its original month.');
+    }
+    const updated = await tx.expense.update({ where: { id }, data: {
+      title: data.title, category: data.category, amount: data.amount, dueDate, outletId,
+    } });
+    if (existing.paidAt && existing.outletId) {
+      await refreshExpenseTotal(tx, storeId, existing.outletId, existing.paidAt);
+    }
+    if (updated.paidAt && updated.outletId && updated.outletId !== existing.outletId) {
+      await refreshExpenseTotal(tx, storeId, updated.outletId, updated.paidAt);
+    }
+    return updated;
+  });
+  return toDTO(row);
+}
+
+export async function deleteExpense(storeId: string, id: string): Promise<void> {
+  await assertStoreWritable(storeId);
+  await prisma.$transaction(async tx => {
+    await lockExpenses(tx, storeId);
+    const existing = await tx.expense.findFirst({ where: { id, storeId } });
+    if (!existing) throw new ValidationError('Expense not found.');
+    if (existing.seriesId) {
+      await tx.recurringExpenseSeries.update({ where: { id: existing.seriesId }, data: { active: false } });
+    }
+    await tx.expense.delete({ where: { id } });
+    if (existing.paidAt && existing.outletId) {
+      await refreshExpenseTotal(tx, storeId, existing.outletId, existing.paidAt);
+    }
+  });
 }

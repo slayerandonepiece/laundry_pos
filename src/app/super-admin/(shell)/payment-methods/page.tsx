@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { requireSuperAdmin, AuthError } from '@/server/auth/session';
 import { listPlatformPaymentMethods } from '@/server/services/platform-payment-methods';
-import PageHeading from '@/features/super-admin/components/PageHeading';
 import PaymentMethodsScreenContainer from '@/features/super-admin/containers/PaymentMethodsScreenContainer';
 
 export default async function Page() {
@@ -16,11 +15,6 @@ export default async function Page() {
 
   return (
     <>
-      <PageHeading
-        icon="card"
-        title="Payment methods"
-        subtitle="Global catalog of payment methods available to organizations."
-      />
       <PaymentMethodsScreenContainer methods={methods} />
     </>
   );

@@ -8,8 +8,10 @@
     "start": "next start",
     "lint": "eslint .",
     "test:subscription-payments": "node scripts/test-subscription-payments.mjs",
-    "postinstall": "prisma generate",
-    "vercel-build": "prisma migrate deploy && (test -z \"$SEED_OWNER_USERNAME\" || prisma db seed) && next build"
+    "postinstall": "prisma generate && node scripts/prepare-pdf-worker.mjs",
+    "vercel-build": "node scripts/prepare-pdf-worker.mjs && prisma migrate deploy && (test -z \"$SEED_OWNER_PHONE\" || prisma db seed) && next build",
+    "predev": "node scripts/prepare-pdf-worker.mjs",
+    "prebuild": "node scripts/prepare-pdf-worker.mjs"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",
@@ -20,6 +22,7 @@
     "@react-pdf/renderer": "^4.9.0",
     "bcryptjs": "^3.0.3",
     "next": "^16.3.4",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "server-only": "^0.0.1",

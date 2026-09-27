@@ -15,9 +15,9 @@ export default function SuperAdminLoginForm() {
     const f = new FormData(e.currentTarget);
     setBusy(true);
     setError('');
-    superAdminLoginAction(String(f.get('username')), String(f.get('password')))
+    superAdminLoginAction(String(f.get('phone')), String(f.get('password')))
       .then(result => {
-        if (!result.ok) { setError(result.error || 'Invalid username or password'); setBusy(false); return; }
+        if (!result.ok) { setError(result.error || 'Invalid phone number or password'); setBusy(false); return; }
         router.push('/super-admin');
       })
       .catch(() => { setError('Something went wrong. Try again.'); setBusy(false); });
@@ -35,7 +35,7 @@ export default function SuperAdminLoginForm() {
         <h2>Sign in.</h2>
         <p>This area is for platform admins only — organization owners and employees should use the regular sign-in.</p>
         <form onSubmit={submit}>
-          <label>Username<input name="username" autoComplete="username" placeholder="Enter your username" required /></label>
+          <label>Phone number<input name="phone" type="tel" inputMode="numeric" autoComplete="tel" placeholder="Enter your phone number" required /></label>
           <label>Password<div className="ad-password"><input name="password" type={show ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" required /><button type="button" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button></div></label>
           {error && <p className="ad-error" role="alert">{error}</p>}
           <button className="ad-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in to StoreOps ↗'}</button>

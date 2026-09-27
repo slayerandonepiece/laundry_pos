@@ -1,6 +1,8 @@
 import 'server-only';
+import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 import crypto from 'node:crypto';
 import { z } from 'zod';
+import { revalidateTag } from 'next/cache';
 import { prisma } from '@/server/db';
 import { hashPassword } from '@/server/auth/password';
 import { revokeAllSessionsForUser } from '@/server/auth/session';
@@ -24,25 +26,24 @@ function toDTO(row: UserRow): PlatformUserListItem {
   return {
     id: row.id,
     name: row.name,
-    username: row.username,
     active: row.active,
     memberships: row.memberships.map(m => ({ storeId: m.storeId, storeName: m.store.name, role: m.role })),
     email: row.email ?? undefined,
-    phone: row.phone ?? undefined,
+    phone: row.phone,
   };
 }
 
-export async function listStoreMembers(storeId: string): Promise<{ userId: string; name: string; username: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }[]> {
+export async function listStoreMembers(storeId: string): Promise<{ userId: string; name: string; phone: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }[]> {
   const rows = await prisma.storeMembership.findMany({
     where: { storeId },
-    include: { user: true },
+    select: { userId: true, active: true, role: true, user: { select: { name: true, phone: true } } },
     orderBy: { createdAt: 'asc' },
   });
   // active here is the per-store StoreMembership flag (see Item 1 in
   // .agents/2026-09-brainstorm-plan.md) — not m.user.active, which is the
   // separate platform-level flag Super Admin's own deactivate/reactivate
   // (setUserActive below) still controls.
-  return rows.map(m => ({ userId: m.userId, name: m.user.name, username: m.user.username, active: m.active, role: m.role }));
+  return rows.map(m => ({ userId: m.userId, name: m.user.name, phone: m.user.phone, active: m.active, role: m.role }));
 }
 
 export async function listUsers(): Promise<PlatformUserListItem[]> {
@@ -60,21 +61,16 @@ export async function getUser(userId: string): Promise<PlatformUserDetail | null
   return { ...toDTO(row), lastSignInAt: lastSession?.createdAt.toISOString() };
 }
 
-const usernameSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(/^[a-z0-9._-]{3,40}$/, 'Enter a username with 3–40 letters, numbers, dots, underscores or hyphens.');
 
 const roleSchema = z.enum(['OWNER', 'EMPLOYEE']);
 
 const createUserSchema = z
   .object({
     name: z.string().trim().min(1),
-    username: usernameSchema,
+
     password: z.string().min(8),
     email: z.string().trim().default(''),
-    phone: z.string().trim().default(''),
+    phone: z.string().transform(normalizePhone).refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
     storeId: z.string().min(1).optional(),
     role: roleSchema.optional(),
   })
@@ -82,8 +78,8 @@ const createUserSchema = z
 
 export async function createUser(input: CreateUserInput): Promise<PlatformUserListItem> {
   const data = createUserSchema.parse(input);
-  const existing = await prisma.user.findUnique({ where: { username: data.username } });
-  if (existing) throw new ValidationError('This username is already in use. Choose another.');
+  const existing = await prisma.user.findUnique({ where: { phone: data.phone } });
+  if (existing) throw new ValidationError('This phone number is already registered.');
 
   if (data.storeId) {
     const store = await prisma.store.findUnique({ where: { id: data.storeId } });
@@ -95,10 +91,9 @@ export async function createUser(input: CreateUserInput): Promise<PlatformUserLi
     const user = await tx.user.create({
       data: {
         name: data.name,
-        username: data.username,
         passwordHash,
         email: data.email || null,
-        phone: data.phone || null,
+        phone: data.phone,
       },
     });
     if (data.storeId && data.role) {
@@ -107,6 +102,8 @@ export async function createUser(input: CreateUserInput): Promise<PlatformUserLi
     return user.id;
   });
 
+  revalidateTag('stores', { expire: 0 });
+  revalidateTag('employees', { expire: 0 });
   const created = await getUser(userId);
   if (!created) throw new Error('User not found after creation.');
   return created;
@@ -115,12 +112,12 @@ export async function createUser(input: CreateUserInput): Promise<PlatformUserLi
 const updateUserSchema = z
   .object({
     name: z.string().trim().min(1),
-    username: usernameSchema,
+
     storeId: z.string().min(1).optional(),
     role: roleSchema.optional(),
     // Global to the person, distinct from a Store's own email/phone.
     email: z.string().trim().default(''),
-    phone: z.string().trim().default(''),
+    phone: z.string().transform(normalizePhone).refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
   })
   .refine(data => !data.storeId || data.role, { message: 'Choose a role for the selected store.', path: ['role'] });
 
@@ -133,9 +130,10 @@ export async function updateUser(userId: string, input: UpdateUserInput): Promis
   const existing = await prisma.user.findFirst({ where: { id: userId, isSuperAdmin: false } });
   if (!existing) throw new ValidationError('User not found.');
 
-  if (data.username !== existing.username) {
-    const conflict = await prisma.user.findUnique({ where: { username: data.username } });
-    if (conflict) throw new ValidationError('This username is already in use. Choose another.');
+  const phoneChanged = data.phone !== existing.phone;
+  if (phoneChanged) {
+    const conflict = await prisma.user.findUnique({ where: { phone: data.phone } });
+    if (conflict) throw new ValidationError('This phone number is already registered.');
   }
 
   if (data.storeId) {
@@ -144,13 +142,16 @@ export async function updateUser(userId: string, input: UpdateUserInput): Promis
   }
 
   await prisma.$transaction(async tx => {
-    await tx.user.update({ where: { id: userId }, data: { name: data.name, username: data.username, email: data.email || null, phone: data.phone || null } });
+    await tx.user.update({ where: { id: userId }, data: { name: data.name, email: data.email || null, phone: data.phone, credentialVersion: phoneChanged ? { increment: 1 } : undefined } });
     await tx.storeMembership.deleteMany({ where: { userId } });
     if (data.storeId && data.role) {
       await tx.storeMembership.create({ data: { userId, storeId: data.storeId, role: data.role } });
     }
   });
 
+  if (phoneChanged) await revokeAllSessionsForUser(userId);
+  revalidateTag('stores', { expire: 0 });
+  revalidateTag('employees', { expire: 0 });
   const updated = await getUser(userId);
   if (!updated) throw new Error('User not found after update.');
   return updated;
@@ -183,6 +184,8 @@ export async function setUserActive(userId: string, active: boolean): Promise<Pl
   if (!existing) throw new ValidationError('User not found.');
   await prisma.user.update({ where: { id: userId }, data: { active, credentialVersion: { increment: 1 } } });
   await revokeAllSessionsForUser(userId);
+  revalidateTag('stores', { expire: 0 });
+  revalidateTag('employees', { expire: 0 });
   const updated = await getUser(userId);
   if (!updated) throw new Error('User not found after update.');
   return updated;

@@ -19,7 +19,7 @@ export default async function Page() {
   let outletName: string | undefined;
 
   try {
-    const session = await requireStoreSession(undefined, 'OWNER');
+    const session = await requireStoreSession(undefined, 'OWNER', undefined, { allowLockedReadOnly: true });
     const selection = await resolveOutletSelection(session, true);
     serverOutlets = selection.options;
     allOutletsSelected = selection.allOutletsSelected;

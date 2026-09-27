@@ -1,5 +1,7 @@
 'use client';
 import Link from 'next/link';
+import WorkspaceNotice from '@/components/WorkspaceNotice';
+import WorkspaceAnnouncements from '@/components/WorkspaceAnnouncements';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAdmin } from '../containers/AdminProvider';
@@ -16,7 +18,6 @@ const links: [Screen, IconName, string][] = [
   ['dashboard', 'dashboard', 'Dashboard'],
   ['products', 'archive', 'Products'],
   ['sales', 'card', 'Sales'],
-  ['orders', 'history', 'Orders'],
   ['expenses', 'card', 'Expenses'],
   ['employees', 'users', 'Employees'],
   ['outlets', 'store', 'Outlets'],
@@ -75,7 +76,7 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
   storeName?: string; storeOptions?: StoreOption[]; selectedStoreId?: string; allStoresSelected?: boolean;
   children: ReactNode;
 }) {
-  const { user, logout } = useAdmin();
+  const { user, logout, trial, sessionVerified, blockedReason } = useAdmin();
   const router = useRouter();
   const pathname = usePathname();
   const [menu, setMenu] = useState(false);
@@ -88,24 +89,29 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
   const effectiveStoreName = screen === 'dashboard' && allStoresSelected ? 'All stores' : brandName;
 
   function confirmLogout() {
-    setConfirmation({ title: 'Log out?', description: 'You can sign back in any time.', confirmLabel: 'Log out', onConfirm: () => { logout(); router.replace('/login'); } });
+    setConfirmation({ title: 'Log out?', description: 'You can sign back in any time.', confirmLabel: 'Log out', onConfirm: async () => { await logout(); router.replace('/login'); } });
   }
   function selectStore(storeId: string) {
-    selectStoreAction(storeId).then(result => { if (result.ok) router.refresh(); });
+    selectStoreAction(storeId).then(result => { if (result.ok) { window.dispatchEvent(new Event('el-store-changed')); router.refresh(); } });
   }
   function selectAllStores() {
-    selectDashboardAllStoresAction().then(result => { if (result.ok) router.refresh(); });
+    selectDashboardAllStoresAction().then(result => { if (result.ok) { window.dispatchEvent(new Event('el-store-changed')); router.refresh(); } });
   }
 
   return <div className={"ad-root ad-app" + (screen === "dashboard" ? " ad-dashboard-shell" : "") + (role === "employee" && screen === "sales" ? " ad-counter" : "")}>
     <aside className="ad-sidebar ad-desktop-sidebar"><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout}/></aside>
     {menu && <MobileNavigation onClose={() => setMenu(false)}><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onNavigate={() => setMenu(false)} onLogout={() => { setMenu(false); confirmLogout(); }}/></MobileNavigation>}
     <div className="ad-workspace">
-      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">Workspace <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span>{role === 'owner' ? <Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link> : <span className="ad-avatar" aria-label={name}>{name.slice(0, 1)}</span>}</div></header>
+      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">Workspace <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span><Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link></div></header>
+      {sessionVerified && blockedReason === 'store_locked' && <WorkspaceNotice label="Store access" tone="warning"><strong>Store locked · Read-only</strong> · You can view your records. Changes are disabled; contact your platform administrator to restore access.</WorkspaceNotice>}
+      {sessionVerified && blockedReason !== 'store_locked' && trial && <WorkspaceNotice label="Subscription status" tone={trial.endingSoon ? 'warning' : 'info'} action={role === 'owner' ? { href: '/admin/profile', label: 'Subscription details →' } : undefined}>
+        <strong>Free trial</strong> · Ends {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(trial.endsAt + 'T00:00:00+05:30'))}
+      </WorkspaceNotice>}
+      <WorkspaceAnnouncements audience="store" contextKey={`${user?.id ?? ''}:${user?.storeId ?? ''}`} />
       <main className="ad-main">
         {children}
-        <footer className="ad-bottom"><span className="ad-footer-brand">{brandName}</span><span>IST · INR ₹</span></footer>
       </main>
+      <footer className="ad-bottom"><span className="ad-footer-brand">{brandName}</span><span>IST · INR ₹</span></footer>
     </div>
     {confirmation && <ConfirmationDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation.onConfirm; setConfirmation(null); action(); }}/>}
   </div>;

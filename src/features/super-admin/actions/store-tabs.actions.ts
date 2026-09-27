@@ -12,7 +12,7 @@ import { formatCalendarDate } from '@/server/dates';
 import type { ActivityEntry, OutletListItem, PlatformActivityEntry, StoreInvoice, SubscriptionPlanListItem } from '../types';
 
 export interface OverviewTabData {
-  members: { userId: string; name: string; username: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }[];
+  members: { userId: string; name: string; phone: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }[];
   lifecycle: OrgLifecycleFacts | null;
   activity: ActivityEntry[];
 }
@@ -22,7 +22,7 @@ export interface OutletsTabData {
 }
 
 export interface PeopleTabData {
-  members: { userId: string; name: string; username: string; active: boolean; role: 'OWNER' | 'EMPLOYEE'; outletsGranted: string }[];
+  members: { userId: string; name: string; phone: string; active: boolean; role: 'OWNER' | 'EMPLOYEE'; outletsGranted: string }[];
 }
 
 export interface SubscriptionTabData {

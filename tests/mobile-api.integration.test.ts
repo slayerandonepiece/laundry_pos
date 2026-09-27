@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -139,7 +140,7 @@ async function createTestFixture(
   const user = await prisma.user.create({
     data: {
       name: `User ${suffix}`,
-      username: `user-${suffix}`,
+      phone: testPhone(`user-${suffix}`),
       passwordHash: "not-used",
       active: opts?.userActive ?? true,
       credentialVersion: opts?.credentialVersion ?? 1,
@@ -995,7 +996,7 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
   const empBody = {
     idempotencyKey: "emp-key-1",
     name: "Rohan Verma",
-    username: "rohan.idemp.1",
+    phone: testPhone("rohan.idemp.1"),
     password: "password123",
     active: true,
   };
@@ -1011,9 +1012,9 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
   assert.equal(res1.status, 201);
   const emp1 = await res1.json();
   assert.ok(emp1.id);
-  assert.equal(emp1.username, "rohan.idemp.1");
+  assert.equal(emp1.phone, testPhone("rohan.idemp.1"));
 
-  // 2. Retry with same idempotencyKey -> 200/201 with same id (NOT "username already in use")
+  // 2. Retry with same idempotencyKey -> 200/201 with same id (NOT "phone already in use")
   const res2 = await employeesRoute.POST(
     createReq("http://localhost/api/v1/employees", {
       token: storeA.token,
@@ -1031,7 +1032,7 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
     1,
   );
   assert.equal(
-    await prisma.user.count({ where: { username: "rohan.idemp.1" } }),
+    await prisma.user.count({ where: { phone: testPhone("rohan.idemp.1") } }),
     1,
   );
 
@@ -1042,17 +1043,17 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
       storeId: storeB.store.id,
       body: {
         ...empBody,
-        username: "other.username.b",
+        phone: testPhone("other.phone.b"),
       },
     }),
   );
   assert.equal(crossRes.status, 400);
   assert.equal((await crossRes.json()).error, "Duplicate request key.");
 
-  // 4. No key -> behaviour unchanged (second call with same username fails with 400 username in use)
+  // 4. No key -> behaviour unchanged (second call with same phone fails with 400 phone in use)
   const noKeyBody = {
     name: "Kiran Rao",
-    username: "kiran.nokey.1",
+    phone: testPhone("kiran.nokey.1"),
     password: "password123",
     active: true,
   };
@@ -1073,13 +1074,13 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
     }),
   );
   assert.equal(nkRes2.status, 400);
-  assert.match((await nkRes2.json()).error, /username is already in use/i);
+  assert.match((await nkRes2.json()).error, /phone number is already registered/i);
 
   // 5. Concurrent race on the same idempotencyKey -> P2002 caught, both return the winner
   const raceEmpBody = {
     idempotencyKey: "emp-key-race-1",
     name: "Priya Nair",
-    username: "priya.race.1",
+    phone: testPhone("priya.race.1"),
     password: "password123",
     active: true,
   };
@@ -1105,4 +1106,85 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
     (r) => (r as PromiseFulfilledResult<{ id: string }>).value,
   );
   assert.equal(e1.id, e2.id);
+});
+
+test('Catalogue ETags support conditional reads only after tenant authorization', async () => {
+  const productsRoute = await import('../src/app/api/v1/products/route');
+  const a = await createTestFixture('etag-a');
+  const b = await createTestFixture('etag-b');
+  const request = (token: string, storeId: string, tag?: string) => {
+    const req = createReq('http://localhost/api/v1/products', { token, storeId });
+    if (tag) req.headers.set('If-None-Match', tag);
+    return req;
+  };
+  const first = await productsRoute.GET(request(a.token, a.store.id));
+  const tag = first.headers.get('ETag');
+  assert.match(tag ?? '', /^W\/"[a-f0-9]{12}"$/);
+  const unchanged = await productsRoute.GET(request(a.token, a.store.id, `"different", ${tag}`));
+  assert.equal(unchanged.status, 304);
+  assert.equal(await unchanged.text(), '');
+  assert.equal(unchanged.headers.get('Cache-Control'), 'private, max-age=30');
+  const forbidden = await productsRoute.GET(request(a.token, b.store.id, tag!));
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.headers.get('ETag'), null);
+  const differentStore = await productsRoute.GET(request(b.token, b.store.id, tag!));
+  assert.equal(differentStore.status, 200);
+  assert.notEqual(differentStore.headers.get('ETag'), tag);
+  const methods = await paymentMethodsRoute.GET(createReq('http://localhost/api/v1/payment-methods', { token: a.token, storeId: a.store.id }));
+  const req = createReq('http://localhost/api/v1/payment-methods', { token: a.token, storeId: a.store.id });
+  req.headers.set('If-None-Match', methods.headers.get('ETag')!);
+  assert.equal((await paymentMethodsRoute.GET(req)).status, 304);
+});
+
+test('Orders sync accepts ISO timestamps, pages equal timestamps without loss, and returns tombstones', async () => {
+  const sync = await import('../src/app/api/v1/orders/sync/route');
+  const fixture = await createTestFixture('delta-sync');
+  for (let i = 0; i < 3; i++) {
+    const response = await ordersRoute.POST(createReq('http://localhost/api/v1/orders', {
+      token: fixture.token, storeId: fixture.store.id, body: {
+        idempotencyKey: `delta-${i}`, customerName: `Customer ${i}`, phone: '9876543210', dueDate: '2100-01-20', entries: [{ productId: fixture.product.id, quantity: 1 }],
+      },
+    }));
+    assert.equal(response.status, 201);
+  }
+  const timestamp = new Date('2026-01-01T12:00:00.000Z');
+  await prisma.order.updateMany({ where: { storeId: fixture.store.id }, data: { updatedAt: timestamp } });
+  const cancelled = await prisma.order.findFirstOrThrow({ where: { storeId: fixture.store.id } });
+  await prisma.order.update({ where: { id: cancelled.id }, data: { legacyCancelled: true, updatedAt: timestamp } });
+  const read = (since: string) => sync.GET(createReq(`http://localhost/api/v1/orders/sync?limit=1&since=${encodeURIComponent(since)}`, { token: fixture.token, storeId: fixture.store.id }));
+  let cursor: string | null = timestamp.toISOString();
+  const found: { id: string; deleted: boolean }[] = [];
+  do {
+    const response = await read(cursor!);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
+    const result = await response.json();
+    assert.ok(Number.isFinite(Date.parse(result.syncedAt)));
+    found.push(...result.orders); cursor = result.nextCursor;
+  } while (cursor);
+  assert.equal(found.length, 3);
+  assert.equal(new Set(found.map(order => order.id)).size, 3);
+  assert.equal(found.filter(order => order.deleted).length, 1);
+  assert.equal((await read('not-a-date')).status, 400);
+  assert.equal((await read('2026-02-30T00:00:00.000Z')).status, 400);
+  assert.equal((await read('')).status, 400);
+  assert.equal((await sync.GET(createReq('http://localhost/api/v1/orders/sync', {}))).status, 401);
+  const other = await createTestFixture('delta-other');
+  assert.equal((await sync.GET(createReq('http://localhost/api/v1/orders/sync', { token: fixture.token, storeId: other.store.id }))).status, 403);
+  const employee = await createTestFixture('delta-employee', { role: Role.EMPLOYEE });
+  assert.equal((await sync.GET(createReq('http://localhost/api/v1/orders/sync', { token: employee.token, storeId: employee.store.id }))).status, 403);
+});
+
+test('Sync status reports only this store timestamps and enforces authentication', async () => {
+  const status = await import('../src/app/api/v1/sync/status/route');
+  const a = await createTestFixture('sync-status-a');
+  const b = await createTestFixture('sync-status-b');
+  const response = await status.GET(createReq('http://localhost/api/v1/sync/status', { token: a.token, storeId: a.store.id }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
+  const result = await response.json();
+  assert.equal(result.productsUpdatedAt, a.product.updatedAt.toISOString());
+  assert.equal(result.ordersUpdatedAt, null);
+  assert.equal((await status.GET(createReq('http://localhost/api/v1/sync/status', {}))).status, 401);
+  assert.equal((await status.GET(createReq('http://localhost/api/v1/sync/status', { token: a.token, storeId: b.store.id }))).status, 403);
 });

@@ -151,7 +151,7 @@ migration history was squashed and is NOT reconciled — read the
   an API route. The cookie is a browser UI hint, not authorization —
   `requireStoreSession` must still independently re-verify membership on
   every call, exactly as it does today.
-- [x] **B3.4** `Cache-Control: private, no-store` on every API response.
+- [x] **B3.4** `Cache-Control: private, no-store` by default. Performance pass (2026-09-26): only successful GET products/payment-methods responses opt into `private, max-age=30`, varying on authorization/cookie/store/outlet headers. Errors, mutations, auth and all other endpoints remain no-store.
 - [x] **B3.5** CORS/`middleware.ts` — only needed if Flutter **web** is a
   target. Native iOS/Android does not enforce CORS. Confirm before
   building.
@@ -225,3 +225,10 @@ a real PostgreSQL cluster, not mocks (see `tests/README.md`).
   Verify a real login and a real order in the browser, not just types.
 - `.agents/CURRENT-STATE.md` updated with what was built, what was
   decided (B0.1, B0.2), and what is still open.
+
+
+## Sync/cache additions (2026-09-27 working tree)
+
+- `GET /api/v1/orders/sync`: ISO `since` or existing composite cursor; limit defaults to 100, capped at 500. Follow `nextCursor` until null. `syncedAt` is a server request-start watermark; checkpoint the first page time only after completing all pages. Cancelled orders are returned with `deleted: true`. Employee sync still requires a live-authorized explicit outlet.
+- `GET /api/v1/sync/status`: authenticated, no-store product/order maximum update timestamps scoped by `X-Store-Id`/verified membership.
+- Products/payment-methods successful JSON reads return weak ETags. Send `If-None-Match` to receive an authorized 304 with no body; retain previously parsed data. Failures/mutations remain private no-store.

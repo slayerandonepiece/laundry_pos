@@ -7,12 +7,13 @@ import {
   resolveOutletIdFromRequest,
 } from '@/server/api/handler';
 import { requireOutletSession, AuthError } from '@/server/auth/session';
+import { parseCalendarDate } from '@/server/dates';
 import { ValidationError } from '@/server/errors';
 
 export const runtime = 'nodejs';
 
-const MAX_LIMIT = 200;
-const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 500;
+const DEFAULT_LIMIT = 100;
 
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
@@ -21,9 +22,17 @@ export async function GET(req: NextRequest) {
 
     const sinceParam = url.searchParams.get('since');
     let cursor = null;
-    if (sinceParam) {
+    if (sinceParam !== null) {
       try {
-        cursor = parseSyncCursor(sinceParam);
+        if (sinceParam.includes('_')) cursor = parseSyncCursor(sinceParam);
+        else {
+          if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(sinceParam)) throw new Error('Invalid timestamp.');
+          parseCalendarDate(sinceParam.slice(0, 10));
+          if (Number(sinceParam.slice(11, 13)) > 23) throw new Error('Invalid time.');
+          const updatedAt = new Date(sinceParam);
+          if (!Number.isFinite(updatedAt.getTime())) throw new Error('Invalid timestamp.');
+          cursor = { updatedAt, orderNumber: 0 };
+        }
       } catch {
         throw new ValidationError('Invalid since cursor.');
       }
@@ -45,7 +54,8 @@ export async function GET(req: NextRequest) {
       outletId = resolveOutletIdFromRequest(req);
     }
 
+    const syncedAt = new Date().toISOString();
     const result = await listOrdersSince(session.storeId, cursor, limit, outletId);
-    return jsonResponse(result);
+    return jsonResponse({ ...result, syncedAt });
   });
 }

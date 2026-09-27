@@ -38,7 +38,7 @@ export default function DeactivateUserDialog({ user, onDone, onCancel }: {
     <p id={id + '-description'}>
       {user.active
         ? 'They will immediately lose access — signed out everywhere and unable to sign back in until reactivated.'
-        : 'They will be able to sign in again with their existing username and password.'}
+        : 'They will be able to sign in again with their existing phone and password.'}
     </p>
     {error && <p className="ad-error" role="alert">{error}</p>}
     <div className="ad-confirm-actions">

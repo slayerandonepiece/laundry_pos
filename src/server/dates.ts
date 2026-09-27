@@ -14,7 +14,12 @@ export function parseCalendarDate(value: string): Date {
 }
 
 export function formatCalendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
 }
 
 // Today's calendar date in Asia/Kolkata, matching admin.data.ts's today().

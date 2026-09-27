@@ -4,6 +4,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState, useTransition, type ReactNode } from 'react';
 import Icon from './Icon';
 import LockStoreDialog from './LockStoreDialog';
+import AddOutletDialog from './AddOutletDialog';
+import Dialog from './Dialog';
 import { TabContentSkeleton } from './Shimmer';
 import { dateLabel } from '@/features/admin/admin.data';
 import type { StoreDetail } from '../types';
@@ -34,6 +36,7 @@ export default function StoreDetailShell({
   const pathname = usePathname();
   const router = useRouter();
   const base = `/super-admin/stores/${store.id}`;
+  const [addOutletOpen, setAddOutletOpen] = useState(false);
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const [overrideStore, setOverrideStore] = useState<StoreDetail | null>(null);
@@ -65,6 +68,12 @@ export default function StoreDetailShell({
         </div>
       </div>
       <div className="phead-r">
+        <button type="button" className="btn outline" onClick={() => setAddOutletOpen(true)}>
+          <Icon name="plus" size="s" />Add outlet
+        </button>
+        <button type="button" className="btn outline" onClick={() => onTabSelect ? onTabSelect('users') : router.push(`${base}/users`)}>
+          <Icon name="users" size="s" />Employees
+        </button>
         <button type="button" className="btn outline" onClick={() => setLockDialogOpen(true)}>
           <Icon name="lock" size="s" />{displayStore.status === 'LOCKED' ? 'Unlock access' : 'Lock access'}
         </button>
@@ -104,6 +113,12 @@ export default function StoreDetailShell({
     </div>
 
     {onTabSelect ? children : (isPending ? <TabContentSkeleton /> : children)}
+
+    {addOutletOpen && (
+      <Dialog title="Add outlet" onClose={() => setAddOutletOpen(false)}>
+        <AddOutletDialog storeId={store.id} onSaved={() => { setAddOutletOpen(false); router.refresh(); }} />
+      </Dialog>
+    )}
 
     {lockDialogOpen && (
       <LockStoreDialog

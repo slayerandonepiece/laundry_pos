@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Line, Product, StorePaymentMethod } from '../admin.types';
 import type { SaleDraft } from '../pos.types';
 import { money, price, today } from '../admin.data';
+import { usePosCatalogue } from './usePosCatalogue';
 import { useAdmin } from './AdminProvider';
 import { createOrderAction } from '../actions/orders.actions';
 import ServiceGrid from '../components/ServiceGrid';
@@ -11,10 +12,12 @@ import OrderCart from '../components/OrderCart';
 import QuantityForm from '../components/QuantityForm';
 import { Panel } from '../components/Primitives';
 import ConfirmationDialog from '../components/ConfirmationDialog';
+import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 
 const blank = (paymentMethods: StorePaymentMethod[]): SaleDraft => ({ entries: [], phone: '', name: '', due: today(), received: '0', method: paymentMethods[0]?.name ?? '', notes: '' });
-export default function EmployeeSalesContainer({ products: catalogue, paymentMethods }: { products: Product[]; paymentMethods: StorePaymentMethod[] }) {
-  const { user } = useAdmin();
+export default function EmployeeSalesContainer({ products: serverProducts, paymentMethods: serverPaymentMethods }: { products: Product[]; paymentMethods: StorePaymentMethod[] }) {
+  const { user, sessionVerified } = useAdmin();
+  const { products: catalogue, methods: paymentMethods } = usePosCatalogue(user?.storeId, sessionVerified, serverProducts, serverPaymentMethods);
   const [draft, setDraft] = useState<SaleDraft>(() => blank(paymentMethods)), [ready, setReady] = useState(false), [storageNote, setStorageNote] = useState('');
   const [query, setQuery] = useState(''), [category, setCategory] = useState('All'), [cartOpen, setCartOpen] = useState(false);
   const [selection, setSelection] = useState<{ product: Product; editing: boolean } | null>(null), [clear, setClear] = useState(false);
@@ -35,6 +38,11 @@ export default function EmployeeSalesContainer({ products: catalogue, paymentMet
     setReady(true);
   }, [key, paymentMethods]);
   useEffect(() => { if (ready) { try { sessionStorage.setItem(key, JSON.stringify(draft)); } catch { /* Keep the in-memory draft usable. */ } } }, [draft, key, ready]);
+  useEffect(() => {
+    if (!saved) return;
+    const t = setTimeout(() => setSaved(null), 3000);
+    return () => clearTimeout(t);
+  }, [saved]);
   const products = catalogue.filter(p => p.active && (p.type === 'item' || p.slabs.length > 0));
   const lines: Line[] = draft.entries.flatMap(entry => { const product = products.find(p => p.id === entry.productId); return product ? [{ productId: product.id, name: product.name, quantity: entry.quantity, unit: product.type === 'weight' ? 'kg' : 'pcs', amount: price(product, entry.quantity) }] : []; });
   const amount = lines.reduce((sum, line) => sum + line.amount, 0);
@@ -46,8 +54,8 @@ export default function EmployeeSalesContainer({ products: catalogue, paymentMet
     : draft.entries.filter(entry => entry.productId !== productId) });
   function punchOrder() {
     if (submitted.current || !user) return;
-    const phone = draft.phone.replace(/[\s()-]/g, ''), received = Math.round(Number(draft.received) * 100);
-    if (!/^\+?[0-9]{10,15}$/.test(phone)) return setError('Enter a valid customer phone number.');
+    const phone = normalizePhone(draft.phone), received = Math.round(Number(draft.received) * 100);
+    if (!isValidPhone(phone)) return setError('Enter a valid phone number (8–15 digits)');
     if (!lines.length || lines.length !== draft.entries.length) return setError('A service is no longer available. Clear the order and choose available services.');
     if (lines.some(l => !Number.isFinite(l.quantity) || l.quantity <= 0 || (l.unit === 'pcs' && !Number.isInteger(l.quantity)))) return setError('Enter valid quantities for every service.');
     if (!Number.isSafeInteger(amount) || lines.some(line => !Number.isSafeInteger(line.amount))) return setError('This quantity is too large. Enter a smaller amount.');
@@ -70,10 +78,15 @@ export default function EmployeeSalesContainer({ products: catalogue, paymentMet
       setError('Could not save the order. Try again.');
     }).finally(() => setBusy(false));
   }
-  const cart = <OrderCart draft={draft} lines={lines} paymentMethods={paymentMethods} error={error} busy={busy} onChange={change} onEdit={id => { const product = products.find(p => p.id === id); if (product) setSelection({ product, editing: true }); }} onRemove={id => setItemQuantity(id, 0)} onIncrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) + 1)} onDecrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) - 1)} onClear={() => setClear(true)} onSubmit={punchOrder}/>;
-  if (!ready) return <p>Restoring your sale…</p>;
+  const cart = <OrderCart draft={draft} lines={lines} paymentMethods={paymentMethods} error={error} busy={busy} storageNote={storageNote} onChange={change} onEdit={id => { const product = products.find(p => p.id === id); if (product) setSelection({ product, editing: true }); }} onRemove={id => setItemQuantity(id, 0)} onIncrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) + 1)} onDecrement={id => setItemQuantity(id, (draft.entries.find(entry => entry.productId === id)?.quantity || 0) - 1)} onClear={() => setClear(true)} onSubmit={punchOrder}/>;
+  if (!ready) return (
+    <div className="ad-counter-form" role="status" aria-label="Restoring your sale…">
+      <div className="ad-skeleton" style={{ height: 56, borderRadius: 8, marginBottom: 16 }} />
+      <div className="ad-skeleton" style={{ height: 40, borderRadius: 8, marginBottom: 12, width: '60%' }} />
+      <div className="ad-skeleton" style={{ height: 40, borderRadius: 8, width: '40%' }} />
+    </div>
+  );
   return <>
-    {storageNote && <p className="ad-help">{storageNote}</p>}
     <div className="ad-pos"><ServiceGrid products={products.filter(p => (category === 'All' || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase()))} categories={[...new Set(products.map(p => p.category))]} query={query} category={category} quantities={Object.fromEntries(draft.entries.map(entry => [entry.productId, entry.quantity]))} onQuery={setQuery} onCategory={setCategory} onAdd={product => setSelection({ product, editing: Boolean(draft.entries.find(entry => entry.productId === product.id)) })} onIncrement={product => setItemQuantity(product.id, (draft.entries.find(entry => entry.productId === product.id)?.quantity || 0) + 1)} onDecrement={product => setItemQuantity(product.id, (draft.entries.find(entry => entry.productId === product.id)?.quantity || 0) - 1)}/></div>
     <button className="ad-pos-mobile-cart ad-button" onClick={() => setCartOpen(true)}>View order · {lines.length} services · {money(amount)}</button>
     {cartOpen && <Panel title="New sale" warnOnChanges={false} onClose={() => setCartOpen(false)}>{cart}</Panel>}

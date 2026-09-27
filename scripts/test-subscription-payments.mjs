@@ -25,7 +25,7 @@ try {
   for (const migration of readdirSync(join(root, 'prisma/migrations')).filter(name => /^\d/.test(name)).sort()) {
     run('psql', ['-X', '-h', socket, '-p', '5432', '-U', username, '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-f', join(root, 'prisma/migrations', migration, 'migration.sql')]);
   }
-  const result = spawnSync(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--test',
+  const result = spawnSync(process.execPath, ['--conditions=react-server', '--experimental-test-module-mocks', '--import', 'tsx', '--import', './tests/next-cache.mock.mjs', '--test',
     'tests/subscription-payments.integration.test.ts',
     'tests/customer-invoices-and-payment-methods.integration.test.ts',
     'tests/mobile-api.integration.test.ts',
@@ -35,6 +35,8 @@ try {
     'tests/subscription-restrictions.integration.test.ts',
     'tests/dashboard-rollups.integration.test.ts',
     'tests/multi-outlet-lifecycle.integration.test.ts',
+    'tests/super-admin-profile.integration.test.ts',
+    'tests/workspace-announcements.integration.test.ts',
   ], {
     cwd: root,
     stdio: 'inherit',

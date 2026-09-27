@@ -1,4 +1,5 @@
 'use client';
+import { isValidPhone } from '@/lib/contactValidation';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
 import { useDialogClose, DialogFooter } from './Dialog';
@@ -11,7 +12,6 @@ export default function UserAddDialog({ stores, onSaved }: {
 }) {
   const onCancel = useDialogClose();
   const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,15 +21,14 @@ export default function UserAddDialog({ stores, onSaved }: {
   const [busy, setBusy] = useState(false);
 
   function submit() {
-    if (!name.trim() || !/^[a-z0-9._-]{3,40}$/.test(username)) return setError('Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.');
+    if (!name.trim() || !isValidPhone(phone)) return setError('Enter a name and a valid phone number (8–15 digits).');
     if (password.length < 8) return setError('Use a password with at least 8 characters.');
     setBusy(true);
     setError('');
     createUserAction({
       name: name.trim(),
-      username,
       password,
-      phone: phone.trim() || undefined,
+      phone: phone.trim(),
       email: email.trim() || undefined,
       storeId: storeId || undefined,
       role: storeId ? role : undefined,
@@ -43,9 +42,8 @@ export default function UserAddDialog({ stores, onSaved }: {
 
   return <div className="ad-form">
     <label>Name<input value={name} onChange={e => setName(e.target.value)} required /></label>
-    <label>Username<input value={username} onChange={e => setUsername(e.target.value.toLowerCase())} placeholder="letters, numbers, dots, underscores, hyphens" required /></label>
     <div className="ad-form-grid">
-      <label>Phone (optional)<input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="10-digit mobile number" /></label>
+      <label>Phone number<input type="tel" inputMode="numeric" required value={phone} onChange={e => setPhone(e.target.value)} placeholder="10-digit mobile number" /></label>
       <label>Email (optional)<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" /></label>
     </div>
     <label>Temporary password<input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" required /></label>

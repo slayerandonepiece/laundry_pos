@@ -1,5 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { prisma } from '@/server/db';
 import { ValidationError } from '@/server/errors';
 import { formatCalendarDate, todayIST } from '@/server/dates';
@@ -22,6 +23,7 @@ function toDTO(row: PlanRow): SubscriptionPlanListItem {
     annualFeeAmount: row.annualFeeAmount,
     billingCycle: row.billingCycle,
     depositWaivedByDefault: row.depositWaivedByDefault,
+    defaultTrialDays: row.defaultTrialDays,
     notes: row.notes,
     archivedAt: row.archivedAt?.toISOString(),
     createdAt: formatCalendarDate(row.createdAt),
@@ -29,10 +31,14 @@ function toDTO(row: PlanRow): SubscriptionPlanListItem {
   };
 }
 
-export async function listPlans(): Promise<SubscriptionPlanListItem[]> {
-  const rows = await findAllPlans();
-  return rows.map(toDTO);
-}
+export const listPlans = unstable_cache(
+  async (): Promise<SubscriptionPlanListItem[]> => {
+    const rows = await findAllPlans();
+    return rows.map(toDTO);
+  },
+  ['list-plans'],
+  { revalidate: 60, tags: ['plans'] },
+);
 
 export async function getPlan(planId: string): Promise<SubscriptionPlanDetail | null> {
   const row = await prisma.subscriptionPlan.findUnique({
@@ -67,25 +73,37 @@ export async function listPlanStores(planId: string): Promise<{ id: string; name
   return subscriptions.map(s => ({ id: s.store.id, name: s.store.name, ownerName: s.store.memberships[0]?.user.name ?? '—' }));
 }
 
+const BILLING_CYCLES = ['ANNUAL', 'HALF_YEARLY', 'QUARTERLY', 'MONTHLY'] as const;
+
 const planSchema = z.object({
   name: z.string().trim().min(1),
   depositAmount: z.number().int().nonnegative(),
   annualFeeAmount: z.number().int().nonnegative(),
+  billingCycle: z.enum(BILLING_CYCLES).default('ANNUAL'),
   depositWaivedByDefault: z.boolean().default(false),
+  defaultTrialDays: z.number().int().min(0).nullable().optional(),
   notes: z.string().trim().default(''),
 });
 
 export async function createPlan(input: PlanInput): Promise<SubscriptionPlanListItem> {
-  const data = planSchema.parse(input);
+  const parsed = planSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  const data = { ...parsed.data, depositAmount: parsed.data.depositWaivedByDefault ? 0 : parsed.data.depositAmount };
   const row = await prisma.subscriptionPlan.create({ data, include: { _count: { select: { subscriptions: true } } } });
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
   return toDTO(row);
 }
 
 export async function updatePlan(planId: string, input: PlanInput): Promise<SubscriptionPlanListItem> {
-  const data = planSchema.parse(input);
+  const parsed = planSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  const data = { ...parsed.data, depositAmount: parsed.data.depositWaivedByDefault ? 0 : parsed.data.depositAmount };
   const existing = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
   if (!existing || existing.archivedAt) throw new ValidationError('Plan not found.');
   const row = await prisma.subscriptionPlan.update({ where: { id: planId }, data, include: { _count: { select: { subscriptions: true } } } });
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
   return toDTO(row);
 }
 
@@ -97,13 +115,16 @@ export async function duplicatePlan(planId: string): Promise<SubscriptionPlanLis
   const row = await prisma.subscriptionPlan.create({
     data: {
       name: `${existing.name} (copy)`,
-      depositAmount: existing.depositAmount,
+      depositAmount: existing.depositWaivedByDefault ? 0 : existing.depositAmount,
       annualFeeAmount: existing.annualFeeAmount,
       depositWaivedByDefault: existing.depositWaivedByDefault,
+      defaultTrialDays: existing.defaultTrialDays,
       notes: existing.notes,
     },
     include: { _count: { select: { subscriptions: true } } },
   });
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
   return toDTO(row);
 }
 
@@ -115,6 +136,8 @@ export async function deletePlan(planId: string): Promise<void> {
   if (!existing) throw new ValidationError('Plan not found.');
   if (existing._count.subscriptions > 0) throw new ValidationError('Move every store off this plan before deleting it.');
   await prisma.subscriptionPlan.delete({ where: { id: planId } });
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
 }
 
 export async function archivePlan(planId: string, reassignToPlanId?: string): Promise<void> {
@@ -136,6 +159,8 @@ export async function archivePlan(planId: string, reassignToPlanId?: string): Pr
     }
     await tx.subscriptionPlan.update({ where: { id: planId }, data: { archivedAt: new Date() } });
   });
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
 }
 
 const changeStorePlanSchema = z.object({
@@ -178,10 +203,12 @@ export async function changeStorePlan(storeId: string, input: ChangeStorePlanInp
     where: { storeId },
     data: {
       planId: data.planId,
-      depositAmount: data.depositAmount ?? plan?.depositAmount ?? subscription.depositAmount,
+      depositAmount: data.depositAmount ?? (plan ? (plan.depositWaivedByDefault ? 0 : plan.depositAmount) : subscription.depositAmount),
       annualFeeAmount: data.annualFeeAmount ?? plan?.annualFeeAmount ?? subscription.annualFeeAmount,
       discountAmount: data.discountAmount ?? subscription.discountAmount,
       notes,
     },
   });
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
 }

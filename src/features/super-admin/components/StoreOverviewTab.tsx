@@ -9,7 +9,7 @@ import { initials, daysUntil } from '../utils';
 
 export default function StoreOverviewTab({ store, members, lifecycle, activity }: {
   store: StoreDetail;
-  members: { userId: string; name: string; username: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }[];
+  members: { userId: string; name: string; phone: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }[];
   lifecycle: OrgLifecycleFacts | null;
   activity: ActivityEntry[];
 }) {
@@ -129,12 +129,12 @@ export default function StoreOverviewTab({ store, members, lifecycle, activity }
             </div></div>
           ) : (
             <table>
-              <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead>
+              <thead><tr><th>Name</th><th>Phone number</th><th>Role</th><th>Status</th></tr></thead>
               <tbody>
                 {preview.map(member => (
                   <tr key={member.userId}>
                     <td><div className="who"><span className="av">{initials(member.name)}</span><strong>{member.name}</strong></div></td>
-                    <td>{member.username}</td>
+                    <td>{member.phone}</td>
                     <td><span className={'badge plain ' + (member.role === 'OWNER' ? 'info' : 'gray')}>{member.role === 'OWNER' ? 'Owner' : 'Employee'}</span></td>
                     <td><span className={'badge ' + (member.active ? 'good' : 'bad')}>{member.active ? 'Active' : 'Inactive'}</span></td>
                   </tr>
@@ -153,7 +153,7 @@ export default function StoreOverviewTab({ store, members, lifecycle, activity }
               <>
                 <div className="who" style={{ marginBottom: 14 }}>
                   <span className="av" style={{ width: 40, height: 40, fontSize: 14 }}>{initials(owner.name)}</span>
-                  <span><b style={{ display: 'block', fontSize: 14 }}>{owner.name}</b><small style={{ color: 'var(--muted)', fontSize: 12 }}>@{owner.username}</small></span>
+                  <span><b style={{ display: 'block', fontSize: 14 }}>{owner.name}</b><small style={{ color: 'var(--muted)', fontSize: 12 }}>{owner.phone}</small></span>
                 </div>
                 {(store.ownerEmail || store.ownerPhone) && (
                   <div style={{ marginBottom: 14 }}>

@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -86,7 +87,7 @@ async function setupOrg(suffix: string, subOpts?: { trialEndsAt?: Date; paidThro
   const passwordHash = await hashPassword('password123');
 
   const owner = await prisma.user.create({
-    data: { name: `Owner ${suffix}`, username: `owner_sub_${suffix}`, passwordHash },
+    data: { name: `Owner ${suffix}`, phone: testPhone(`owner_sub_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: owner.id, storeId: store.id, role: Role.OWNER, active: true },
@@ -255,7 +256,7 @@ test('B5.2: Restricted organization: writes denied across all outlets, reads all
     async () =>
       employees.createEmployee(ctx.store.id, {
         name: 'New Worker',
-        username: 'worker_new',
+        phone: testPhone('worker_new'),
         password: 'password123',
         active: true,
       }),
@@ -352,4 +353,74 @@ test('B5.4: Super admin queries expiring subscriptions and sets trial dates', as
     where: { storeId: trialStore.store.id },
   });
   assert.ok(sub?.trialEndsAt);
+});
+
+test('temporary access restores auth and writes, expires, and never overrides locked or archived stores', async () => {
+  const { todayIST, addDays } = await import('../src/server/dates');
+  const fixture = await setupOrg('temporary_override', { paidThroughDate: new Date('2020-01-01') });
+  const storeId = fixture.store.id;
+  const membership = await prisma.storeMembership.findFirstOrThrow({ where: { storeId, role: 'OWNER' }, include: { user: true } });
+  const user = { id: membership.userId, name: membership.user.name, phone: membership.user.phone, isSuperAdmin: false, mustChangePassword: false };
+  await assert.rejects(sessionMod.assertStoreWritable(storeId));
+  await assert.rejects(stores.grantTemporaryAccess(storeId, addDays(todayIST(), 31)), /30 days/);
+  await assert.rejects(stores.grantTemporaryAccess(storeId, '2026-02-31'), /valid calendar/);
+  await stores.grantTemporaryAccess(storeId, addDays(todayIST(), 7));
+  assert.equal((await sessionMod.getStoreAccessStatus(membership.userId, storeId))?.blockedReason, undefined);
+  await sessionMod.assertStoreWritable(storeId);
+  await sessionMod.requireStoreSession(storeId, undefined, user);
+  await prisma.store.update({ where: { id: storeId }, data: { accessGrantedUntil: new Date('2020-01-01') } });
+  await assert.rejects(sessionMod.assertStoreWritable(storeId));
+  await stores.grantTemporaryAccess(storeId, addDays(todayIST(), 7));
+  for (const data of [{ status: 'LOCKED' as const }, { status: 'ACTIVE' as const, deletedAt: new Date() }]) {
+    await prisma.store.update({ where: { id: storeId }, data });
+    await assert.rejects(sessionMod.assertStoreWritable(storeId));
+    await assert.rejects(sessionMod.requireStoreSession(storeId, undefined, user));
+    if (data.status === 'LOCKED') {
+      const read = await sessionMod.requireStoreSession(storeId, undefined, user, { allowLockedReadOnly: true });
+      assert.equal(read.storeId, storeId);
+      await assert.rejects(sessionMod.requireStoreSession(storeId, 'EMPLOYEE', user, { allowLockedReadOnly: true }));
+      await assert.rejects(sessionMod.requireStoreSession(storeId, undefined, { ...user, id: 'unrelated-user' }, { allowLockedReadOnly: true }));
+      await prisma.storeMembership.update({ where: { id: membership.id }, data: { active: false } });
+      await assert.rejects(sessionMod.requireStoreSession(storeId, undefined, user, { allowLockedReadOnly: true }));
+      await prisma.storeMembership.update({ where: { id: membership.id }, data: { active: true } });
+    } else {
+      await assert.rejects(sessionMod.requireStoreSession(storeId, undefined, user, { allowLockedReadOnly: true }));
+    }
+    assert.ok((await sessionMod.getStoreAccessStatus(membership.userId, storeId))?.blockedReason);
+  }
+});
+
+test('trial extension restores an expired paid term consistently and gates outlet creation', async () => {
+  const { todayIST, addDays } = await import('../src/server/dates');
+  const { createOutlet } = await import('../src/server/services/outlets');
+  const fixture = await setupOrg('trial_extension', { paidThroughDate: new Date('2020-01-01'), trialEndsAt: new Date('2020-02-01') });
+  const storeId = fixture.store.id;
+  const owner = await prisma.storeMembership.findFirstOrThrow({ where: { storeId, role: 'OWNER' } });
+  const input = { storeId, outletCode: 'TRIAL-EXTENSION-REGRESSION', displayName: 'Trial outlet', phone: '+91 98765 43210' };
+  await assert.rejects(createOutlet(input), /active subscription or trial/);
+  await assert.rejects(stores.setStoreTrial(storeId, '2026-02-31'), /valid calendar/);
+  await stores.setStoreTrial(storeId, addDays(todayIST(), 30));
+  await sessionMod.assertStoreWritable(storeId);
+  assert.equal((await sessionMod.getStoreAccessStatus(owner.userId, storeId))?.blockedReason, undefined);
+  assert.ok(await createOutlet(input));
+  const unset = await setupOrg('unset_outlet');
+  await assert.rejects(createOutlet({ ...input, storeId: unset.store.id, outletCode: 'UNSET-OUTLET-REGRESSION' }), /active subscription or trial/);
+});
+
+test('employee phone validation rejects invalid create/update and accepts formatted phone', async () => {
+  const fixture = await setupOrg('employee_phone', { paidThroughDate: new Date('2100-01-01') });
+  const input = { name: 'Phone employee', phone: testPhone('phone_employee_regression'), password: 'password123', active: true };
+  await assert.rejects(employees.createEmployee(fixture.store.id, { ...input, phone: 'abc' }), /phone/);
+  const employee = await employees.createEmployee(fixture.store.id, { ...input, phone: '+91 98765 43210' });
+  await assert.rejects(employees.updateEmployee(fixture.store.id, { ...input, id: employee.id, phone: 'abc' }), /phone/);
+  assert.equal(employee.phone, '919876543210');
+  const session = await sessionMod.createSessionRow(employee.id, employee.credentialVersion);
+  const unchanged = await employees.updateEmployee(fixture.store.id, { ...input, password: undefined, id: employee.id, phone: '+91 (98765) 43210' });
+  assert.equal(unchanged.credentialVersion, employee.credentialVersion);
+  assert.ok(await sessionMod.getSessionFromToken(session.token));
+  const changed = await employees.updateEmployee(fixture.store.id, { ...input, password: undefined, id: employee.id, phone: testPhone('changed-employee-phone') });
+  assert.equal(changed.credentialVersion, employee.credentialVersion + 1);
+  assert.equal(await sessionMod.getSessionFromToken(session.token), null);
+  assert.equal(await prisma.session.count({ where: { userId: employee.id } }), 0);
+
 });

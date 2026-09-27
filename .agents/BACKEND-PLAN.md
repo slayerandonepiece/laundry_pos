@@ -1,3 +1,5 @@
+> 2026-09-26 working-tree update: login now uses normalized personal phone, replacing username. See CURRENT-STATE.md's "Phone login replacement" section for migration/backfill prerequisites and verification. Older username references below describe the historical implementation.
+
 # Backend plan — same Next.js application
 
 Status: **core migration complete** (2026-09-07). Every screen (Products, Sales,

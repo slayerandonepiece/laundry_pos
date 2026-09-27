@@ -1,4 +1,5 @@
 'use client';
+import DateInput from './DateInput';
 
 import { useState } from 'react';
 import type { Expense } from '../admin.types';
@@ -13,18 +14,21 @@ const ORG_WIDE_VALUE = '';
 
 export default function ExpenseEditor({
   error,
+  expense,
   outlets,
   onSave,
   onClose,
 }: {
   error?: string;
+  expense?: Expense;
   outlets: OutletListItem[];
-  onSave: (e: Expense) => void;
+  onSave: (e: Expense) => Promise<void>;
   onClose: () => void;
 }) {
-  const [monthly, setMonthly] = useState(false);
-  const [appliesTo, setAppliesTo] = useState<string>(ORG_WIDE_VALUE);
+  const [monthly, setMonthly] = useState(expense?.monthly ?? false);
+  const [appliesTo, setAppliesTo] = useState<string>(expense?.outletId ?? ORG_WIDE_VALUE);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // Build options: org-wide first, then one per outlet
   const appliesToOptions = [
@@ -34,13 +38,13 @@ export default function ExpenseEditor({
 
   return (
     <Dialog
-      title="Add expense"
+      title={expense ? 'Edit expense' : 'Add expense'}
       onClose={onClose}
       warnOnChanges
       foot={
         <>
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" form="expense-form" className="btn btn-primary">Save expense</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="expense-form" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save expense'}</button>
         </>
       }
     >
@@ -71,16 +75,17 @@ export default function ExpenseEditor({
           // Resolve outletId: empty string = org-wide (undefined), otherwise the outlet id
           const outletId: string | undefined = appliesTo === ORG_WIDE_VALUE ? undefined : appliesTo;
 
+          setSaving(true);
           onSave({
-            id: crypto.randomUUID(),
+            id: expense?.id ?? crypto.randomUUID(),
             title,
             category: String(f.get('category')),
             amount: Math.round(amountRaw * 100),
             due: String(f.get('due')),
             monthly,
-            paid: f.get('paid') === 'on' ? today() : undefined,
+            paid: expense ? expense.paid : f.get('paid') === 'on' ? today() : undefined,
             outletId,
-          });
+          }).catch(() => {}).finally(() => setSaving(false));
         }}
       >
         <div className="field">
@@ -88,17 +93,17 @@ export default function ExpenseEditor({
           <input
             id="exp-title"
             name="title"
+            defaultValue={expense?.title}
             onInput={(e) => e.currentTarget.setCustomValidity('')}
             placeholder="e.g. Shop rent"
             required
-            autoFocus
           />
         </div>
 
         <div className="row" style={{ gap: '12px' }}>
           <div className="field" style={{ flex: 1 }}>
             <label htmlFor="exp-category">Category</label>
-            <select id="exp-category" name="category">
+            <select id="exp-category" name="category" defaultValue={expense?.category}>
               {['Electricity', 'Salaries', 'Raw materials', 'Shop rent', 'Machine EMI', 'Supplies', 'Maintenance', 'Other'].map((c) => (
                 <option key={c}>{c}</option>
               ))}
@@ -109,6 +114,7 @@ export default function ExpenseEditor({
             <input
               id="exp-amount"
               name="amount"
+              defaultValue={expense ? expense.amount / 100 : undefined}
               type="number"
               min=".01"
               step=".01"
@@ -121,7 +127,7 @@ export default function ExpenseEditor({
 
         <div className="field">
           <label htmlFor="exp-due">Due date</label>
-          <input id="exp-due" name="due" type="date" defaultValue={today()} required />
+          <DateInput id="exp-due" name="due" type="date" defaultValue={expense?.due ?? today()} required />
         </div>
 
         <div className="field" style={{ overflow: 'visible' }}>
@@ -140,34 +146,17 @@ export default function ExpenseEditor({
           </span>
         </div>
 
-        <div className="field">
-          <label className="ad-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', minHeight: '40px' }}>
-            <input
-              type="checkbox"
-              style={{ width: '15px', height: '15px', accentColor: 'var(--brand)' }}
-              checked={monthly}
-              onChange={(e) => setMonthly(e.target.checked)}
-            />
-            Repeat monthly
+        <div className="expense-options">
+          <label className="expense-option">
+            <input type="checkbox" checked={monthly} disabled={Boolean(expense)} onChange={e => setMonthly(e.target.checked)} />
+            <span>Repeat monthly</span>
           </label>
+          {!expense && <label className="expense-option">
+            <input name="paid" type="checkbox" />
+            <span>Already paid today</span>
+          </label>}
         </div>
-        {monthly && (
-          <p className="hint">
-            Creates monthly unpaid reminders with this amount. Missing reminders are generated
-            when you open the expenses screen. Bills are never marked paid automatically.
-          </p>
-        )}
-
-        <div className="field">
-          <label className="ad-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', minHeight: '40px' }}>
-            <input
-              name="paid"
-              type="checkbox"
-              style={{ width: '15px', height: '15px', accentColor: 'var(--brand)' }}
-            />
-            Already paid today
-          </label>
-        </div>
+        {expense ? <p className="hint">Changes apply to this bill only.{expense.monthly && ' Keep its due date in the same month; other monthly reminders stay unchanged.'}{expense.paid && ' Its existing paid date is retained.'}</p> : monthly && <p className="hint">Creates monthly unpaid reminders with this amount. Bills are never marked paid automatically.</p>}
 
         {(error || localError) && (
           <div className="field-error" role="alert">{error || localError}</div>

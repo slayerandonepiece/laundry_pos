@@ -1,3 +1,4 @@
+import { isSubscriptionLapsed } from '@/lib/subscriptionAccess';
 import 'server-only';
 import { cookies } from 'next/headers';
 import { prisma } from '@/server/db';
@@ -27,7 +28,7 @@ const STORE_SELECT_TTL_MS = SESSION_TTL_MS;
 export interface SessionUser {
   id: string;
   name: string;
-  username: string;
+  phone: string;
   isSuperAdmin: boolean;
 }
 
@@ -94,13 +95,22 @@ export async function createSession(userId: string, credentialVersion: number): 
 
 export async function getSessionFromToken(token: string): Promise<SessionUser | null> {
   if (!isValidSessionToken(token)) return null;
-  const session = await prisma.session.findUnique({ where: { token }, include: { user: true } });
+  const session = await prisma.session.findUnique({
+    where: { token },
+    select: {
+      id: true,
+      token: true,
+      credentialVersion: true,
+      expiresAt: true,
+      user: { select: { id: true, name: true, phone: true, isSuperAdmin: true, active: true, credentialVersion: true } },
+    },
+  });
   if (!session) return null;
   if (session.expiresAt < new Date()) return null;
   if (!session.user.active) return null;
   if (session.credentialVersion !== session.user.credentialVersion) return null;
 
-  return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
+  return { id: session.user.id, name: session.user.name, phone: session.user.phone, isSuperAdmin: session.user.isSuperAdmin };
 }
 
 // Returns null for any invalid session (missing cookie, expired, deactivated
@@ -115,13 +125,22 @@ export async function getSession(): Promise<SessionUser | null> {
   }
   if (!sessionId) return null;
 
-  const session = await prisma.session.findUnique({ where: { id: sessionId }, include: { user: true } });
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      token: true,
+      credentialVersion: true,
+      expiresAt: true,
+      user: { select: { id: true, name: true, phone: true, isSuperAdmin: true, active: true, credentialVersion: true } },
+    },
+  });
   if (!session) return null;
   if (session.expiresAt < new Date()) return null;
   if (!session.user.active) return null;
   if (session.credentialVersion !== session.user.credentialVersion) return null;
 
-  return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
+  return { id: session.user.id, name: session.user.name, phone: session.user.phone, isSuperAdmin: session.user.isSuperAdmin };
 }
 
 export async function getSessionFromRequest(req: Request): Promise<SessionUser | null> {
@@ -136,13 +155,22 @@ export async function getSessionFromRequest(req: Request): Promise<SessionUser |
     const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
     const sessionId = match ? decodeURIComponent(match[1]) : null;
     if (sessionId) {
-      const session = await prisma.session.findUnique({ where: { id: sessionId }, include: { user: true } });
+      const session = await prisma.session.findUnique({
+        where: { id: sessionId },
+        select: {
+          id: true,
+          token: true,
+          credentialVersion: true,
+          expiresAt: true,
+          user: { select: { id: true, name: true, phone: true, isSuperAdmin: true, active: true, credentialVersion: true } },
+        },
+      });
       if (!session) return null;
       if (session.expiresAt < new Date()) return null;
       if (!session.user.active) return null;
       if (session.credentialVersion !== session.user.credentialVersion) return null;
 
-      return { id: session.user.id, name: session.user.name, username: session.user.username, isSuperAdmin: session.user.isSuperAdmin };
+      return { id: session.user.id, name: session.user.name, phone: session.user.phone, isSuperAdmin: session.user.isSuperAdmin };
     }
   }
 
@@ -217,6 +245,8 @@ export async function requireSuperAdminFromRequest(req: Request): Promise<Sessio
 // clears (membership reactivated, store unlocked, renewal recorded).
 export interface StoreSessionOptions {
   allowRestricted?: boolean;
+  /** Explicit opt-in for record browsing only. Mutation callers must not use this. */
+  allowLockedReadOnly?: boolean;
 }
 
 export async function assertStoreWritable(storeId: string): Promise<void> {
@@ -225,6 +255,7 @@ export async function assertStoreWritable(storeId: string): Promise<void> {
     select: {
       status: true,
       deletedAt: true,
+      accessGrantedUntil: true,
       subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
     },
   });
@@ -240,12 +271,8 @@ export async function assertStoreWritable(storeId: string): Promise<void> {
     : undefined;
   const today = todayIST();
 
-  let isLapsed = false;
-  if (trialEndsAt && today > trialEndsAt && (!paidThroughDate || today > paidThroughDate)) {
-    isLapsed = true;
-  } else if (paidThroughDate && today > paidThroughDate) {
-    isLapsed = true;
-  }
+  const overrideUntil = store.accessGrantedUntil ? formatCalendarDate(store.accessGrantedUntil) : undefined;
+  const isLapsed = isSubscriptionLapsed(today, paidThroughDate, trialEndsAt, overrideUntil);
 
   if (isLapsed) {
     throw new AuthError('FORBIDDEN', 'payment_lapsed');
@@ -275,11 +302,12 @@ export async function requireStoreSession(
       name: true,
       status: true,
       deletedAt: true,
+      accessGrantedUntil: true,
       subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
     },
   });
   if (!store) throw new AuthError('FORBIDDEN');
-  if (store.status === 'LOCKED') throw new AuthError('FORBIDDEN', 'store_locked');
+  if (store.status === 'LOCKED' && !options?.allowLockedReadOnly) throw new AuthError('FORBIDDEN', 'store_locked');
   if (store.deletedAt) throw new AuthError('FORBIDDEN', 'store_archived');
 
   const paidThroughDate = store.subscription?.paidThroughDate
@@ -290,14 +318,10 @@ export async function requireStoreSession(
     : undefined;
   const today = todayIST();
 
-  let isLapsed = false;
-  if (trialEndsAt && today > trialEndsAt && (!paidThroughDate || today > paidThroughDate)) {
-    isLapsed = true;
-  } else if (paidThroughDate && today > paidThroughDate) {
-    isLapsed = true;
-  }
+  const overrideUntil = store.accessGrantedUntil ? formatCalendarDate(store.accessGrantedUntil) : undefined;
+  const isLapsed = isSubscriptionLapsed(today, paidThroughDate, trialEndsAt, overrideUntil);
 
-  if (isLapsed && !options?.allowRestricted) {
+  if (isLapsed && !options?.allowRestricted && !(store.status === 'LOCKED' && options?.allowLockedReadOnly)) {
     throw new AuthError('FORBIDDEN', 'payment_lapsed');
   }
 
@@ -453,7 +477,7 @@ export async function setSelectedOutlet(outletId: string): Promise<boolean> {
   if (!selection) return false;
   let storeSession: StoreSession;
   try {
-    storeSession = await requireStoreSession(selection.storeId, undefined, session, { allowRestricted: true });
+    storeSession = await requireStoreSession(selection.storeId, undefined, session, { allowRestricted: true, allowLockedReadOnly: true });
   } catch {
     return false;
   }
@@ -477,7 +501,7 @@ export async function setDashboardAllOutlets(): Promise<boolean> {
   const selection = await resolveStoreSelection(false);
   if (!selection) return false;
   try {
-    await requireStoreSession(selection.storeId, 'OWNER', session, { allowRestricted: true });
+    await requireStoreSession(selection.storeId, 'OWNER', session, { allowRestricted: true, allowLockedReadOnly: true });
   } catch {
     return false;
   }
@@ -524,7 +548,7 @@ export async function getStoreAccessStatus(userId: string, storeId?: string): Pr
 
   const store = await prisma.store.findUnique({
     where: { id: membership.storeId },
-    select: { status: true, deletedAt: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true } } },
+    select: { status: true, deletedAt: true, accessGrantedUntil: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true } } },
   });
   if (!store) return null;
 
@@ -557,11 +581,13 @@ export async function getStoreAccessStatus(userId: string, storeId?: string): Pr
     }
   }
 
+  const overrideUntil = store.accessGrantedUntil ? formatCalendarDate(store.accessGrantedUntil) : undefined;
+  if (overrideUntil && overrideUntil >= today && subscriptionState === 'RESTRICTED') subscriptionState = 'ACTIVE';
   let blockedReason: AccessDeniedReason | undefined;
   if (store.status === 'LOCKED') blockedReason = 'store_locked';
   else if (store.deletedAt) blockedReason = 'store_archived';
   else if (subscriptionState === 'RESTRICTED') blockedReason = 'payment_lapsed';
-  else if (paidThroughDate && paidThroughDate < today) blockedReason = 'payment_lapsed';
+  else if (isSubscriptionLapsed(today, paidThroughDate, trialEndsAt, overrideUntil)) blockedReason = 'payment_lapsed';
 
   return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate, trialEndsAt, subscriptionState };
 }

@@ -11,13 +11,13 @@ export default async function Page() {
   let serverPaymentMethods: Awaited<ReturnType<typeof listOrganizationPaymentMethods>> = [];
   let serverOutlets: Awaited<ReturnType<typeof listOutletsForStoreAdmin>> = [];
   let storeInfo: Awaited<ReturnType<typeof getStore>> | null = null;
-  let ownerUsername: string | undefined;
+  let ownerLoginPhone: string | undefined;
   let passwordUpdatedAt: string | undefined;
   
   try {
     const selection = await resolveStoreSelection();
-    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER');
-    ownerUsername = session.username;
+    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, undefined, undefined, { allowLockedReadOnly: true });
+    ownerLoginPhone = session.phone;
     
     const [profileData, methods, outlets, store, user] = await Promise.all([
       getStoreProfile(session.storeId, session.name),
@@ -39,5 +39,5 @@ export default async function Page() {
     if (!(error instanceof AuthError)) throw error;
   }
   
-  return <AdminScreenContainer screen="profile" serverProfile={serverProfile} serverOrgPaymentMethods={serverPaymentMethods} serverOutlets={serverOutlets} storeInfo={storeInfo} ownerUsername={ownerUsername} passwordUpdatedAt={passwordUpdatedAt} />;
+  return <AdminScreenContainer screen="profile" serverProfile={serverProfile} serverOrgPaymentMethods={serverPaymentMethods} serverOutlets={serverOutlets} storeInfo={storeInfo} ownerLoginPhone={ownerLoginPhone} passwordUpdatedAt={passwordUpdatedAt} />;
 }

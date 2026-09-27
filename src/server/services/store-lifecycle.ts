@@ -25,6 +25,7 @@ import type { OrgLifecycleState, OrgLifecycleFacts } from '@/features/super-admi
 export interface StoreLifecycleFacts {
   status: 'ACTIVE' | 'LOCKED';
   deletedAt: Date | null;
+  accessGrantedUntil?: Date | null;
   paidThroughDate: Date | null;
   trialEndsAt: Date | null;
 }
@@ -42,6 +43,8 @@ export function computeOrgLifecycleState(facts: StoreLifecycleFacts, today: stri
 
   const paidThroughDate = facts.paidThroughDate ? formatCalendarDate(facts.paidThroughDate) : undefined;
   const trialEndsAt = facts.trialEndsAt ? formatCalendarDate(facts.trialEndsAt) : undefined;
+
+  if (facts.accessGrantedUntil && formatCalendarDate(facts.accessGrantedUntil) >= today) return 'ACTIVE';
 
   if (!trialEndsAt && !paidThroughDate) return 'TERMS_NOT_SET';
 
@@ -69,6 +72,7 @@ export async function getOrgLifecycleFacts(storeId: string): Promise<OrgLifecycl
     select: {
       status: true,
       deletedAt: true,
+      accessGrantedUntil: true,
       subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
     },
   });
@@ -77,6 +81,7 @@ export async function getOrgLifecycleFacts(storeId: string): Promise<OrgLifecycl
   const state = computeOrgLifecycleState({
     status: store.status,
     deletedAt: store.deletedAt,
+    accessGrantedUntil: store.accessGrantedUntil,
     paidThroughDate: store.subscription?.paidThroughDate ?? null,
     trialEndsAt: store.subscription?.trialEndsAt ?? null,
   });

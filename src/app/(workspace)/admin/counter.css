@@ -64,3 +64,7 @@
 @media(min-width:768px) and (max-width:1100px){.ad-counter .ad-pos-products{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:767px){.ad-counter .ad-pos-mobile-cart{left:16px;right:16px;bottom:max(12px,env(safe-area-inset-bottom))}.ad-counter .ad-pos-products{grid-template-columns:repeat(2,minmax(0,1fr))}.ad-quantity-stepper{grid-template-columns:44px minmax(36px,1fr) 44px}}
 @media(max-width:390px){.ad-counter .ad-pos-products{grid-template-columns:1fr}}
+
+.ad-counter-form{padding:24px 16px;max-width:600px}
+.ad-skeleton,.ad-counter-skeleton{background:var(--ad-surface-2,#eef0f3);border-radius:8px;animation:ad-skeleton-pulse 1.4s ease-in-out infinite}
+@keyframes ad-skeleton-pulse{0%,100%{opacity:1}50%{opacity:0.4}}

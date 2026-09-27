@@ -1,16 +1,16 @@
 # Project memory (committed, travels to cloud sessions)
 
 Durable preferences and facts only. Session state lives in
-`.agents/SESSION-HANDOFF-2026-09-26.md`; the mobile API lives in
+`.agents/SESSION-HANDOFF-2026-09-27.md`; the mobile API lives in
 `.agents/MOBILE-API-CONTRACT.md`. Native `~/.claude` memory and `.wiki/` are
 machine-local and do **not** reach cloud sessions — this file does.
 
 ## How the user wants to work
 
 - Never commit without explicit permission, per batch of work.
-- Keep **one working branch per repo, named per side**: `backend/offline-id`
-  here, `frontend/offline-id` in `laundry_pos_mobile`. Pull `main` into it
-  before each batch; merge finished work to `main`.
+- Preserve the current user-authorized working branch. Earlier offline-id work
+  used separate backend/frontend branches; inspect Git before choosing a branch.
+  Do not merge or push merely because a batch has been committed.
 - Backend and frontend work happen in **separate chats**, each with its own
   prompt and its own diff — never club the two repos in one session or diff.
 - Merging does not deploy (auto-deploy disabled by the user) — but `vercel-build` runs `prisma migrate deploy` whenever a
@@ -56,3 +56,13 @@ machine-local and do **not** reach cloud sessions — this file does.
 
 - Mobile owner-screen wireframes: https://claude.ai/artifact/KXDqbi19o2crwHR9rw8to3
 - Mobile plan for this work: `laundry_pos_mobile/docs/OFFLINE-ID-SYNC-PLAN.md`
+
+## Workspace improvements (2026-09-27)
+
+- Login identifiers are normalized personal phone numbers (8–15 digits), across web, mobile API, onboarding and staff/platform users. Phone changes revoke sessions through credentialVersion; deploy seed gating uses SEED_OWNER_PHONE.
+- Invoice generation/layout, crisp browser preview and print/share helpers are shared. Owner order details expose one outline Invoice button; public invoice views use opaque access tokens and offer Print/Download. Keep tenant authorization in services/routes.
+- Workspace notices show trial/subscription/lock status once at the top. Locked organizations retain authorized read-only access; server mutation guards remain mandatory alongside disabled UI controls.
+- Super Admin announcements persist drafts/published notices with audience/organization targeting and optional safe links. All matching published notices stack independently; dismissal is session-scoped by user, organization, announcement and revision. Organization selection is bounded and searchable.
+- Super Admin profile supports editing own details and changing own password. Owner UI uses shared spacing, full-dialog mutation overlays and a full-width footer divider.
+- POS/client caches must remain user/organization/outlet scoped; server cache invalidation covers catalogue, profile, organization and subscription changes. Preserve offline draft recovery and credential revocation.
+- See SESSION-HANDOFF-2026-09-27.md and CURRENT-STATE.md for point-in-time verification and limitations. Verify current Git state before selecting a branch; old backend/offline-id notes describe earlier work.

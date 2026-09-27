@@ -35,6 +35,5 @@ export default function OrderDeliveryDetails({ order }: { order: Order }) {
         );
       })}
     </ol>
-    <p className="ad-help">Work status and payment status are tracked separately.</p>
   </section>;
 }

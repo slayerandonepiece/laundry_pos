@@ -1,4 +1,5 @@
 'use client';
+import { isValidPhone } from '@/lib/contactValidation';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -13,7 +14,6 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
   const router = useRouter();
   const currentMembership = user.memberships[0];
   const [name, setName] = useState(user.name);
-  const [username, setUsername] = useState(user.username);
   const [email, setEmail] = useState(user.email ?? '');
   const [phone, setPhone] = useState(user.phone ?? '');
   const [storeId, setStoreId] = useState(currentMembership?.storeId ?? '');
@@ -25,14 +25,13 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
   const [deactivateOpen, setDeactivateOpen] = useState(false);
 
   function submit() {
-    if (!name.trim() || !/^[a-z0-9._-]{3,40}$/.test(username)) {
-      return setError('Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.');
+    if (!name.trim() || !isValidPhone(phone)) {
+      return setError('Enter a name and a valid phone number (8–15 digits).');
     }
     setBusy(true);
     setError('');
     updateUserAction(user.id, {
       name: name.trim(),
-      username,
       email: email.trim(),
       phone: phone.trim(),
       storeId: storeId || undefined,
@@ -58,7 +57,7 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
         <div>
           <h1>{user.name} <span className={'badge ' + (user.active ? 'good' : 'bad')}>{user.active ? 'Active' : 'Inactive'}</span></h1>
           <p>
-            @{user.username}
+            {user.phone}
             {user.lastSignInAt
               ? ` · Last sign-in ${new Date(user.lastSignInAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`
               : ' · Never signed in'}
@@ -88,16 +87,12 @@ export default function UserDetail({ user, stores }: { user: PlatformUserDetail;
             <input id="user-name" type="text" value={name} onChange={e => setName(e.target.value)} required />
           </div>
           <div className="field">
-            <label htmlFor="user-username">Username</label>
-            <input id="user-username" type="text" value={username} onChange={e => setUsername(e.target.value.toLowerCase())} required />
-          </div>
-          <div className="field">
             <label htmlFor="user-email">Email (optional)</label>
             <input id="user-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" />
           </div>
           <div className="field">
-            <label htmlFor="user-phone">Phone (optional)</label>
-            <input id="user-phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91…" />
+            <label htmlFor="user-phone">Phone number</label>
+            <input id="user-phone" type="tel" inputMode="numeric" required value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91…" />
           </div>
 
           {error && <p className="ad-error" role="alert">{error}</p>}

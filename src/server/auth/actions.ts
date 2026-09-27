@@ -1,4 +1,6 @@
 'use server';
+import { cookies } from 'next/headers';
+import { normalizePhone } from '@/lib/contactValidation';
 
 import type { Role } from '@/generated/prisma/client';
 import { prisma } from '@/server/db';
@@ -21,7 +23,7 @@ import { addDays, todayIST } from '@/server/dates';
 export interface LoginResult {
   ok: boolean;
   error?: string;
-  user?: { id: string; name: string; isSuperAdmin: boolean; storeRole?: Role };
+  user?: { id: string; name: string; isSuperAdmin: boolean; storeRole?: Role; storeId?: string };
   redirectTo?: LoginDestination;
 }
 
@@ -46,12 +48,12 @@ export async function resolveLoginDestination(userId: string, isSuperAdmin: bool
   return loginDestinationFor(isSuperAdmin, storeRole);
 }
 
-export async function loginAction(username: string, password: string): Promise<LoginResult> {
-  const user = await prisma.user.findUnique({ where: { username: username.trim().toLowerCase() } });
-  if (!user || !user.active) return { ok: false, error: 'Invalid username or password' };
+export async function loginAction(phone: string, password: string): Promise<LoginResult> {
+  const user = await prisma.user.findUnique({ where: { phone: normalizePhone(phone) } });
+  if (!user || !user.active) return { ok: false, error: 'Invalid phone number or password' };
 
   const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) return { ok: false, error: 'Invalid username or password' };
+  if (!valid) return { ok: false, error: 'Invalid phone number or password' };
 
   // Resolve role from the user's active membership(s) — a stale inactive
   // membership at a previous store (see Item 1: an employee can move stores
@@ -70,11 +72,17 @@ export async function loginAction(username: string, password: string): Promise<L
 
   await createSession(user.id, user.credentialVersion);
 
-  return { ok: true, redirectTo, user: { id: user.id, name: user.name, isSuperAdmin: user.isSuperAdmin, storeRole } };
+  const storeId = user.isSuperAdmin ? undefined : (await getSessionStatusAction()).user?.storeId;
+  return { ok: true, redirectTo, user: { id: user.id, name: user.name, isSuperAdmin: user.isSuperAdmin, storeRole, storeId } };
 }
 
 export async function logoutAction(): Promise<void> {
   await destroySession();
+  try {
+    (await cookies()).delete('el_selected_outlet');
+  } catch {
+    // Ignore if cookies() fails
+  }
 }
 
 export interface SessionStatusResult {
@@ -82,7 +90,7 @@ export interface SessionStatusResult {
   // client-side session mirror on mount (a new tab has no sessionStorage of
   // its own, so without this it wrongly redirects a signed-in user to
   // /login instead of picking up their existing server session).
-  user?: { id: string; name: string; isSuperAdmin: boolean; storeRole?: Role };
+  user?: { id: string; name: string; isSuperAdmin: boolean; storeRole?: Role; storeId?: string };
   // True when the signed-in user's store access is currently withheld
   // (explicit admin lock, archived store, an inactive membership at this
   // store, or a lapsed subscription) — kept as a plain boolean for existing
@@ -100,6 +108,7 @@ export interface SessionStatusResult {
   // employees get a generic "billing is due" message instead (decided by
   // the UI component, not here, since role is already known client-side).
   paymentWarning?: { paidThroughDate: string } | null;
+  trial?: { endsAt: string; endingSoon: boolean } | null;
 }
 
 export async function getSessionStatusAction(): Promise<SessionStatusResult> {
@@ -113,7 +122,7 @@ export async function getSessionStatusAction(): Promise<SessionStatusResult> {
   // change what store a person is "in" for banner/routing purposes.
   const selection = await resolveStoreSelection(false);
   const status = await getStoreAccessStatus(session.id, selection?.multiStore ? selection.storeId : undefined);
-  const user = { id: session.id, name: session.name, isSuperAdmin: session.isSuperAdmin, storeRole: status?.storeRole };
+  const user = { id: session.id, name: session.name, isSuperAdmin: session.isSuperAdmin, storeRole: status?.storeRole, storeId: status?.storeId };
   if (!status) return { user };
 
   const warningCutoff = addDays(todayIST(), PAYMENT_WARNING_DAYS);
@@ -126,6 +135,11 @@ export async function getSessionStatusAction(): Promise<SessionStatusResult> {
     blockedReason: status.blockedReason,
     paidThroughDate: status.blockedReason === 'payment_lapsed' ? status.paidThroughDate : undefined,
     paymentWarning,
+    trial: !status.blockedReason && status.trialEndsAt &&
+      (!status.paidThroughDate || status.paidThroughDate < todayIST()) &&
+      ['TRIAL', 'TRIAL_ENDING'].includes(status.subscriptionState ?? '')
+      ? { endsAt: status.trialEndsAt, endingSoon: status.subscriptionState === 'TRIAL_ENDING' }
+      : null,
   };
 }
 

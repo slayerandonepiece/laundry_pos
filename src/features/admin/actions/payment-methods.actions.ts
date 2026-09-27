@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { requireStoreSession } from '@/server/auth/session';
 import { createStorePaymentMethod, renameStorePaymentMethod, setStorePaymentMethodActive } from '@/server/services/payment-methods';
 import { setOrganizationPaymentMethodEnabled } from '@/server/services/platform-payment-methods';
@@ -15,9 +15,10 @@ function refreshPaymentMethodScreens() {
   revalidatePath('/admin/orders');
 }
 
-async function resultFor(action: () => Promise<StorePaymentMethod>): Promise<Result> {
+async function resultFor(storeId: string, action: () => Promise<StorePaymentMethod>): Promise<Result> {
   try {
     const method = await action();
+    revalidateTag(storeId, { expire: 0 });
     refreshPaymentMethodScreens();
     return { ok: true, method };
   } catch (error) {
@@ -28,17 +29,17 @@ async function resultFor(action: () => Promise<StorePaymentMethod>): Promise<Res
 
 export async function addPaymentMethodAction(name: string): Promise<Result> {
   const session = await requireStoreSession(undefined, 'OWNER');
-  return resultFor(() => createStorePaymentMethod(session.storeId, name));
+  return resultFor(session.storeId, () => createStorePaymentMethod(session.storeId, name));
 }
 
 export async function renamePaymentMethodAction(methodId: string, name: string): Promise<Result> {
   const session = await requireStoreSession(undefined, 'OWNER');
-  return resultFor(() => renameStorePaymentMethod(session.storeId, methodId, name));
+  return resultFor(session.storeId, () => renameStorePaymentMethod(session.storeId, methodId, name));
 }
 
 export async function setPaymentMethodActiveAction(methodId: string, active: boolean): Promise<Result> {
   const session = await requireStoreSession(undefined, 'OWNER');
-  return resultFor(() => setStorePaymentMethodActive(session.storeId, methodId, active));
+  return resultFor(session.storeId, () => setStorePaymentMethodActive(session.storeId, methodId, active));
 }
 
 /** Owners configure only Super Admin-defined methods for new outlet payments. */
@@ -46,6 +47,7 @@ export async function setOrganizationPaymentMethodEnabledAction(methodId: string
   const session = await requireStoreSession(undefined, 'OWNER');
   try {
     await setOrganizationPaymentMethodEnabled(session.storeId, methodId, enabled);
+    revalidateTag(session.storeId, { expire: 0 });
     refreshPaymentMethodScreens();
     return { ok: true };
   } catch (error) {

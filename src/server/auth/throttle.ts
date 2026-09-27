@@ -1,3 +1,4 @@
+import { normalizePhone } from '@/lib/contactValidation';
 import 'server-only';
 
 interface AttemptRecord {
@@ -10,6 +11,7 @@ const MAX_FAILED_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const BLOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
+// This throttle is limited to one warm serverless instance; attempts are not shared across instances.
 const attempts = new Map<string, AttemptRecord>();
 
 // Cleanup stale entries every 10 minutes
@@ -26,14 +28,14 @@ if (typeof cleanupInterval.unref === 'function') {
   cleanupInterval.unref();
 }
 
-function throttleKey(username: string, ip?: string): string {
-  const cleanUser = username.trim().toLowerCase();
+function throttleKey(phone: string, ip?: string): string {
+  const cleanUser = normalizePhone(phone);
   const cleanIp = (ip ?? '').trim();
   return `${cleanUser}:${cleanIp}`;
 }
 
-export function checkLoginThrottle(username: string, ip?: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const key = throttleKey(username, ip);
+export function checkLoginThrottle(phone: string, ip?: string): { allowed: boolean; retryAfterSeconds?: number } {
+  const key = throttleKey(phone, ip);
   const record = attempts.get(key);
   if (!record) return { allowed: true };
 
@@ -51,8 +53,8 @@ export function checkLoginThrottle(username: string, ip?: string): { allowed: bo
   return { allowed: true };
 }
 
-export function recordFailedLoginAttempt(username: string, ip?: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const key = throttleKey(username, ip);
+export function recordFailedLoginAttempt(phone: string, ip?: string): { allowed: boolean; retryAfterSeconds?: number } {
+  const key = throttleKey(phone, ip);
   const now = Date.now();
   const record = attempts.get(key);
 
@@ -71,7 +73,7 @@ export function recordFailedLoginAttempt(username: string, ip?: string): { allow
   return { allowed: true };
 }
 
-export function clearLoginThrottle(username: string, ip?: string): void {
-  const key = throttleKey(username, ip);
+export function clearLoginThrottle(phone: string, ip?: string): void {
+  const key = throttleKey(phone, ip);
   attempts.delete(key);
 }

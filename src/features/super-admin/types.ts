@@ -1,4 +1,4 @@
-export type PaymentState = 'active' | 'expiring' | 'locked' | 'unset';
+export type PaymentState = 'active' | 'expiring' | 'locked' | 'unset' | 'trial' | 'trial_ending';
 
 export interface StoreListItem {
   id: string;
@@ -8,7 +8,6 @@ export interface StoreListItem {
   email: string;
   ownerId?: string;
   ownerName: string;
-  ownerUsername: string;
   // Owner's own contact info, global to the person — distinct from this
   // store's own phone/email above.
   ownerEmail?: string;
@@ -18,6 +17,7 @@ export interface StoreListItem {
   depositPaidAt?: string;
   annualFeeAmount: number;
   paidThroughDate?: string;
+  trialEndsAt?: string;
   paymentState: PaymentState;
   status: 'ACTIVE' | 'LOCKED';
   lastInvoiceSeq?: number;
@@ -47,6 +47,10 @@ export interface StoreDetail extends StoreListItem {
   planId?: string;
   planName?: string;
   discountAmount: number;
+  trialStartsAt?: string;
+  trialEndsAt?: string;
+  accessGrantedUntil?: string;
+  hasActiveAccess: boolean;
 }
 
 export interface UpdateStoreInput {
@@ -59,8 +63,7 @@ export interface UpdateStoreInput {
 export interface OwnerLookupResult {
   id: string;
   name: string;
-  username: string;
-  phone?: string;
+  phone: string;
   storeCount: number;
   storeNames?: string[];
 }
@@ -70,16 +73,19 @@ export interface OnboardStoreInput {
   address: string;
   phone: string;
   owner:
-    | { mode: 'new'; name: string; username: string; password: string }
+    | { mode: 'new'; name: string; password: string; ownerPhone: string }
     | { mode: 'existing'; userId: string };
   subscription:
     | { mode: 'plan'; planId: string; discountAmount: number; chargeDepositAnyway?: boolean }
-    | { mode: 'custom'; depositAmount: number; annualFeeAmount: number };
+    | { mode: 'custom'; depositAmount: number; annualFeeAmount: number }
+    | { mode: 'trial'; trialStartDate?: string; trialEndDate: string };
   markPaid: boolean;
+  paymentMethod?: PaymentMethod;
+  paymentReference?: string;
   notes?: string;
 }
 
-export type BillingCycle = 'ANNUAL';
+export type BillingCycle = 'ANNUAL' | 'HALF_YEARLY' | 'QUARTERLY' | 'MONTHLY';
 
 export interface SubscriptionPlanListItem {
   id: string;
@@ -88,6 +94,7 @@ export interface SubscriptionPlanListItem {
   annualFeeAmount: number;
   billingCycle: BillingCycle;
   depositWaivedByDefault: boolean;
+  defaultTrialDays?: number | null;
   notes: string;
   archivedAt?: string;
   createdAt: string;
@@ -103,7 +110,9 @@ export interface PlanInput {
   name: string;
   depositAmount: number;
   annualFeeAmount: number;
+  billingCycle?: BillingCycle;
   depositWaivedByDefault: boolean;
+  defaultTrialDays?: number | null;
   notes: string;
 }
 
@@ -148,12 +157,11 @@ export interface PlatformUserMembership {
 export interface PlatformUserListItem {
   id: string;
   name: string;
-  username: string;
   active: boolean;
   memberships: PlatformUserMembership[];
   // Global to the person — distinct from a Store's own email/phone.
   email?: string;
-  phone?: string;
+  phone: string;
 }
 
 export interface PlatformUserDetail extends PlatformUserListItem {
@@ -162,9 +170,8 @@ export interface PlatformUserDetail extends PlatformUserListItem {
 
 export interface CreateUserInput {
   name: string;
-  username: string;
   password: string;
-  phone?: string;
+  phone: string;
   email?: string;
   storeId?: string;
   role?: PlatformRole;
@@ -172,11 +179,10 @@ export interface CreateUserInput {
 
 export interface UpdateUserInput {
   name: string;
-  username: string;
   storeId?: string;
   role?: PlatformRole;
   email?: string;
-  phone?: string;
+  phone: string;
 }
 
 export type ResetPasswordInput = { mode: 'auto' } | { mode: 'manual'; password: string };
@@ -220,7 +226,7 @@ export interface ActivityEntry {
 }
 
 export interface PlatformActivityEntry extends ActivityEntry {
-  actorUsername?: string;
+  actorPhone?: string;
   storeId?: string;
   storeName?: string;
   outletName?: string;

@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -33,7 +34,7 @@ after(async () => {
 
 async function fixture(suffix: string) {
   const store = await prisma.store.create({ data: { id: `customer-${suffix}`, name: `Customer QA ${suffix}`, address: 'Test address', phone: '9876543210' } });
-  const user = await prisma.user.create({ data: { name: 'QA Owner', username: `qa-${suffix}`, passwordHash: 'not-used' } });
+  const user = await prisma.user.create({ data: { name: 'QA Owner', phone: testPhone(`qa-${suffix}`), passwordHash: 'not-used' } });
   const product = await prisma.product.create({ data: { storeId: store.id, name: 'Wash & Fold', category: 'Laundry', type: 'ITEM', price: 12_500 } });
   const cash = await prisma.storePaymentMethod.create({ data: { storeId: store.id, name: 'Cash' } });
   await prisma.storePaymentMethod.create({ data: { storeId: store.id, name: 'UPI' } });

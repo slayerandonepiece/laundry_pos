@@ -45,7 +45,7 @@ export default function PlatformActivityView({
         entry.action,
         entry.entityType,
         entry.actorName ?? '',
-        entry.actorUsername ?? '',
+        entry.actorPhone ?? '',
         entry.storeName ?? '',
         entry.outletName ?? '',
         entry.outletCode ?? '',

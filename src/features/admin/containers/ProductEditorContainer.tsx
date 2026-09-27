@@ -11,7 +11,7 @@ export default function ProductEditorContainer({
   product?: Product;
   error?: string;
   onClose: () => void;
-  onSave: (p: Product) => void
+  onSave: (p: Product) => Promise<void>;
 }) {
   const [kind, setKind] = useState(product?.type || 'item');
   const [slabs, setSlabs] = useState<{limit: number; price: number}[]>(
@@ -23,6 +23,7 @@ export default function ProductEditorContainer({
   const [active, setActive] = useState(product?.active ?? true);
   const [name, setName] = useState(product?.name || '');
   const [category, setCategory] = useState(product?.category || 'Laundry');
+  const [saving, setSaving] = useState(false);
 
   const pricing = kind === 'weight' ? { type: 'weight' as const, slabs, extra } : { type: 'item' as const, price: unit };
 
@@ -32,13 +33,14 @@ export default function ProductEditorContainer({
     if (kind === 'weight' && (slabs.length === 0 || slabs.some((s, i) => s.limit <= (slabs[i - 1]?.limit || 0) || s.price <= 0))) {
       return setError('Slab limits must increase and prices must be positive.');
     }
-    onSave({ 
-      id: product?.id || crypto.randomUUID(), 
-      name: name.trim(), 
-      category, 
-      active, 
-      ...pricing 
-    } as Product);
+    setSaving(true);
+    onSave({
+      id: product?.id || crypto.randomUUID(),
+      name: name.trim(),
+      category,
+      active,
+      ...pricing
+    } as Product).catch(() => {}).finally(() => setSaving(false));
   };
 
   return (
@@ -49,8 +51,8 @@ export default function ProductEditorContainer({
       warnOnChanges={true}
       foot={
         <>
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" form="product-form" className="btn btn-primary">{product ? 'Save changes' : 'Add service'}</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="product-form" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : (product ? 'Save changes' : 'Add service')}</button>
         </>
       }
     >
@@ -64,7 +66,6 @@ export default function ProductEditorContainer({
             onChange={e => setName(e.target.value)}
             placeholder="e.g. Wash & Fold"
             required
-            autoFocus
           />
         </div>
 

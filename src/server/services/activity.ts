@@ -55,7 +55,7 @@ export async function listStoreActivity(storeId: string, limit = 50): Promise<Ac
 export async function listPlatformActivity(limit = 100): Promise<PlatformActivityEntry[]> {
   const rows = await prisma.auditLog.findMany({
     include: {
-      actor: { select: { name: true, username: true } },
+      actor: { select: { name: true, phone: true } },
       store: { select: { id: true, name: true } },
       outlet: { select: { id: true, displayName: true, outletCode: true } },
     },
@@ -68,7 +68,7 @@ export async function listPlatformActivity(limit = 100): Promise<PlatformActivit
     entityType: row.entityType,
     entityId: row.entityId,
     actorName: row.actor?.name,
-    actorUsername: row.actor?.username,
+    actorPhone: row.actor?.phone,
     storeId: row.storeId ?? undefined,
     storeName: row.store?.name ?? undefined,
     outletId: row.outletId ?? undefined,
