@@ -25,8 +25,8 @@ assumed to be automatically discovered by every tool.
   containers handle interaction and state. Keep shared domain calculations in
   focused modules. Thin route pages choose screens.
 - Keep `/` as the owner dashboard and `/login` as the canonical login route.
-  Employees use New sale and Sales register within Sales and land at `/admin/sales`.
-  The legacy `/admin/orders` page redirects to Sales; order APIs/PDF routes remain.
+  Employees land at `/admin/sales` for history. `/admin/orders` is the separate
+  service-selection and checkout route for owners and employees; order APIs/PDF routes remain.
 - Preserve the current visual design, responsive layouts, keyboard interactions,
   loading/error states, confirmation dialogs, INR formatting, and IST reporting.
 - Before Next.js implementation, read relevant bundled documentation in

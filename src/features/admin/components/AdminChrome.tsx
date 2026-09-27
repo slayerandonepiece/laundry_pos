@@ -17,6 +17,7 @@ import Icon, { type IconName } from '@/features/super-admin/components/Icon';
 const links: [Screen, IconName, string][] = [
   ['dashboard', 'dashboard', 'Dashboard'],
   ['products', 'archive', 'Products'],
+  ['orders', 'card', 'Orders'],
   ['sales', 'card', 'Sales'],
   ['expenses', 'card', 'Expenses'],
   ['employees', 'users', 'Employees'],
@@ -98,11 +99,12 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
     selectDashboardAllStoresAction().then(result => { if (result.ok) { window.dispatchEvent(new Event('el-store-changed')); router.refresh(); } });
   }
 
-  return <div className={"ad-root ad-app" + (screen === "dashboard" ? " ad-dashboard-shell" : "") + (role === "employee" && screen === "sales" ? " ad-counter" : "")}>
-    <aside className="ad-sidebar ad-desktop-sidebar"><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout}/></aside>
+  return <div className={"ad-root ad-app" + (screen === "dashboard" ? " ad-dashboard-shell" : "") + (screen === "orders" ? " ad-counter" : "")}>
+    {screen !== 'orders' && <aside className="ad-sidebar ad-desktop-sidebar"><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout}/></aside>}
     {menu && <MobileNavigation onClose={() => setMenu(false)}><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onNavigate={() => setMenu(false)} onLogout={() => { setMenu(false); confirmLogout(); }}/></MobileNavigation>}
     <div className="ad-workspace">
-      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">Workspace <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span><Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link></div></header>
+      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">{screen === 'orders' ? brandName : 'Workspace'} <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span><Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link></div></header>
+      {screen === 'orders' && <nav className="ad-counter-topnav" aria-label="Workspace navigation">{role && links.filter(([id]) => role === 'owner' || ['orders','sales','profile'].includes(id)).map(([id,,label]) => <Link key={id} href={id === 'dashboard' ? '/' : '/admin/' + id} aria-current={screen === id ? 'page' : undefined}>{label}</Link>)}<button type="button" onClick={confirmLogout}>Log out</button></nav>}
       {sessionVerified && blockedReason === 'store_locked' && <WorkspaceNotice label="Store access" tone="warning"><strong>Store locked · Read-only</strong> · You can view your records. Changes are disabled; contact your platform administrator to restore access.</WorkspaceNotice>}
       {sessionVerified && blockedReason !== 'store_locked' && trial && <WorkspaceNotice label="Subscription status" tone={trial.endingSoon ? 'warning' : 'info'} action={role === 'owner' ? { href: '/admin/profile', label: 'Subscription details →' } : undefined}>
         <strong>Free trial</strong> · Ends {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(trial.endsAt + 'T00:00:00+05:30'))}

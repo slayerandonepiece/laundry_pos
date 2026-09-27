@@ -1609,3 +1609,20 @@ Announcements require `20260927180000_workspace_announcements`, applied to the c
 
 
 Migration verification: `prisma migrate deploy` successfully applied `20260927180000_workspace_announcements`; follow-up `prisma migrate status` confirmed all 16 migrations are applied. Live announcement publication/dismissal verification remains separate.
+
+## Orders and sales route split (2026-09-27)
+
+- `/admin/orders` is the dedicated service-selection/new-order route for owners and employees; it no longer redirects to Sales. `/admin/sales` is history with per-order amounts and detail dialogs, without aggregate metric cards or counter tabs. Navigation exposes both routes; existing role landing routes remain unchanged.
+- Adding the first service reveals checkout beside the catalogue on desktop and before the catalogue on narrow screens. The large fixed View order bar is removed. Customer phone search reuses the tenant-scoped server action; customer name remains optional, followed by delivery and payment. Multi-outlet owners must choose an active outlet.
+- Draft restoration runs once per user/store key rather than on each catalogue-method refresh. Locked stores cannot create orders; existing history remains readable.
+- Verified employee browser flow: service selection, returning-customer lookup, delivery/payment review, desktop and 375px overflow check; no live order/payment submitted. TypeScript, scoped ESLint and all 89 disposable-Postgres integration tests pass.
+
+### Full-width counter and compact-screen steps
+
+Orders uses top navigation instead of the desktop sidebar. Services render as price-breakdown rows with selected quantities and service totals; checkout does not duplicate the items table. At widths up to 950px, Add starts customer entry, followed by service quantity selection and then payment. Step navigation supports revisiting customer/services/payment without discarding the draft. Quantity dialogs use text inputs with decimal/numeric keyboards and explicit quantity validation, avoiding native wheel-driven number changes. Received amount also uses a decimal text input with server-side/domain validation unchanged. Existing draft restoration selects the services step when the customer is already ready.
+
+Browser verified desktop price list, no duplicate checkout items, unchanged weight after wheel scrolling, customer/services/payment navigation and 320/375px overflow checks. No live order or payment submitted.
+
+### Compact catalogue and independent customer entry
+
+The Orders catalogue uses smaller row spacing and typography; Clear belongs to its heading. Customer entry is rendered independently of selected services. The customer step has no order-total or Punch order control. Continuing with selected services opens delivery/payment; without services, checkout remains unavailable. Mobile step navigation uses the same guard. Verified an empty temporary draft, optional blank name, service quantity entry and the next payment screen with correct total; 375px has no horizontal overflow. No live order submitted.
