@@ -34,7 +34,7 @@ export async function GET(
       orderNumber !== null
         ? await prisma.orderInvoice.findFirst({
             where: { storeId: session.storeId, order: { orderNumber } },
-            select: { invoiceSeq: true, accessToken: true },
+            select: { invoiceSeq: true, accessToken: true, generatedAt: true },
           })
         : null;
 
@@ -49,6 +49,7 @@ export async function GET(
         exists: Boolean(existingInvoice),
         invoiceSeq: existingInvoice?.invoiceSeq,
         accessToken: existingInvoice?.accessToken,
+        generatedAt: existingInvoice ? existingInvoice.generatedAt.toISOString() : undefined,
         canGenerate,
       },
     });

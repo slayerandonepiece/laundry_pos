@@ -512,6 +512,7 @@ test("B6.5: Invoice refuses generation before full payment and delivery", async 
   const detailBody1 = await detailRes1.json();
   assert.equal(detailBody1.invoice.canGenerate, false);
   assert.equal(detailBody1.invoice.exists, false);
+  assert.equal(detailBody1.invoice.generatedAt, undefined);
 
   // 2. Pay in full, but still Pending (not Delivered) -> Invoice generation refused (400)
   const payRes = await orderPaymentsRoute.POST(
@@ -558,6 +559,8 @@ test("B6.5: Invoice refuses generation before full payment and delivery", async 
   assert.equal(detailBody2.invoice.exists, true);
   assert.equal(detailBody2.invoice.canGenerate, true);
   assert.equal(detailBody2.invoice.accessToken, invoice.accessToken);
+  assert.equal(detailBody2.invoice.generatedAt, invoice.generatedAt);
+  assert.ok(Number.isFinite(Date.parse(detailBody2.invoice.generatedAt)));
 });
 
 // B6.6: Cross-store isolation: a token for store A cannot read store B, even with X-Store-Id spoofed

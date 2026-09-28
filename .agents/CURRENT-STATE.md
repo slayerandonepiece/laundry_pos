@@ -1382,7 +1382,7 @@ verified against an isolated PostgreSQL integration test cluster.
   - **Orders**:
     - `GET /api/v1/orders`: Lists store orders.
     - `POST /api/v1/orders`: Creates order with server-side price recomputation (`src/server/pricing.ts`) and client idempotency key pass-through.
-    - `GET /api/v1/orders/[orderCode]`: Detailed order view with status history, payments, and invoice status (`exists`, `canGenerate`, `accessToken`, `invoiceSeq`).
+    - `GET /api/v1/orders/[orderCode]`: Detailed order view with status history, payments, and invoice status (`exists`, `canGenerate`, `accessToken`, `invoiceSeq`, `generatedAt`).
     - `PATCH /api/v1/orders/[orderCode]/status`: Updates work status (`Pending`, `In Progress`, `Ready`, `Delivered`).
     - `POST /api/v1/orders/[orderCode]/payments`: Records order payment with transaction-level `SELECT ... FOR UPDATE` row lock, preventing concurrent overpayment. Allowed for both `OWNER` and `EMPLOYEE`.
     - `GET /api/v1/orders/[orderCode]/invoice`: Get-or-create customer invoice. Refuses generation unless order is paid in full and delivered.

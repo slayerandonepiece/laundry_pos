@@ -34,6 +34,7 @@ let expenses: typeof import('../src/server/services/expenses');
 let employees: typeof import('../src/server/services/employees');
 let stores: typeof import('../src/server/services/stores');
 let sessionMod: typeof import('../src/server/auth/session');
+let buildMembershipContext: typeof import('../src/server/api/membership-context').buildMembershipContext;
 
 before(async () => {
   orders = await import('../src/server/services/orders');
@@ -41,6 +42,8 @@ before(async () => {
   employees = await import('../src/server/services/employees');
   stores = await import('../src/server/services/stores');
   sessionMod = await import('../src/server/auth/session');
+  const memContextMod = await import('../src/server/api/membership-context');
+  buildMembershipContext = memContextMod.buildMembershipContext;
 });
 
 after(async () => {
@@ -132,6 +135,11 @@ test('B5.1: Trial expiry, subscription expiry, and access state calculations', a
   const statusTrial = await sessionMod.getStoreAccessStatus(ctxTrial.owner.id, ctxTrial.store.id);
   assert.equal(statusTrial?.subscriptionState, 'TRIAL');
   assert.equal(statusTrial?.blockedReason, undefined);
+
+  const memTrial = await buildMembershipContext(ctxTrial.owner.id);
+  assert.equal(memTrial.stores[0].subscriptionState, 'TRIAL');
+  assert.ok(memTrial.stores[0].trialEndsAt);
+  assert.equal(memTrial.stores[0].trialEndsAt, statusTrial?.trialEndsAt);
 
   // 2. Expired trial (expired 2 days ago, no paid subscription)
   const ctxTrialExp = await setupOrg('trial-expired', {

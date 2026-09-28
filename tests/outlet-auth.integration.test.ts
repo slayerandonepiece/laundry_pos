@@ -249,6 +249,8 @@ test('B2.5: POST /api/v1/auth/login returns additive organizations array with ou
   assert.ok(Array.isArray(data.stores));
   assert.equal(data.stores.length, 1);
   assert.equal(data.stores[0].storeId, store.id);
+  assert.equal(data.stores[0].trialEndsAt, null);
+  assert.equal(data.stores[0].subscriptionState, 'ACTIVE');
 
   // Additive organizations array exists
   assert.ok(Array.isArray(data.organizations));

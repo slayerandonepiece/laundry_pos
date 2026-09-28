@@ -90,7 +90,8 @@ per IP/username.
   "token": "…",
   "user": { "id", "name", "username", "isSuperAdmin", "mustChangePassword" },
   "stores": [ { "storeId", "storeName", "role", "status", "isLocked",
-                "blockedReason", "paidThroughDate",
+                "blockedReason", "paidThroughDate", "trialEndsAt",
+                "subscriptionState",
                 "allowedOutlets", "defaultOutletId" } ],
   "organizations": [ { "id", "name", "role", "status", "isLocked",
                        "blockedReason", "paidThroughDate", "trialEndsAt",
@@ -103,6 +104,12 @@ per IP/username.
 `organizations` (no token). `GET /api/v1/memberships` returns the
 `stores` array alone. All three are built by one helper
 (`src/server/api/membership-context.ts`), so the shapes cannot drift.
+
+Both `stores[]` and `organizations[]` include `trialEndsAt` (ISO date string
+or `null`) and `subscriptionState` (one of `ACTIVE`, `TRIAL`, `TRIAL_ENDING`,
+`SUBSCRIPTION_ENDING`, `RESTRICTED`) alongside `paidThroughDate` and
+`blockedReason`, enabling mobile clients to build real trial/renewal banners
+directly from `stores[]`.
 
 `allowedOutlets[]`:
 
@@ -341,6 +348,13 @@ Notes:
   belongs to the organization, not to one branch.
 - Invoice generation refuses until the order is **paid in full and
   Delivered** (`B5.1`/`B6.5`). Don't offer the action before then.
+- **Order DTO `invoice` sub-object** on `GET /api/v1/orders/{code}` (`src/app/api/v1/orders/[orderCode]/route.ts`):
+  - When no invoice exists: `{ "exists": false, "canGenerate": boolean }` (`invoiceSeq`, `accessToken`, `generatedAt` omitted).
+  - When an invoice exists: `{ "exists": true, "invoiceSeq": number, "accessToken": string, "generatedAt": string, "canGenerate": true }`.
+  - `generatedAt`: ISO 8601 string (e.g. `"2026-09-28T00:51:34.000Z"`) from the persistent `OrderInvoice.generatedAt` column.
+    Mobile clients can format this timestamp (e.g. `generatedAt.slice(0, 10)` formatted with `dateLabelFull`) to render local invoice PDFs
+    with the exact same "Generated {date}" footer text as web-rendered PDFs (`src/features/admin/pdf/OrderInvoicePdf.tsx:86`),
+    instead of falling back to the mobile device's local clock.
 - Order creation takes a client `idempotencyKey`; the same key returns
   the same order and creates exactly one row (`B6.3`). Generate it once
   per cart and reuse it across retries.

@@ -47,6 +47,8 @@ export async function buildMembershipContext(userId: string) {
       isLocked: row.isLocked,
       blockedReason: row.blockedReason,
       paidThroughDate: row.paidThroughDate,
+      trialEndsAt: row.trialEndsAt,
+      subscriptionState: row.subscriptionState,
       allowedOutlets: row.allowedOutlets,
       defaultOutletId: row.defaultOutletId,
     })),
