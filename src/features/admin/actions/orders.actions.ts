@@ -1,8 +1,9 @@
 'use server';
 
+import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 import { revalidatePath } from 'next/cache';
 import { requireOutletSession, requireStoreSession, resolveOutletSelection, resolveStoreSelection } from '@/server/auth/session';
-import { createOrder, parseOrderCode, recordPayment, updateOrderStatus, type CreateOrderInput } from '@/server/services/orders';
+import { createOrder, findCustomerNameByPhone, parseOrderCode, recordPayment, updateOrderStatus, type CreateOrderInput } from '@/server/services/orders';
 import { prisma } from '@/server/db';
 import type { Order, WorkStatus } from '../admin.types';
 
@@ -47,4 +48,12 @@ export async function recordPaymentAction(orderCode: string, amount: number, met
   revalidatePath('/admin/sales');
   revalidatePath('/admin/orders');
   return order;
+}
+
+export async function findCustomerNameByPhoneAction(phone: string): Promise<string | null> {
+  const selection = await resolveStoreSelection();
+  const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined);
+  const normalized = normalizePhone(phone);
+  if (!isValidPhone(normalized)) throw new Error('Enter a valid phone number (8–15 digits).');
+  return findCustomerNameByPhone(session.storeId, normalized);
 }

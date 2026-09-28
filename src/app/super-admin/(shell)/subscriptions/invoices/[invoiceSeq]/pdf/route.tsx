@@ -1,10 +1,9 @@
 import { NextRequest } from 'next/server';
-import { renderToBuffer } from '@react-pdf/renderer';
+import { invoicePdfResponse } from '@/lib/pdf/response';
 import { requireSuperAdmin, AuthError } from '@/server/auth/session';
 import { isValidSubscriptionInvoiceToken } from '@/server/auth/token';
 import { getInvoice, getStore } from '@/server/services/stores';
 import { InvoicePdf } from '@/features/super-admin/pdf/InvoicePdf';
-import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 
 // @react-pdf/renderer needs a real Node runtime, not the edge runtime.
 export const runtime = 'nodejs';
@@ -31,14 +30,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const store = await getStore(invoice.storeId);
   if (!store) return new Response('Not found', { status: 404 });
 
-  const buffer = await renderToBuffer(<InvoicePdf invoice={invoice} store={store} />);
-  const download = request.nextUrl.searchParams.get('download') === '1';
-
-  return new Response(new Uint8Array(buffer), {
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${formatInvoiceNumber(invoice.invoiceSeq)}.pdf"`,
-      'Cache-Control': 'private, no-store',
-    },
-  });
+  return invoicePdfResponse(<InvoicePdf invoice={invoice} store={store} />, invoice.invoiceSeq, request.nextUrl.searchParams.get('download') === '1');
 }

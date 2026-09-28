@@ -55,16 +55,16 @@ enum PaymentMethod {
   UPI
 }
 
-// Only one value today (start simple, per SUBSCRIPTIONS-IMPLEMENTATION.md —
-// the field exists so a future cycle type doesn't need a schema change).
 enum BillingCycle {
   ANNUAL
+  HALF_YEARLY
+  QUARTERLY
+  MONTHLY
 }
 
 model User {
   id                 String   @id @default(cuid())
   name               String
-  username           String   @unique
   passwordHash       String
   active             Boolean  @default(true)
   // Platform-level access, unscoped to any store. Not the same thing as
@@ -73,10 +73,10 @@ model User {
   credentialVersion  Int      @default(1)
   mustChangePassword Boolean  @default(false)
   // Global to the person (not a store's own contact info — see Store.email/
-  // Store.phone, which represent the store, not the owner). Optional: most
-  // existing users have neither on file yet.
+  // Store.phone, which represent the store, not the owner). Phone is the
+  // normalized, required login identifier; email remains optional.
   email              String?
-  phone              String?
+  phone              String   @unique
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -89,6 +89,8 @@ model User {
   createdOutlets    Outlet[]              @relation("OutletCreatedBy")
   auditLogs         AuditLog[]
 
+  @@index([active])
+  @@index([isSuperAdmin])
   @@map("users")
 }
 
@@ -102,6 +104,7 @@ model Session {
   createdAt         DateTime @default(now())
 
   @@index([userId])
+  @@index([expiresAt])
   @@map("sessions")
 }
 
@@ -121,6 +124,7 @@ model Store {
   // Soft delete — a store is archived, never hard-deleted, so its order and
   // payment history survives. Null means active/not archived.
   deletedAt     DateTime?
+  accessGrantedUntil DateTime? @db.Date
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -141,6 +145,7 @@ model Store {
   dailyOutletSummaries        DailyOutletSummary[]
   dailyOutletServiceSummaries DailyOutletServiceSummary[]
 
+  @@index([deletedAt])
   @@map("stores")
 }
 
@@ -172,10 +177,9 @@ model SubscriptionPlan {
   depositAmount          Int // paise
   annualFeeAmount        Int // paise
   billingCycle           BillingCycle @default(ANNUAL)
-  // When true, onboarding a store on this plan skips the deposit by
-  // default — depositAmount above stays on file as the "charge anyway"
-  // amount, used if the onboarding admin explicitly overrides the waiver.
+  // When true, organizations on this plan skip the deposit.
   depositWaivedByDefault Boolean      @default(false)
+  defaultTrialDays Int?
   notes                  String       @default("")
   // Archived, never hard-deleted — plans can be in use by active
   // subscriptions (see archivePlan()'s reassign-or-detach flow).
@@ -205,11 +209,13 @@ model Subscription {
   // Null until a first payment is recorded. Only an explicit, past date locks
   // the store — a never-set subscription is never auto-locked.
   paidThroughDate DateTime? @db.Date
+  trialStartsAt   DateTime? @db.Date
   trialEndsAt     DateTime? @db.Date
   notes           String    @default("")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  @@index([paidThroughDate])
   @@map("subscriptions")
 }
 
@@ -306,6 +312,9 @@ model Order {
   @@index([outletId, status])
   @@index([outletId, dueDate])
   @@unique([storeId, offlineId])
+  @@index([orderDate])
+  @@index([updatedAt])
+  @@index([storeId, phone, orderDate])
   @@map("orders")
 }
 
@@ -600,4 +609,22 @@ model DailyOutletServiceSummary {
   @@index([storeId, businessDate])
   @@index([outletId, businessDate])
   @@map("daily_outlet_service_summaries")
+}
+
+// Platform-managed information/maintenance notices; empty storeIds means all organizations.
+model WorkspaceAnnouncement {
+  id          String   @id @default(cuid())
+  message     String   @db.VarChar(500)
+  audience    String   @default("store") @db.VarChar(16)
+  tone        String   @default("info") @db.VarChar(16)
+  storeIds    String[] @default([])
+  actionLabel String?  @db.VarChar(60)
+  actionHref  String?  @db.VarChar(500)
+  published   Boolean  @default(false)
+  revision    Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([published, createdAt])
+  @@map("workspace_announcements")
 }

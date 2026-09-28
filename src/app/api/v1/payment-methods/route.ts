@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     const includeDisabled = searchParams.get('all') === 'true';
     const methods = await listOrganizationPaymentMethods(session.storeId);
     return jsonResponse(includeDisabled ? methods : methods.filter(method => method.enabled));
-  });
+  }, { request: req, cacheTtlSeconds: 30 });
 }
 
 // The global catalogue is Super Admin territory; an owner only enables or

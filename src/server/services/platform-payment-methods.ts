@@ -1,5 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { prisma } from '@/server/db';
 import { ValidationError } from '@/server/errors';
 
@@ -55,26 +56,30 @@ export async function createPlatformPaymentMethod(input: {
     throw new ValidationError('A payment method with this code already exists.');
   }
 
-  return prisma.platformPaymentMethod.create({
+  const method = await prisma.platformPaymentMethod.create({
     data: {
       code,
       name,
       active: true,
     },
   });
+  revalidateTag('platform-payment-methods', { expire: 0 });
+  return method;
 }
 
 /**
  * Super Admin: List all platform payment methods.
  */
-export async function listPlatformPaymentMethods(
-  includeInactive = false,
-): Promise<PlatformPaymentMethodDTO[]> {
-  return prisma.platformPaymentMethod.findMany({
-    where: includeInactive ? {} : { active: true },
-    orderBy: [{ active: 'desc' }, { name: 'asc' }],
-  });
-}
+export const listPlatformPaymentMethods = unstable_cache(
+  async (includeInactive = false): Promise<PlatformPaymentMethodDTO[]> => {
+    return prisma.platformPaymentMethod.findMany({
+      where: includeInactive ? {} : { active: true },
+      orderBy: [{ active: 'desc' }, { name: 'asc' }],
+    });
+  },
+  ['platform-payment-methods'],
+  { revalidate: 60, tags: ['platform-payment-methods'] },
+);
 
 /**
  * Super Admin: Rename or activate/deactivate a platform payment method.
@@ -97,10 +102,12 @@ export async function updatePlatformPaymentMethod(
     data.active = input.active;
   }
 
-  return prisma.platformPaymentMethod.update({
+  const method = await prisma.platformPaymentMethod.update({
     where: { id },
     data,
   });
+  revalidateTag('platform-payment-methods', { expire: 0 });
+  return method;
 }
 
 /**

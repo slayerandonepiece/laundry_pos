@@ -1,92 +1,120 @@
 'use client';
-import { createContext, useContext, useEffect, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, type ReactNode, type Dispatch, type SetStateAction } from 'react';
+import { useRouter } from 'next/navigation';
 import { rangeFor } from '../admin.data';
+import { SESSION_KEY, clearClientCaches, watchSessionMirror } from '../client-cache';
 import { resolveUser } from '../admin.permissions';
 import { loginAction, logoutAction, getSessionStatusAction } from '@/server/auth/actions';
 import type { AccessDeniedReason } from '@/server/auth/session';
 import type { DateRange, Session, AdminUser } from '../admin.types';
+
+export interface TrialStatus { endsAt: string; endingSoon: boolean }
 
 export interface PaymentWarning { paidThroughDate: string }
 
 interface Context {
   period: string; setPeriod: Dispatch<SetStateAction<string>>;
   range: DateRange; setRange: Dispatch<SetStateAction<DateRange>>;
-  user: AdminUser | null; authenticated: boolean; ready: boolean; storeLocked: boolean;
-  blockedReason: AccessDeniedReason | undefined; blockedPaidThroughDate: string | undefined; paymentWarning: PaymentWarning | null;
-  login: (username: string, password: string) => Promise<boolean>; logout: () => void;
+  sessionVerified: boolean; user: AdminUser | null; authenticated: boolean; ready: boolean; storeLocked: boolean;
+  blockedReason: AccessDeniedReason | undefined; blockedPaidThroughDate: string | undefined; paymentWarning: PaymentWarning | null; trial: TrialStatus | null;
+  login: (phone: string, password: string) => Promise<boolean>; logout: () => Promise<void>;
 }
 const Ctx = createContext<Context | null>(null);
-const KEY = 'express-laundry-admin-v1';
 export function AdminProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [period, setPeriod] = useState('month'), [range, setRange] = useState<DateRange>(rangeFor('month'));
   const [ready, setReady] = useState(false);
+  const sessionEpoch = useRef(0);
+  const [sessionVerified, setSessionVerified] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [storeLocked, setStoreLocked] = useState(false);
   const [blockedReason, setBlockedReason] = useState<AccessDeniedReason | undefined>(undefined);
   const [blockedPaidThroughDate, setBlockedPaidThroughDate] = useState<string | undefined>(undefined);
   const [paymentWarning, setPaymentWarning] = useState<PaymentWarning | null>(null);
+  const [trial, setTrial] = useState<TrialStatus | null>(null);
   const user = resolveUser(session);
   useEffect(() => {
-    let rawSession: string | null = null;
-    try { rawSession = sessionStorage.getItem(KEY + '-session'); } catch {}
-    const localSession: Session | null = rawSession ? JSON.parse(rawSession) : null;
-
-    // sessionStorage is per-tab, not shared across tabs — a fresh tab has
-    // none of it even when a real (cookie-based) server session exists.
-    // When we already have a local mirror, render from it immediately (fast
-    // path) and reconcile with the server in the background; when we don't,
-    // wait for the server's answer before deciding — otherwise a fresh tab
-    // would wrongly bounce a signed-in user to /login before the
-    // reconciliation below has a chance to correct it.
+    let active = true;
+    const epoch = ++sessionEpoch.current;
+    let localSession: Session | null = null;
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      const value = raw ? JSON.parse(raw) : null;
+      if (value && typeof value.id === 'string' && typeof value.name === 'string' && typeof value.storeId === 'string' && ['owner', 'employee'].includes(value.role)) localSession = value;
+    } catch { /* Invalid or unavailable storage falls back to the server. */ }
     if (localSession) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSession(localSession); setReady(true);
     }
-
-    getSessionStatusAction().then(status => {
-      if (!status.user || !status.user.storeRole) {
-        if (localSession) { setSession(null); try { sessionStorage.removeItem(KEY + '-session'); } catch {} }
-      } else {
-        const isOwner = status.user.storeRole === 'OWNER';
-        const next: Session = { id: isOwner ? 'owner' : status.user.id, role: isOwner ? 'owner' : 'employee', name: status.user.name };
-        if (!localSession || localSession.id !== next.id) {
-          setSession(next);
-          try { sessionStorage.setItem(KEY + '-session', JSON.stringify(next)); } catch {}
+    const stopWatching = watchSessionMirror(() => {
+      sessionEpoch.current += 1;
+      setSession(null); setSessionVerified(false); setReady(true);
+      setStoreLocked(false); setBlockedReason(undefined); setBlockedPaidThroughDate(undefined); setPaymentWarning(null); setTrial(null);
+      router.replace('/login'); router.refresh();
+    }, () => { setSessionVerified(false); void reconcile(++sessionEpoch.current); router.refresh(); });
+    function reconcile(expectedEpoch: number) {
+      return getSessionStatusAction().then(status => {
+        if (!active || expectedEpoch !== sessionEpoch.current) return;
+        if (!status.user?.storeRole || !status.user.storeId) {
+          setSession(null); setSessionVerified(false); clearClientCaches();
+          try { localStorage.removeItem(SESSION_KEY); } catch {}
+        } else {
+          const isOwner = status.user.storeRole === 'OWNER';
+          const next: Session = { id: isOwner ? 'owner' : status.user.id, role: isOwner ? 'owner' : 'employee', name: status.user.name, storeId: status.user.storeId };
+          setSession(next); setSessionVerified(true);
+          try { localStorage.setItem(SESSION_KEY, JSON.stringify(next)); } catch {}
         }
-      }
-      setStoreLocked(Boolean(status.storeLocked));
-      setBlockedReason(status.blockedReason);
-      setBlockedPaidThroughDate(status.paidThroughDate);
-      setPaymentWarning(status.paymentWarning ?? null);
-      setReady(true);
-    }).catch(() => setReady(true));
-  }, []);
-  async function login(username: string, input: string) {
-    const normalized = username.trim().toLowerCase();
+        setStoreLocked(Boolean(status.storeLocked)); setBlockedReason(status.blockedReason);
+        setBlockedPaidThroughDate(status.paidThroughDate); setPaymentWarning(status.paymentWarning ?? null); setTrial(status.trial ?? null); setReady(true);
+      }).catch(() => { if (active && expectedEpoch === sessionEpoch.current) setReady(true); });
+    }
+    function onStoreChanged() { setTrial(null); setSessionVerified(false); void reconcile(++sessionEpoch.current); }
+    void reconcile(epoch);
+    window.addEventListener('el-store-changed', onStoreChanged);
+    return () => { active = false; stopWatching(); window.removeEventListener('el-store-changed', onStoreChanged); };
+  }, [router]);
+  async function login(phone: string, input: string) {
+    const normalized = phone.trim();
     // Credentials are checked against the real database; this also sets an
     // HttpOnly server session cookie used by Server Actions. The client-side
     // session below is purely a mirror for routing/display.
     const result = await loginAction(normalized, input);
-    if (!result.ok || !result.user) return false;
-    // Super Admin has its own area (a later phase); this app is store-scoped,
-    // so a Super Admin account with no store membership can't sign in here.
-    if (!result.user.storeRole) return false;
+    if (!result.ok || !result.user || !result.redirectTo) return false;
+    if (result.user.isSuperAdmin) {
+      sessionEpoch.current += 1; clearClientCaches(); setSessionVerified(false);
+      setSession(null);
+      try { localStorage.removeItem(SESSION_KEY); } catch {}
+      router.replace(result.redirectTo);
+      return true;
+    }
+    if (!result.user.storeRole || !result.user.storeId) return false;
+    sessionEpoch.current += 1;
     const isOwner = result.user.storeRole === 'OWNER';
-    const next: Session = { id: isOwner ? 'owner' : result.user.id, role: isOwner ? 'owner' : 'employee', name: result.user.name };
-    setSession(next); setPeriod('month'); setRange(rangeFor('month')); setStoreLocked(false); setBlockedReason(undefined); setBlockedPaidThroughDate(undefined); setPaymentWarning(null);
-    try { sessionStorage.setItem(KEY + '-session', JSON.stringify(next)); } catch {}
+    const next: Session = { id: isOwner ? 'owner' : result.user.id, role: isOwner ? 'owner' : 'employee', name: result.user.name, storeId: result.user.storeId };
+    setSession(next); setSessionVerified(true); setPeriod('month'); setRange(rangeFor('month')); setStoreLocked(false); setBlockedReason(undefined); setBlockedPaidThroughDate(undefined); setPaymentWarning(null); setTrial(null);
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify(next)); } catch {}
     // The dashboard/screen render immediately from this optimistic session;
     // pick up the real block/warning state (if any) right after, same as a
     // reload would via the effect above, without waiting on it for login itself.
+    const loginEpoch = sessionEpoch.current;
     getSessionStatusAction().then(status => {
+      if (loginEpoch !== sessionEpoch.current) return;
       setStoreLocked(Boolean(status.storeLocked));
       setBlockedReason(status.blockedReason);
       setBlockedPaidThroughDate(status.paidThroughDate);
-      setPaymentWarning(status.paymentWarning ?? null);
+      setPaymentWarning(status.paymentWarning ?? null); setTrial(status.trial ?? null);
     }).catch(() => undefined);
+    router.replace(result.redirectTo);
     return true;
   }
-  function logout() { setSession(null); setStoreLocked(false); setBlockedReason(undefined); setBlockedPaidThroughDate(undefined); setPaymentWarning(null); try { sessionStorage.removeItem(KEY + '-session'); } catch {} void logoutAction(); }
-  return <Ctx.Provider value={{ period, setPeriod, range, setRange, user, authenticated: Boolean(user), ready, storeLocked, blockedReason, blockedPaidThroughDate, paymentWarning, login, logout }}>{children}</Ctx.Provider>;
+  async function logout() {
+    await logoutAction();
+    sessionEpoch.current += 1; clearClientCaches(); setSessionVerified(false);
+    try { localStorage.removeItem(SESSION_KEY); } catch {}
+    setSession(null); setStoreLocked(false); setBlockedReason(undefined); setBlockedPaidThroughDate(undefined); setPaymentWarning(null); setTrial(null);
+    try { sessionStorage.clear(); } catch {}
+    try { localStorage.removeItem('el_draft'); } catch {}
+  }
+  return <Ctx.Provider value={{ sessionVerified, period, setPeriod, range, setRange, user, authenticated: Boolean(user), ready, storeLocked, blockedReason, blockedPaidThroughDate, paymentWarning, trial, login, logout }}>{children}</Ctx.Provider>;
 }
 export function useAdmin() { const value = useContext(Ctx); if (!value) throw new Error('AdminProvider required'); return value; }

@@ -143,6 +143,8 @@ export interface MultiSelectDropdownProps {
   emptyLabel?: string;
   /** Disable Apply while nothing is ticked (for fields that need at least one value). */
   requireSelection?: boolean;
+  /** Commit selections immediately and omit Apply. */
+  immediate?: boolean;
 }
 
 export function MultiSelectDropdown({
@@ -155,13 +157,19 @@ export function MultiSelectDropdown({
   className = '',
   emptyLabel,
   requireSelection = false,
+  immediate = false,
 }: MultiSelectDropdownProps) {
   const { open, setOpen, close, menuId, wrapRef, triggerRef, menuRef, onKeyDown, onBlur } =
     useDropdownMenu();
   const [draft, setDraft] = useState<string[]>(selected);
   const allRef = useRef<HTMLInputElement>(null);
 
-  const draftCount = options.filter((o) => draft.includes(o.value)).length;
+  const values = immediate ? selected : draft;
+  const commit = (values: string[]) => {
+    if (immediate) onChange(values);
+    else setDraft(values);
+  };
+  const draftCount = options.filter((o) => values.includes(o.value)).length;
   const allSelected = options.length > 0 && draftCount === options.length;
   const someSelected = draftCount > 0 && !allSelected;
 
@@ -175,11 +183,11 @@ export function MultiSelectDropdown({
   };
 
   // Ticking "All" selects every option; unticking it (or pressing Clear) empties
-  // the draft. Nothing is committed until Apply.
-  const toggleAll = () => setDraft(allSelected ? [] : options.map((o) => o.value));
+  // the selection. Immediate mode commits each change; filters commit on Apply.
+  const toggleAll = () => commit(allSelected ? [] : options.map((o) => o.value));
 
   const toggleOption = (val: string) =>
-    setDraft(draft.includes(val) ? draft.filter((v) => v !== val) : [...draft, val]);
+    commit(values.includes(val) ? values.filter((v) => v !== val) : [...values, val]);
 
   const handleApply = () => {
     onChange(options.filter((o) => draft.includes(o.value)).map((o) => o.value));
@@ -189,7 +197,7 @@ export function MultiSelectDropdown({
   const handleClear = () => {
     setDraft([]);
     onChange([]);
-    close(true);
+    if (!immediate) close(true);
   };
 
   // Enter toggles a checkbox instead of submitting an enclosing form.
@@ -237,6 +245,7 @@ export function MultiSelectDropdown({
 
       {open && (
         <div ref={menuRef} id={menuId} className="dropdown-menu" role="dialog" aria-label={label}>
+          {immediate && <div className="dropdown-immediate-head"><span>{label}</span><button type="button" className="ad-text-link" onClick={handleClear} disabled={draftCount === 0}>Clear</button></div>}
           {options.length > 0 && (
             <>
               <label className="dropdown-check-row dropdown-check-all">
@@ -258,7 +267,7 @@ export function MultiSelectDropdown({
             <label key={opt.value} className="dropdown-check-row">
               <input
                 type="checkbox"
-                checked={draft.includes(opt.value)}
+                checked={values.includes(opt.value)}
                 onChange={() => toggleOption(opt.value)}
                 onKeyDown={enterToggles}
                 data-dropdown-item
@@ -275,7 +284,7 @@ export function MultiSelectDropdown({
             </p>
           )}
 
-          <div className="dropdown-foot">
+          {!immediate && <div className="dropdown-foot">
             <button
               type="button"
               className="btn btn-secondary"
@@ -292,7 +301,7 @@ export function MultiSelectDropdown({
             >
               Apply
             </button>
-          </div>
+          </div>}
         </div>
       )}
     </div>

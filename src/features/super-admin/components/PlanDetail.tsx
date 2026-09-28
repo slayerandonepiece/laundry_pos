@@ -68,9 +68,10 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
         <div className="card">
           <div className="card-head"><h2><Icon name="card" />Terms</h2></div>
           <div className="card-body" style={{ paddingTop: 6 }}>
-            <div className="kv"><span>One-time deposit</span><strong className="num">{money(plan.depositAmount)}</strong></div>
+            <div className="kv"><span>One-time deposit</span><strong className="num">{plan.depositWaivedByDefault ? 'No deposit' : money(plan.depositAmount)}</strong></div>
             <div className="kv"><span>Annual maintenance fee</span><strong className="num">{money(plan.annualFeeAmount)} / yr</strong></div>
             <div className="kv"><span>Billing cycle</span><strong>Yearly</strong></div>
+            <div className="kv"><span>Default trial period</span><strong>{plan.defaultTrialDays ? `${plan.defaultTrialDays} days` : 'None'}</strong></div>
             <div className="kv"><span>Deposit waived by default</span><strong>{plan.depositWaivedByDefault ? 'Yes' : 'No'}</strong></div>
           </div>
         </div>

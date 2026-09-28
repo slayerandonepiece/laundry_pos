@@ -274,6 +274,7 @@ export default function StoreDetailHub({
           {activeTab === 'outlets' && tabCache.outlets && (
             <StoreOutletsTab
               storeId={store.id}
+              hasActiveAccess={store.hasActiveAccess}
               outlets={tabCache.outlets.outlets}
               onRefresh={() => refreshTab('outlets')}
             />

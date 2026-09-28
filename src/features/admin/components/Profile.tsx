@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import type { Profile as ProfileType } from '../admin.types';
+import type { Profile as ProfileType, Role } from '../admin.types';
 import type { OrganizationPaymentMethodDTO } from '@/server/services/platform-payment-methods';
 import type { OutletListItem, StoreDetail } from '@/features/super-admin/types';
 import { Card, CardHeading, Badge, Dialog, useDialog } from '@/features/admin/components/ui';
@@ -23,23 +23,27 @@ function formatTimestamp(iso: string) {
 }
 
 export default function Profile({
+  readOnly = false,
+  role = 'owner',
   profile: p,
   paymentMethods,
   outlets,
   storeInfo,
   passwordUpdatedAt,
-  username = 'admin',
+  phone = '',
   onSave,
   onPassword,
   onLogout,
   error
 }: {
+  readOnly?: boolean;
+  role?: Role;
   profile: ProfileType;
   paymentMethods: OrganizationPaymentMethodDTO[];
   outlets: OutletListItem[];
   storeInfo: StoreDetail | null;
   passwordUpdatedAt?: string;
-  username?: string;
+  phone?: string;
   onSave: (p: ProfileType) => void;
   onPassword: (old: string, next: string, confirm: string) => Promise<boolean>;
   onLogout: () => void;
@@ -62,31 +66,35 @@ export default function Profile({
 
   return (
     <div className="ad-profile-grid">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {role !== 'employee' && (
+          <Card>
+            <CardHeading title="Organization details" action={<Button disabled={readOnly} secondary onClick={() => setShowEdit(true)}>Edit</Button>} />
+            <dl className="ad-profile-details">
+              <div><dt>Organization name</dt><dd>{p.store || '—'}</dd></div>
+              <div><dt>Address</dt><dd>{p.address || '—'}</dd></div>
+              <div><dt>Contact phone</dt><dd>{p.phone || '—'}</dd></div>
+              <div><dt>Email</dt><dd>{p.email || '—'}</dd></div>
+            </dl>
+          </Card>
+        )}
         <Card>
-          <CardHeading 
-            title="Profile details" 
-            action={<Button secondary onClick={() => setShowEdit(true)}>Edit</Button>} 
-          />
-          <div style={{ display: 'grid', gap: '12px' }}>
-            <div><small style={{ color: 'var(--muted)' }}>Name</small><div>{p.name}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Username</small><div>{username}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Phone</small><div>{p.phone}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Email</small><div>{p.email || '—'}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Store name</small><div>{p.store || '—'}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Store address</small><div>{p.address || '—'}</div></div>
-          </div>
+          <CardHeading title={role === 'employee' ? 'Account' : 'Owner account'} />
+          <dl className="ad-profile-details">
+            <div><dt>Name</dt><dd>{p.name}</dd></div>
+            <div><dt>Login phone</dt><dd>{phone || '—'}</dd></div>
+          </dl>
         </Card>
 
         <Card>
-          <CardHeading 
-            title="Security" 
-            action={<Button secondary onClick={() => {
+          <CardHeading
+            title="Security"
+            action={<Button disabled={readOnly} secondary onClick={() => {
               setOldPassword('');
               setNewPassword('');
               setConfirmPassword('');
               setShowPasswordDialog(true);
-            }}>Change password</Button>} 
+            }}>Change password</Button>}
           />
           <div>
             <small style={{ color: 'var(--muted)' }}>Password last changed</small>
@@ -94,52 +102,46 @@ export default function Profile({
           </div>
         </Card>
 
-        <Card>
-          <CardHeading title="Billing & subscription" />
-          <div style={{ display: 'grid', gap: '12px' }}>
-            <div><small style={{ color: 'var(--muted)' }}>Current plan</small><div>{storeInfo?.planName || 'Custom'}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Deposit amount</small><div>{storeInfo?.depositAmount !== undefined ? money(storeInfo.depositAmount) : '—'}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Annual fee</small><div>{storeInfo?.annualFeeAmount !== undefined ? money(storeInfo.annualFeeAmount) : '—'}</div></div>
-            <div><small style={{ color: 'var(--muted)' }}>Paid through date</small><div>{storeInfo?.paidThroughDate ? dateLabel(storeInfo.paidThroughDate) : 'Not set'}</div></div>
-          </div>
-        </Card>
+        {role !== 'employee' && (
+          <Card>
+            <CardHeading title="Billing & subscription" />
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <div><small style={{ color: 'var(--muted)' }}>Current plan</small><div>{storeInfo?.planName || 'Custom'}</div></div>
+              <div><small style={{ color: 'var(--muted)' }}>Deposit amount</small><div>{storeInfo?.depositAmount !== undefined ? money(storeInfo.depositAmount) : '—'}</div></div>
+              <div><small style={{ color: 'var(--muted)' }}>Annual fee</small><div>{storeInfo?.annualFeeAmount !== undefined ? money(storeInfo.annualFeeAmount) : '—'}</div></div>
+              <div><small style={{ color: 'var(--muted)' }}>Paid through date</small><div>{storeInfo?.paidThroughDate ? dateLabel(storeInfo.paidThroughDate) : 'Not set'}</div></div>
+            </div>
+          </Card>
+        )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <PaymentMethodsSettings methods={paymentMethods} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {role !== 'employee' && (
+          <>
+            <PaymentMethodsSettings readOnly={readOnly} methods={paymentMethods} />
 
-        <Card>
-          <CardHeading 
-            title="Outlets" 
-            action={<Link href="/admin/outlets" style={{ fontSize: '13px', fontWeight: 600 }}>View all &rarr;</Link>} 
-          />
-          <div style={{ overflowX: 'auto' }}>
-            <table className="grid">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Outlet</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {outlets.slice(0, 5).map(outlet => {
+            <Card>
+              <CardHeading
+                title="Outlets"
+                action={<Link href="/admin/outlets" style={{ fontSize: '13px', fontWeight: 600 }}>View all &rarr;</Link>}
+              />
+              <div className="ad-profile-outlets">
+                {outlets.map(outlet => {
                   const { tone, label } = outletStatusBadge(outlet.status);
-                  return (
-                    <tr key={outlet.id}>
-                      <td className="mono">{outlet.outletCode}</td>
-                      <td>{outlet.displayName}</td>
-                      <td>
-                        <Badge tone={tone}>{label}</Badge>
-                      </td>
-                    </tr>
-                  );
+                  return <section className="ad-profile-outlet" key={outlet.id}>
+                    <div className="ad-row"><h3>{outlet.displayName}</h3><Badge tone={tone}>{label}</Badge></div>
+                    <dl className="ad-profile-details">
+                      <div><dt>Outlet code</dt><dd>{outlet.outletCode}</dd></div>
+                      <div><dt>Address</dt><dd>{outlet.address || '—'}</dd></div>
+                      <div><dt>Phone</dt><dd>{outlet.phone || '—'}</dd></div>
+                    </dl>
+                  </section>;
                 })}
-              </tbody>
-            </table>
-          </div>
-          {outlets.length === 0 && <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '12px' }}>No outlets found.</p>}
-        </Card>
+                {!outlets.length && <p>No outlets found.</p>}
+              </div>
+            </Card>
+          </>
+        )}
 
         <Card className="ad-account-card">
           <CardHeading title="Done for the day?" subtitle="Sign out of your store workspace." />
@@ -147,7 +149,7 @@ export default function Profile({
         </Card>
       </div>
 
-      {showEdit && (
+      {showEdit && !readOnly && role !== 'employee' && (
         <Dialog title="Edit profile" onClose={() => setShowEdit(false)} warnOnChanges>
           <form className="ad-form" onSubmit={e => {
             e.preventDefault();
@@ -173,7 +175,7 @@ export default function Profile({
           }}>
             <div className="ad-form-grid">
               <label htmlFor="prof-name">Owner name<input id="prof-name" name="name" defaultValue={p.name} required/></label>
-              <label htmlFor="prof-username">Username<input id="prof-username" value={username} readOnly/></label>
+              <label htmlFor="prof-phone">Login phone number<input id="prof-phone" value={phone} readOnly/></label>
               <label htmlFor="prof-phone">Phone<input id="prof-phone" name="phone" type="tel" pattern={'[+0-9 ()\\-]{10,18}'} title="Enter a valid phone number with 10 to 15 digits" aria-label="Phone" defaultValue={p.phone} required/></label>
               <label htmlFor="prof-email">Email<input id="prof-email" name="email" type="email" defaultValue={p.email}/></label>
             </div>
@@ -187,7 +189,7 @@ export default function Profile({
         </Dialog>
       )}
 
-      {showPasswordDialog && (
+      {showPasswordDialog && !readOnly && (
         <Dialog title="Change password" onClose={() => setShowPasswordDialog(false)} warnOnChanges>
           <form className="ad-form" onSubmit={e => {
             e.preventDefault();
@@ -207,26 +209,26 @@ export default function Profile({
             </p>
             <label htmlFor="pwd-old">
               Current password
-              <input 
+              <input
                 id="pwd-old"
-                name="old" 
-                type={showPassword ? 'text' : 'password'} 
+                name="old"
+                type={showPassword ? 'text' : 'password'}
                 value={oldPassword}
                 onChange={e => setOldPassword(e.target.value)}
-                autoComplete="current-password" 
+                autoComplete="current-password"
                 required
               />
             </label>
             <label htmlFor="pwd-next">
               New password
-              <input 
+              <input
                 id="pwd-next"
-                name="next" 
-                type={showPassword ? 'text' : 'password'} 
+                name="next"
+                type={showPassword ? 'text' : 'password'}
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
-                autoComplete="new-password" 
-                minLength={8} 
+                autoComplete="new-password"
+                minLength={8}
                 required
               />
               {newPassword.length > 0 && newPassword.length < 8 && (
@@ -238,14 +240,14 @@ export default function Profile({
             </label>
             <label htmlFor="pwd-confirm">
               Confirm new password
-              <input 
+              <input
                 id="pwd-confirm"
-                name="confirm" 
-                type={showPassword ? 'text' : 'password'} 
+                name="confirm"
+                type={showPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
-                autoComplete="new-password" 
-                minLength={8} 
+                autoComplete="new-password"
+                minLength={8}
                 required
               />
               {confirmPassword.length > 0 && newPassword !== confirmPassword && (

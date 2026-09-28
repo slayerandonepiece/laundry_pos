@@ -1,3 +1,4 @@
+import { normalizePhone } from '@/lib/contactValidation';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
@@ -10,7 +11,7 @@ import { handleApiRoute, jsonResponse } from '@/server/api/handler';
 export const runtime = 'nodejs';
 
 const loginSchema = z.object({
-  username: z.string().trim().min(1, 'Username is required'),
+  phone: z.string().trim().min(8, 'Phone number is required').max(20).transform(normalizePhone).refine(value => /^[0-9]{8,15}$/.test(value), 'Enter a valid phone number (8–15 digits).'),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -18,9 +19,9 @@ export async function POST(req: NextRequest) {
   return handleApiRoute(async () => {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
     const body = await req.json();
-    const { username, password } = loginSchema.parse(body);
+    const { phone, password } = loginSchema.parse(body);
 
-    const throttle = checkLoginThrottle(username, ip);
+    const throttle = checkLoginThrottle(phone, ip);
     if (!throttle.allowed) {
       return jsonResponse(
         { error: `Too many failed attempts. Try again in ${throttle.retryAfterSeconds} seconds.` },
@@ -29,21 +30,21 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await prisma.user.findUnique({
-      where: { username: username.toLowerCase() },
+      where: { phone: normalizePhone(phone) },
     });
 
     if (!user || !user.active) {
-      recordFailedLoginAttempt(username, ip);
-      return jsonResponse({ error: 'Invalid username or password' }, 401);
+      recordFailedLoginAttempt(phone, ip);
+      return jsonResponse({ error: 'Invalid phone number or password' }, 401);
     }
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
-      recordFailedLoginAttempt(username, ip);
-      return jsonResponse({ error: 'Invalid username or password' }, 401);
+      recordFailedLoginAttempt(phone, ip);
+      return jsonResponse({ error: 'Invalid phone number or password' }, 401);
     }
 
-    clearLoginThrottle(username, ip);
+    clearLoginThrottle(phone, ip);
 
     const session = await createSessionRow(user.id, user.credentialVersion);
 
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
       user: {
         id: user.id,
         name: user.name,
-        username: user.username,
+        phone: user.phone,
         isSuperAdmin: user.isSuperAdmin,
         mustChangePassword: user.mustChangePassword,
       },

@@ -2,8 +2,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/features/admin/components/Primitives';
-import { dateLabelFull, money } from '@/features/admin/admin.data';
-import { lookupOwnerAction, onboardStoreAction } from '../actions/stores.actions';
+import { isValidPhone, isValidNewPassword } from '@/lib/contactValidation';
+import { dateLabelFull, money, today } from '@/features/admin/admin.data';
+import { lookupOwnerByPhoneAction, onboardStoreAction } from '../actions/stores.actions';
 import PlanPickerCards from './PlanPickerCards';
 import PlanEditor from './PlanEditor';
 import Dialog, { useDialogClose, DialogFooter } from './Dialog';
@@ -18,26 +19,29 @@ interface Draft {
   phone: string;
   ownerMode: 'new' | 'existing';
   ownerName: string;
-  ownerUsername: string;
   ownerPassword: string;
-  existingUsername: string;
+  ownerPhone: string;
+  existingPhone: string;
   existingOwner: OwnerLookupResult | null;
-  subscriptionMode: 'plan' | 'custom';
-  planId: string;
-  chargeDepositAnyway: boolean;
-  discountAmount: string;
+  subscriptionMode: 'plan' | 'trial' | 'custom';
+  trialStartDate: string;
+  trialEndDate: string;
   depositAmount: string;
   annualFeeAmount: string;
-  markPaid: boolean;
   notes: string;
+  markPaid: boolean;
+  paymentMethod: 'UPI' | 'CASH';
+  paymentReference: string;
+  planId: string;
+  discountAmount: string;
 }
 
 const blank: Draft = {
   storeName: '', address: '', phone: '',
-  ownerMode: 'new', ownerName: '', ownerUsername: '', ownerPassword: '',
-  existingUsername: '', existingOwner: null,
-  subscriptionMode: 'custom', planId: '', chargeDepositAnyway: false, discountAmount: '0',
-  depositAmount: '10000', annualFeeAmount: '5000', markPaid: true, notes: '',
+  ownerMode: 'new', ownerName: '', ownerPassword: '', ownerPhone: '',
+  existingPhone: '', existingOwner: null,
+  subscriptionMode: 'plan', trialStartDate: '', trialEndDate: '', depositAmount: '10000', annualFeeAmount: '5000', notes: '', markPaid: false, paymentMethod: 'UPI', paymentReference: '',
+  planId: '', discountAmount: '0',
 };
 
 export default function OnboardingWizard({ plans: initialPlans, onSaved }: { plans: SubscriptionPlanListItem[]; onSaved: (store: StoreListItem) => void }) {
@@ -58,22 +62,25 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
   function validateStep(): string | null {
     if (step === 0) {
       if (!draft.storeName.trim()) return 'Enter an organization name.';
+      if (draft.phone.trim() && !isValidPhone(draft.phone)) return 'Enter a valid phone number (8–15 digits).';
+      if (!draft.phone.trim()) return 'Enter a contact phone number for this organization.';
     }
     if (step === 1) {
       if (draft.ownerMode === 'new') {
-        if (!draft.ownerName.trim() || !/^[a-z0-9._-]{3,40}$/.test(draft.ownerUsername)) return 'Enter a name and a username with 3–40 letters, numbers, dots, underscores or hyphens.';
-        if (draft.ownerPassword.length < 8) return 'Use a temporary password with at least 8 characters.';
+        if (draft.ownerName.trim().length < 2 || draft.ownerName.trim().length > 100) return 'Enter an owner name with 2–100 characters.';
+        if (!isValidNewPassword(draft.ownerPassword)) return 'Use at least 8 characters with a letter and a number.';
+        if (draft.ownerPhone.trim() && !isValidPhone(draft.ownerPhone)) return 'Enter a valid owner phone number (8–15 digits).';
+        if (!draft.ownerPhone.trim()) return "Enter the owner's phone number.";
       } else if (!draft.existingOwner) {
-        return 'Look up an existing owner by phone number or username first.';
+        return 'Look up an existing owner by phone number first.';
       }
     }
     if (step === 2) {
-      if (draft.subscriptionMode === 'plan') {
-        if (!draft.planId) return 'Choose a plan.';
-      } else {
-        if (!Number.isFinite(Number(draft.depositAmount)) || Number(draft.depositAmount) < 0) return 'Enter a valid deposit amount.';
-        if (!Number.isFinite(Number(draft.annualFeeAmount)) || Number(draft.annualFeeAmount) < 0) return 'Enter a valid annual fee.';
-      }
+      if (draft.subscriptionMode === 'plan' && !draft.planId) return 'Choose a plan.';
+      if (draft.subscriptionMode === 'trial' && (!draft.trialEndDate || draft.trialEndDate <= today())) return 'Choose a trial end date after today.';
+      if (draft.subscriptionMode === 'trial' && draft.trialStartDate && draft.trialStartDate >= draft.trialEndDate) return 'Trial start date must be before the end date.';
+      if (draft.subscriptionMode === 'custom' && [draft.depositAmount, draft.annualFeeAmount].some(value => !value.trim() || !Number.isFinite(Number(value)) || Number(value) < 0)) return 'Enter valid deposit and annual fee amounts.';
+      if (!Number.isFinite(Number(draft.discountAmount)) || Number(draft.discountAmount) < 0) return 'Enter a valid discount amount.';
     }
     return null;
   }
@@ -87,7 +94,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
   function jump(index: number) { setError(''); setLookupError(''); setStep(index); }
 
   function lookupOwner() {
-    const query = draft.existingUsername.trim();
+    const query = draft.existingPhone.trim();
     if (!query) return;
     setLookupBusy(true);
     setLookupError('');
@@ -100,12 +107,12 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       setLookupError('Search timed out after 30 seconds. Please try again.');
     }, 30000);
 
-    lookupOwnerAction(query)
+    lookupOwnerByPhoneAction(query)
       .then(result => {
         if (timedOut) return;
         clearTimeout(timeoutId);
         if (!result) {
-          setLookupError('No customer account found with that mobile number or username.');
+          setLookupError('No customer account found with that phone number.');
           change({ existingOwner: null });
           return;
         }
@@ -125,17 +132,20 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
   }
 
   function selectPlan(planId: string) {
-    change({ planId, chargeDepositAnyway: false });
+    change({ planId });
   }
 
   function submit() {
     const owner: OnboardStoreInput['owner'] = draft.ownerMode === 'new'
-      ? { mode: 'new', name: draft.ownerName.trim(), username: draft.ownerUsername, password: draft.ownerPassword }
+      ? { mode: 'new', name: draft.ownerName.trim(), password: draft.ownerPassword.trim(), ownerPhone: draft.ownerPhone.trim() }
       : { mode: 'existing', userId: draft.existingOwner!.id };
 
-    const subscription: OnboardStoreInput['subscription'] = draft.subscriptionMode === 'plan'
-      ? { mode: 'plan', planId: draft.planId, discountAmount: Math.round(Number(draft.discountAmount) * 100), chargeDepositAnyway: draft.chargeDepositAnyway }
-      : { mode: 'custom', depositAmount: Math.round(Number(draft.depositAmount) * 100), annualFeeAmount: Math.round(Number(draft.annualFeeAmount) * 100) };
+    if (busy) return;
+    const subscription: OnboardStoreInput['subscription'] = draft.subscriptionMode === 'trial'
+      ? { mode: 'trial', trialStartDate: draft.trialStartDate || undefined, trialEndDate: draft.trialEndDate }
+      : draft.subscriptionMode === 'custom'
+      ? { mode: 'custom', depositAmount: Math.round(Number(draft.depositAmount) * 100), annualFeeAmount: Math.round(Number(draft.annualFeeAmount) * 100) }
+      : { mode: 'plan', planId: draft.planId, discountAmount: Math.round(Number(draft.discountAmount) * 100) };
 
     setBusy(true);
     onboardStoreAction({
@@ -144,7 +154,9 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       phone: draft.phone.trim(),
       owner,
       subscription,
-      markPaid: draft.markPaid,
+      markPaid: recordPayment,
+      paymentMethod: recordPayment ? draft.paymentMethod : undefined,
+      paymentReference: recordPayment ? draft.paymentReference.trim() || undefined : undefined,
       notes: draft.notes.trim() || undefined,
     })
       .then(result => {
@@ -156,18 +168,15 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       .catch(() => { setError('Could not onboard this organization. Try again.'); setBusy(false); });
   }
 
-  const discountPaise = Math.round((Number(draft.discountAmount) || 0) * 100);
-  const planDepositPaise = selectedPlan ? (selectedPlan.depositWaivedByDefault && !draft.chargeDepositAnyway ? 0 : selectedPlan.depositAmount) : 0;
-  const depositPaise = draft.subscriptionMode === 'plan' ? Math.max(planDepositPaise - discountPaise, 0) : Math.round((Number(draft.depositAmount) || 0) * 100);
-  const annualPaise = draft.subscriptionMode === 'plan' ? (selectedPlan?.annualFeeAmount ?? 0) : Math.round((Number(draft.annualFeeAmount) || 0) * 100);
-  // Amount due is a pricing fact, not a payment-status fact. Keeping these
-  // separate prevents unticking markPaid from hiding its own checkbox (S1).
-  const amountDuePaise = depositPaise + annualPaise;
+  const discountPaise = draft.subscriptionMode === 'plan' ? Math.round((Number(draft.discountAmount) || 0) * 100) : 0;
+  const depositPaise = draft.subscriptionMode === 'custom' ? Math.round(Number(draft.depositAmount) * 100) : draft.subscriptionMode === 'plan' && selectedPlan ? (selectedPlan.depositWaivedByDefault ? 0 : selectedPlan.depositAmount) : 0;
+  const annualPaise = draft.subscriptionMode === 'custom' ? Math.round(Number(draft.annualFeeAmount) * 100) : draft.subscriptionMode === 'plan' ? selectedPlan?.annualFeeAmount ?? 0 : 0;
+  const amountDuePaise = Math.max(depositPaise + annualPaise - discountPaise, 0);
+  const recordPayment = draft.subscriptionMode !== 'trial' && amountDuePaise > 0 && draft.markPaid;
+  const dateAfterDays = (days: number) => new Date(new Date(today() + 'T00:00:00Z').getTime() + days * 86400000).toISOString().slice(0, 10);
 
   if (createdStore) {
-    const invoiceSummary = draft.markPaid && amountDuePaise > 0
-      ? `Two invoices were generated: ${money(depositPaise)} deposit and ${money(annualPaise)} annual.`
-      : 'No payment was marked received. Record it later from the Subscription tab.';
+    const invoiceSummary = draft.subscriptionMode === 'trial' ? `Free trial until ${dateLabelFull(draft.trialEndDate)}. No payment or invoice created.` : recordPayment ? 'Payment recorded and invoices generated. View them on the Subscription tab.' : 'No payment was marked received. Record it later from the Subscription tab.';
 
     return <div className="empty" style={{ padding: '28px 12px 12px' }}>
       <span className="ic l" style={{ color: 'var(--good-fg)' }}><Icon name="check" size="l" /></span>
@@ -178,9 +187,9 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       <div className="card" style={{ margin: '18px auto', maxWidth: 480, textAlign: 'left' }}>
         <div className="card-body">
           <div className="kv"><span>Organization</span><strong>{createdStore.name}</strong></div>
-          <div className="kv"><span>Owner login</span><strong>@{createdStore.ownerUsername}</strong></div>
+          <div className="kv"><span>Owner login</span><strong>{createdStore.ownerPhone}</strong></div>
           <div className="kv"><span>Paid through</span><strong>{createdStore.paidThroughDate ? dateLabelFull(createdStore.paidThroughDate) : 'Not paid yet'}</strong></div>
-          <div className="kv"><span>Outlets</span><strong>{createdStore.outletCount} — none yet</strong></div>
+          <div className="kv"><span>Outlets</span><strong>{createdStore.outletCount > 0 ? `${createdStore.outletCount} outlet${createdStore.outletCount > 1 ? 's' : ''}` : 'No outlets yet — add the first one from the Outlets tab.'}</strong></div>
         </div>
       </div>
       <div className="notice warn" style={{ maxWidth: 480, margin: '0 auto 18px', textAlign: 'left' }}>
@@ -194,7 +203,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
     </div>;
   }
 
-  return <div className="ad-form">
+  return <div className="ad-form" aria-busy={busy}>
     <p className="muted" aria-live="polite">Step {step + 1} of {STEPS.length} — {step === 3 ? 'check everything before it is created.' : STEPS[step]}</p>
     <div className="steps" role="list" aria-label="Onboarding steps">
       {STEPS.map((label, index) => <span key={label} role="listitem" className={'step' + (index === step ? ' on' : index < step ? ' done' : '')}>{label}</span>)}
@@ -205,7 +214,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       <p className="ad-help">This becomes the organization&apos;s name across the platform and on invoices.</p>
       <label>Organization name<input value={draft.storeName} onChange={e => change({ storeName: e.target.value })} placeholder="e.g. Sunrise Laundromat" required /></label>
       <label>Address (optional)<textarea value={draft.address} onChange={e => change({ address: e.target.value })} placeholder="Street, city and postcode" /></label>
-      <label>Phone (optional)<input value={draft.phone} onChange={e => change({ phone: e.target.value })} placeholder="Contact number" /></label>
+      <label>Phone *<input type="tel" required value={draft.phone} onChange={e => change({ phone: e.target.value })} placeholder="Contact number" /></label>
     </>}
 
     {step === 1 && <>
@@ -264,28 +273,30 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
 
       {draft.ownerMode === 'new' ? <>
         <label>Owner name<input value={draft.ownerName} onChange={e => change({ ownerName: e.target.value })} placeholder="Full name" required /></label>
-        <label>Username<input value={draft.ownerUsername} onChange={e => change({ ownerUsername: e.target.value.toLowerCase() })} placeholder="letters, numbers, dots, underscores, hyphens" required /></label>
-        <label>Temporary password<input type="text" value={draft.ownerPassword} onChange={e => change({ ownerPassword: e.target.value })} placeholder="At least 8 characters" required /></label>
+        <label>Temporary password<input type="password" value={draft.ownerPassword} onChange={e => change({ ownerPassword: e.target.value })} placeholder="At least 8 characters" required /></label>
+        <label>Owner login phone number *<input type="tel" inputMode="numeric" value={draft.ownerPhone} onChange={e => change({ ownerPhone: e.target.value })} placeholder="+91 98765 43210" required /></label>
       </> : <>
         <div className="field">
-          <label htmlFor="customer-search-input">Search customer by phone or username</label>
+          <label htmlFor="customer-search-input">Search customer by phone number</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
               id="customer-search-input"
+              type="tel"
+              inputMode="numeric"
               style={{ flex: 1 }}
-              value={draft.existingUsername}
+              value={draft.existingPhone}
               onChange={e => {
-                change({ existingUsername: e.target.value, existingOwner: null });
+                change({ existingPhone: e.target.value, existingOwner: null });
                 setLookupError('');
               }}
-              placeholder="Enter 10-digit mobile number or username..."
+              placeholder="Enter 10-digit phone number..."
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); lookupOwner(); } }}
             />
             <Button
               type="button"
               secondary
               onClick={lookupOwner}
-              disabled={lookupBusy || !draft.existingUsername.trim()}
+              disabled={lookupBusy || !draft.existingPhone.trim()}
               style={{ flexShrink: 0, minWidth: 140 }}
             >
               {lookupBusy ? 'Searching…' : 'Search customer'}
@@ -303,7 +314,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
               <Icon name="check" size="s" /> Verified Customer Account
             </div>
             <div style={{ fontSize: 13, color: 'var(--ink)' }}>
-              <strong>{draft.existingOwner.name}</strong> (@{draft.existingOwner.username})
+              <strong>{draft.existingOwner.name}</strong>
               {draft.existingOwner.phone && <span style={{ marginLeft: 6, color: 'var(--ink-2)' }}>· 📞 {draft.existingOwner.phone}</span>}
             </div>
             <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--muted)' }}>
@@ -323,132 +334,89 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
         </p>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '8px 0 16px' }}>
-        <button
-          type="button"
-          disabled={!plans.length}
-          onClick={() => change({ subscriptionMode: 'plan' })}
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 12,
-            padding: '12px 14px',
-            borderRadius: 10,
-            border: draft.subscriptionMode === 'plan' ? '1.5px solid var(--brand)' : '1px solid var(--line-2)',
-            background: draft.subscriptionMode === 'plan' ? 'var(--brand-soft)' : '#fff',
-            cursor: plans.length ? 'pointer' : 'not-allowed',
-            textAlign: 'left',
-            boxShadow: draft.subscriptionMode === 'plan' ? '0 0 0 1px var(--brand) inset' : 'none',
-            transition: 'all .15s ease',
-            opacity: plans.length ? 1 : 0.6,
-          }}
-        >
-          <div style={{ width: 18, height: 18, borderRadius: '50%', border: draft.subscriptionMode === 'plan' ? '5px solid var(--brand)' : '1.5px solid var(--line)', background: '#fff', marginTop: 2, flexShrink: 0 }} />
-          <div>
-            <strong style={{ display: 'block', fontSize: 13, color: 'var(--ink)' }}>Pre-configured plan</strong>
-            <small style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Select reusable pricing template</small>
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => change({ subscriptionMode: 'custom' })}
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 12,
-            padding: '12px 14px',
-            borderRadius: 10,
-            border: draft.subscriptionMode === 'custom' ? '1.5px solid var(--brand)' : '1px solid var(--line-2)',
-            background: draft.subscriptionMode === 'custom' ? 'var(--brand-soft)' : '#fff',
-            cursor: 'pointer',
-            textAlign: 'left',
-            boxShadow: draft.subscriptionMode === 'custom' ? '0 0 0 1px var(--brand) inset' : 'none',
-            transition: 'all .15s ease',
-          }}
-        >
-          <div style={{ width: 18, height: 18, borderRadius: '50%', border: draft.subscriptionMode === 'custom' ? '5px solid var(--brand)' : '1.5px solid var(--line)', background: '#fff', marginTop: 2, flexShrink: 0 }} />
-          <div>
-            <strong style={{ display: 'block', fontSize: 13, color: 'var(--ink)' }}>Custom terms</strong>
-            <small style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Define one-off deposit & fee</small>
-          </div>
+      <fieldset className="subscription-mode">
+        <legend>Subscription</legend>
+        {([['plan', 'Use a plan', 'Select reusable pricing terms'], ['trial', 'Free trial', 'Set an end date, no payment'], ['custom', 'Custom terms', 'Enter deposit and annual fee']] as const).map(([mode, label, help]) => <label className="ad-checkbox" key={mode}>
+          <input type="radio" name="subscription-mode" checked={draft.subscriptionMode === mode} onChange={() => change({ subscriptionMode: mode, markPaid: false, ...(mode === 'trial' && selectedPlan?.defaultTrialDays ? { trialEndDate: dateAfterDays(selectedPlan.defaultTrialDays) } : {}) })} />
+          <span><strong>{label}</strong><small>{help}</small></span>
+        </label>)}
+      </fieldset>
+      {draft.subscriptionMode === 'trial' && <>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label>Trial starts (optional)<input type="date" value={draft.trialStartDate} onChange={e => change({ trialStartDate: e.target.value })} /><span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted, #64748b)' }}>Leave blank to start immediately.</span></label>
+          <label>Trial end date<input type="date" min={dateAfterDays(1)} value={draft.trialEndDate} onChange={e => change({ trialEndDate: e.target.value })} /></label>
+        </div>
+        <div className="ad-row">{[7, 14, 30, 60, 90].map(days => <button type="button" className="btn outline sm" key={days} onClick={() => change({ trialEndDate: dateAfterDays(days) })}>{days} days</button>)}</div>
+        <p className="ad-help">Nothing due today. No payment or invoice is created.</p>
+      </>}
+      {draft.subscriptionMode === 'custom' && <div className="ad-form-grid">
+        <label>Deposit (₹)<input type="number" min="0" step="0.01" value={draft.depositAmount} onChange={e => change({ depositAmount: e.target.value })} /></label>
+        <label>Annual maintenance fee (₹)<input type="number" min="0" step="0.01" value={draft.annualFeeAmount} onChange={e => change({ annualFeeAmount: e.target.value })} /></label>
+      </div>}
+      {draft.subscriptionMode === 'plan' && <>
+      {plans.length > 0 && <PlanPickerCards plans={plans} value={draft.planId} onChange={selectPlan} />}
+      <div style={{ margin: '6px 0 12px' }}>
+        <button type="button" className="ad-order-link" onClick={() => setCreatingPlan(true)}>
+          <Icon name="plus" size="s" /> Create a new template plan
         </button>
       </div>
 
-      {draft.subscriptionMode === 'plan' ? <>
-        {plans.length > 0 && <PlanPickerCards plans={plans} value={draft.planId} onChange={selectPlan} />}
-        <div style={{ margin: '6px 0 12px' }}>
-          <button type="button" className="ad-order-link" onClick={() => setCreatingPlan(true)}>
-            <Icon name="plus" size="s" /> Create a new template plan
-          </button>
-        </div>
+      <label>Discount, optional (₹)<input type="number" min="0" step="0.01" value={draft.discountAmount} onChange={e => change({ discountAmount: e.target.value })} /></label>
 
-        {selectedPlan?.depositWaivedByDefault && (
-          <label className="ad-checkbox">
-            <input type="checkbox" checked={draft.chargeDepositAnyway} onChange={e => change({ chargeDepositAnyway: e.target.checked })} />
-            Charge a deposit anyway ({money(selectedPlan.depositAmount)}) — this plan waives it by default
-          </label>
-        )}
+      </>}
+      {draft.subscriptionMode !== 'trial' && <label>Notes (optional)<textarea value={draft.notes} onChange={e => change({ notes: e.target.value })} /></label>}
 
-        <label>Discount, optional (₹)<input type="number" min="0" step="1" value={draft.discountAmount} onChange={e => change({ discountAmount: e.target.value })} /></label>
-
-        {selectedPlan && (
-          <div style={{ background: '#f8fafc', border: '1px solid var(--line-2)', borderRadius: 10, padding: '14px 16px', marginTop: 8 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--muted)' }}>Deposit:</span>
-                <strong className="num">{selectedPlan?.depositWaivedByDefault && !draft.chargeDepositAnyway ? '₹0 (Waived)' : money(depositPaise + discountPaise)}</strong>
+      {draft.subscriptionMode !== 'trial' && (selectedPlan || draft.subscriptionMode === 'custom') && (
+        <div style={{ background: '#f8fafc', border: '1px solid var(--line-2)', borderRadius: 10, padding: '14px 16px', marginTop: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--muted)' }}>Deposit:</span>
+              <strong className="num">{draft.subscriptionMode === 'plan' && selectedPlan?.depositWaivedByDefault ? '₹0 (Waived)' : money(depositPaise)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--muted)' }}>Annual maintenance (1st year):</span>
+              <strong className="num">{money(annualPaise)}</strong>
+            </div>
+            {discountPaise > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669' }}>
+                <span>Discount applied:</span>
+                <strong className="num">− {money(discountPaise)}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--muted)' }}>Annual maintenance (1st year):</span>
-                <strong className="num">{money(annualPaise)}</strong>
-              </div>
-              {discountPaise > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669' }}>
-                  <span>Discount applied:</span>
-                  <strong className="num">− {money(discountPaise)}</strong>
-                </div>
-              )}
-              <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 14 }}>
-                <span>Total due at onboarding:</span>
-                <span className="badge good" style={{ fontSize: 13, padding: '4px 10px' }}>{money(amountDuePaise)}</span>
-              </div>
+            )}
+            <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 14 }}>
+              <span>Total after discount:</span>
+              <span className="badge good" style={{ fontSize: 13, padding: '4px 10px' }}>{money(amountDuePaise)}</span>
             </div>
           </div>
-        )}
-      </> : <div className="ad-form-grid">
-        <label>Deposit (₹)<input type="number" min="0" step="1" value={draft.depositAmount} onChange={e => change({ depositAmount: e.target.value })} /></label>
-        <label>Annual maintenance (₹)<input type="number" min="0" step="1" value={draft.annualFeeAmount} onChange={e => change({ annualFeeAmount: e.target.value })} /></label>
-      </div>}
-      <label>Notes (optional)<textarea value={draft.notes} onChange={e => change({ notes: e.target.value })} placeholder="e.g. 2nd location, bundled with #1" /></label>
-      {draft.subscriptionMode === 'custom' && (
-        <div style={{ background: '#f8fafc', border: '1px solid var(--line-2)', borderRadius: 10, padding: '14px 16px', marginTop: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 14 }}>
-            <span>Total due at onboarding:</span>
-            <span className="badge good" style={{ fontSize: 13, padding: '4px 10px' }}>{money(amountDuePaise)}</span>
-          </div>
         </div>
       )}
-      {amountDuePaise === 0 ? (
-        <p className="ad-help">Nothing due today — no deposit or annual fee is on file yet.</p>
-      ) : (
-        <label className="ad-checkbox">
-          <input type="checkbox" checked={draft.markPaid} onChange={e => change({ markPaid: e.target.checked })} />
-          Deposit and first year received today — generates separate deposit and annual invoices. Untick if payment has not arrived yet; the amount due stays visible and this can be reticked before continuing.
-        </label>
-      )}
+      {draft.subscriptionMode !== 'trial' && amountDuePaise === 0 && <p className="ad-help">Nothing due today.</p>}
+      {draft.subscriptionMode !== 'trial' && amountDuePaise > 0 && <>
+        <label className="ad-checkbox"><input type="checkbox" checked={draft.markPaid} onChange={e => change({ markPaid: e.target.checked })} />Payment received — record it now and generate invoices</label>
+        {draft.markPaid && <div className="ad-form-grid">
+          <label>Payment method<select value={draft.paymentMethod} onChange={e => change({ paymentMethod: e.target.value as 'UPI' | 'CASH' })}><option value="UPI">UPI</option><option value="CASH">Cash</option></select></label>
+          <label>Reference (optional)<input value={draft.paymentReference} onChange={e => change({ paymentReference: e.target.value })} placeholder="UPI transaction ID" /></label>
+        </div>}
+      </>}
     </>}
 
     {step === 3 && <>
       <h3>Review</h3>
       <ul className="ad-review-list">
-        <li><span>Organization</span><b>{draft.storeName || '—'} <button type="button" className="ad-order-link" onClick={() => jump(0)}>Edit</button></b></li>
-        <li><span>Owner</span><b>{draft.ownerMode === 'new' ? `${draft.ownerName} (new, @${draft.ownerUsername})` : `${draft.existingOwner?.name} (@${draft.existingOwner?.username})`} <button type="button" className="ad-order-link" onClick={() => jump(1)}>Edit</button></b></li>
-        <li><span>Plan</span><b>{draft.subscriptionMode === 'plan' ? selectedPlan?.name ?? '—' : 'Custom terms'} <button type="button" className="ad-order-link" onClick={() => jump(2)}>Edit</button></b></li>
+        <li><span>Organization</span><b>{draft.storeName || '—'} <button type="button" className="ad-order-link" onClick={() => jump(0)} disabled={busy}>Edit</button></b></li>
+        <li><span>Owner</span><b>{draft.ownerMode === 'new' ? `${draft.ownerName} (new, ${draft.ownerPhone})` : `${draft.existingOwner?.name} (${draft.existingOwner?.phone})`} <button type="button" className="ad-order-link" onClick={() => jump(1)} disabled={busy}>Edit</button></b></li>
+        <li><span>Plan</span><b>{draft.subscriptionMode === 'trial' ? 'Free trial' : draft.subscriptionMode === 'custom' ? 'Custom terms' : selectedPlan?.name ?? '—'} <button type="button" className="ad-order-link" onClick={() => jump(2)} disabled={busy}>Edit</button></b></li>
+        {draft.subscriptionMode === 'trial' ? <>
+        <li><span>Trial starts</span><b>{draft.trialStartDate ? dateLabelFull(draft.trialStartDate) : 'Immediately'}</b></li>
+        <li><span>Trial ends</span><b>{dateLabelFull(draft.trialEndDate)}</b></li>
+        </> : <>
         <li><span>Deposit</span><b>{money(depositPaise)}</b></li>
         <li><span>Annual fee</span><b>{money(annualPaise)}</b></li>
-        <li><span>Payment</span><b>{draft.markPaid && amountDuePaise > 0 ? 'Marked received today' : 'Not yet received'}</b></li>
+        <li><span>Discount</span><b>{money(discountPaise)}</b></li>
+        <li><span>Total after discount</span><b>{money(amountDuePaise)}</b></li>
+        <li><span>Payment</span><b>{recordPayment ? `Recorded — ${draft.paymentMethod}` : 'Not yet received'}</b></li>
+        </>}
       </ul>
 
       {draft.ownerMode === 'existing' && draft.existingOwner && (
@@ -460,9 +428,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
           <li>{draft.storeName || 'The organization'} is created and goes live immediately</li>
           <li>{draft.ownerMode === 'new' ? `A new account is created for ${draft.ownerName || 'the owner'}` : `The organization is linked to ${draft.existingOwner?.name ?? 'the existing owner'}`}</li>
-          {draft.markPaid && amountDuePaise > 0
-            ? <li>Two invoices are generated — {money(depositPaise)} deposit and {money(annualPaise)} annual</li>
-            : <li>No invoice is generated until a payment is recorded</li>}
+          <li>{recordPayment ? 'Payment is recorded and invoices are generated' : 'No invoice is generated until a payment is recorded'}</li>
         </ul>
       </div>
     </>}
@@ -471,8 +437,8 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
 
     <DialogFooter>
       <div className="ad-row" style={{ marginRight: 'auto' }}>
-        {step > 0 && <Button secondary type="button" onClick={back}>Back</Button>}
-        <Button secondary type="button" onClick={onCancel}>Cancel</Button>
+        {step > 0 && <Button secondary type="button" onClick={back} disabled={busy}>Back</Button>}
+        <Button secondary type="button" onClick={onCancel} disabled={busy}>Cancel</Button>
       </div>
       {step < STEPS.length - 1
         ? <Button type="button" onClick={next}>Continue →</Button>

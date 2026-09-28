@@ -108,7 +108,7 @@
 .ad-dialog-body:has(.ad-order-form){padding:0;overflow:hidden}
 .ad-order-form{height:100%;min-height:0;gap:0}
 .ad-dialog-body:has(.ad-pdf-viewer){padding:0;overflow:hidden}
-.ad-pdf-viewer{height:100%;min-height:0;display:flex;flex-direction:column}
+.ad-pdf-viewer{position:relative;height:100%;min-height:0;display:flex;flex-direction:column}
 .ad-pdf-toolbar{flex-shrink:0;display:flex;gap:10px;padding:14px 20px;border-bottom:1px solid #e5e9ee}
 .ad-pdf-frame{flex:1;min-height:0;width:100%;border:0}
 .ad-dialog.ad-dialog-modal{position:fixed;inset:0;margin:auto;width:min(880px,calc(100vw - 32px));max-width:min(880px,calc(100vw - 32px));height:min(88vh,850px);max-height:min(88vh,850px);border-radius:16px;border:1px solid #dce2e9;box-shadow:0 24px 80px #061b3a33;display:none;flex-direction:column;overflow:hidden}
@@ -243,3 +243,28 @@
 /* Bill/Invoice card: compact line breakdown (name, qty × rate, amount) */
 .ad-bill-lines .ad-history span small{display:block;color:var(--color-muted);font-size:12px}
 .ad-details-header>div:last-child strong{white-space:nowrap}
+
+.ad-pdf-loading{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#667085}
+
+.pdf-preview { position: relative; min-height: 300px; height: 100%; overflow: auto; background: #e5e7eb; }
+.pdf-preview-pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px; }
+.pdf-preview-pages canvas { display: block; width: 100%; max-width: 900px; height: auto; background: white; box-shadow: 0 2px 8px #0002; }
+.pdf-preview-error { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 40px; flex-wrap: wrap; color: #17253e; }
+
+/* Match Orders and Expenses loading cards at mobile widths. */
+.workspace-loading-mobile{display:none}
+.workspace-loading-card{height:76px;border-radius:12px;background:var(--skeleton,#eef0f3);margin-bottom:8px}
+@media(max-width:768px){.workspace-loading-desktop{display:none}.workspace-loading-mobile{display:block}}
+
+/* Shared field focus, date controls and compact form choices. */
+.ad-root :is(input,select,textarea):focus{outline:2px solid var(--ad-blue);outline-offset:1px;box-shadow:none;border-color:var(--border,#dce2e9)}
+.ad-root input[type="date"]{display:block;line-height:normal;min-height:40px;height:40px}
+.ad-root input[type="date"]::-webkit-datetime-edit{padding:0;display:inline-flex;align-items:center;height:100%}
+.employee-form{display:flex;flex-direction:column;gap:15px}
+.dropdown-immediate-head{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border)}
+.expense-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.ad-root .expense-option{display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-weight:500}
+.ad-root .expense-option input{flex-shrink:0;min-height:16px;height:16px;width:16px;padding:0;accent-color:var(--ad-blue)}
+.ad-customer-search{display:flex;gap:8px;align-items:center}
+.ad-customer-search input{flex:1;min-width:0;width:100%}
+.ad-customer-search button{flex-shrink:0}

@@ -26,10 +26,12 @@ export default function StoresDirectory({ stores, search, onSearch, onEdit, onLo
     active: stores.filter(s => s.paymentState === 'active').length,
     expiring: stores.filter(s => s.paymentState === 'expiring').length,
     locked: stores.filter(s => s.paymentState === 'locked').length,
+    trial: stores.filter(s => s.paymentState === 'trial').length,
+    trial_ending: stores.filter(s => s.paymentState === 'trial_ending').length,
     unset: stores.filter(s => s.paymentState === 'unset').length,
   }), [stores]);
 
-  const searched = stores.filter(s => (s.name + ' ' + s.ownerName + ' ' + s.ownerUsername).toLowerCase().includes(search.trim().toLowerCase()));
+  const searched = stores.filter(s => (s.name + ' ' + s.ownerName + ' ' + s.ownerPhone).toLowerCase().includes(search.trim().toLowerCase()));
   const filtered = filter === 'all' ? searched : searched.filter(s => s.paymentState === filter);
   const hasActiveFilter = filter !== 'all' || search.trim().length > 0;
 
@@ -54,11 +56,19 @@ export default function StoresDirectory({ stores, search, onSearch, onEdit, onLo
     </div>
 
     <div className="filters">
-      {([['all', 'All'], ['active', 'Active'], ['expiring', 'Expiring'], ['locked', 'Locked'], ['unset', 'Terms not set']] as [Filter, string][]).map(([value, label]) => (
+      {([
+        ['all', 'All'],
+        ['active', 'Active'],
+        ['expiring', 'Expiring'],
+        ['locked', 'Locked'],
+        ['trial', 'Trial'],
+        ['trial_ending', 'Trial ending'],
+        ['unset', 'Terms not set'],
+      ] as [Filter, string][]).map(([value, label]) => (
         <button key={value} type="button" className={'fpill' + (filter === value ? ' on' : '')} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label} {counts[value]}</button>
       ))}
       <span className="ftools">
-        <span className="fsearch"><Icon name="search" size="s" /><input aria-label="Search organizations" value={search} onChange={e => onSearch(e.target.value)} placeholder="Organization, owner or username…" style={{ border: 0, background: 'transparent', padding: 0, height: 'auto', color: 'var(--ink)' }} /></span>
+        <span className="fsearch"><Icon name="search" size="s" /><input aria-label="Search organizations" value={search} onChange={e => onSearch(e.target.value)} placeholder="Organization, owner or phone…" style={{ border: 0, background: 'transparent', padding: 0, height: 'auto', color: 'var(--ink)' }} /></span>
       </span>
     </div>
 
@@ -83,7 +93,7 @@ export default function StoresDirectory({ stores, search, onSearch, onEdit, onLo
                     <span><Link href={`/super-admin/stores/${store.id}`}><strong>{store.name}</strong></Link>{store.address && <small>{store.address}</small>}</span>
                   </div>
                 </td>
-                <td>{store.ownerName}<small>@{store.ownerUsername}</small></td>
+                <td>{store.ownerName}<small>{store.ownerPhone}</small></td>
                 <td className="right num" style={store.outletCount === 0 ? { color: 'var(--bad-fg)' } : undefined}>{store.outletCount}</td>
                 <td className="right num"><strong>{money(store.depositAmount)}</strong><small style={{ color: store.depositPaidAt ? 'var(--good-fg)' : 'var(--bad-fg)' }}>{store.depositPaidAt ? `Paid ${dateLabel(store.depositPaidAt)}` : 'Not received'}</small></td>
                 <td className="right num">{money(store.annualFeeAmount)}</td>

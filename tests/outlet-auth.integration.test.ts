@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -70,13 +71,13 @@ test('B2.1: Owner has access to all active outlets in their store and is denied 
 
   const ownerPasswordHash = await hashPassword('password123');
   const owner = await prisma.user.create({
-    data: { name: 'Owner A', username: 'owner_a_test', passwordHash: ownerPasswordHash },
+    data: { name: 'Owner A', phone: testPhone('owner_a_test'), passwordHash: ownerPasswordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: owner.id, storeId: storeA.id, role: Role.OWNER, active: true },
   });
 
-  const sessionUser = { id: owner.id, name: owner.name, username: owner.username, isSuperAdmin: false };
+  const sessionUser = { id: owner.id, name: owner.name, phone: owner.phone, isSuperAdmin: false };
 
   // Owner can access outlet A1
   const sessionA1 = await requireOutletSession(storeA.id, outletA1.id, undefined, sessionUser);
@@ -111,7 +112,7 @@ test('B2.2: Employee requires explicit active OutletMembership and cannot spoof 
 
   const empPasswordHash = await hashPassword('password123');
   const employee = await prisma.user.create({
-    data: { name: 'Employee One', username: 'employee_one_test', passwordHash: empPasswordHash },
+    data: { name: 'Employee One', phone: testPhone('employee_one_test'), passwordHash: empPasswordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: employee.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -122,7 +123,7 @@ test('B2.2: Employee requires explicit active OutletMembership and cannot spoof 
     data: { userId: employee.id, outletId: outlet1.id, active: true, isDefault: true },
   });
 
-  const sessionUser = { id: employee.id, name: employee.name, username: employee.username, isSuperAdmin: false };
+  const sessionUser = { id: employee.id, name: employee.name, phone: employee.phone, isSuperAdmin: false };
 
   // Access to assigned outlet1 succeeds
   const session1 = await requireOutletSession(store.id, outlet1.id, Role.EMPLOYEE, sessionUser);
@@ -153,7 +154,7 @@ test('B2.3: Transactional default outlet assignment guarantees at most one defau
   const o2 = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'DEF-2', displayName: 'Def 2' } });
 
   const user = await prisma.user.create({
-    data: { name: 'Emp Default', username: 'emp_def_test', passwordHash: 'hash' },
+    data: { name: 'Emp Default', phone: testPhone('emp_def_test'), passwordHash: 'hash' },
   });
   await prisma.storeMembership.create({
     data: { userId: user.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -186,7 +187,7 @@ test('B2.4: Employee cannot be active in a second organization', async () => {
   const store2 = await prisma.store.create({ data: { name: 'Org 2' } });
 
   const user = await prisma.user.create({
-    data: { name: 'Emp MultiOrg', username: 'emp_multiorg_test', passwordHash: 'hash' },
+    data: { name: 'Emp MultiOrg', phone: testPhone('emp_multiorg_test'), passwordHash: 'hash' },
   });
   await prisma.storeMembership.create({
     data: { userId: user.id, storeId: store1.id, role: Role.EMPLOYEE, active: true },
@@ -209,7 +210,7 @@ test('B2.4: Employee cannot be active in a second organization', async () => {
       updateEmployee(store2.id, {
         id: user.id,
         name: user.name,
-        username: user.username,
+        phone: user.phone,
         active: true,
       }),
     /An employee cannot be active in more than one organization\./,
@@ -225,7 +226,7 @@ test('B2.5: POST /api/v1/auth/login returns additive organizations array with ou
   const password = 'Password@123';
   const passwordHash = await hashPassword(password);
   const user = await prisma.user.create({
-    data: { name: 'Login User', username: 'login_user_test', passwordHash },
+    data: { name: 'Login User', phone: testPhone('login_user_test'), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: user.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -237,7 +238,7 @@ test('B2.5: POST /api/v1/auth/login returns additive organizations array with ou
   const req = new Request('http://localhost/api/v1/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'login_user_test', password }),
+    body: JSON.stringify({ phone: testPhone('login_user_test'), password }),
   }) as unknown as NextRequest;
 
   const res = await loginRoute.POST(req);
@@ -248,6 +249,8 @@ test('B2.5: POST /api/v1/auth/login returns additive organizations array with ou
   assert.ok(Array.isArray(data.stores));
   assert.equal(data.stores.length, 1);
   assert.equal(data.stores[0].storeId, store.id);
+  assert.equal(data.stores[0].trialEndsAt, null);
+  assert.equal(data.stores[0].subscriptionState, 'ACTIVE');
 
   // Additive organizations array exists
   assert.ok(Array.isArray(data.organizations));
@@ -261,4 +264,110 @@ test('B2.5: POST /api/v1/auth/login returns additive organizations array with ou
   assert.equal(org.allowedOutlets[0].id, outlet1.id);
   assert.equal(org.allowedOutlets[0].outletCode, 'LOGIN-OUT-1');
   assert.equal(org.allowedOutlets[0].isDefault, true);
+});
+
+test('phone login normalizes formatting, returns phone in auth status, and rejects username login', async () => {
+  const phone = testPhone('phone-login-regression');
+  const password = 'Password123';
+  await prisma.user.create({ data: { name: 'Phone login', phone, passwordHash: await hashPassword(password), isSuperAdmin: true } });
+  const request = (body: object) => new Request('http://localhost/api/v1/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }) as unknown as NextRequest;
+  const response = await loginRoute.POST(request({ phone: `+${phone.slice(0, 3)} (${phone.slice(3, 7)})-${phone.slice(7)}`, password }));
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.user.phone, phone);
+  assert.equal('username' in result.user, false);
+  const statusRoute = await import('../src/app/api/v1/auth/status/route');
+  const status = await statusRoute.GET(new Request('http://localhost/api/v1/auth/status', { headers: { Authorization: `Bearer ${result.token}` } }) as unknown as NextRequest);
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).user.phone, phone);
+  assert.equal((await loginRoute.POST(request({ username: phone, password }))).status, 400);
+  assert.equal((await loginRoute.POST(request({ phone, password: 'wrong-password' }))).status, 401);
+  const throttle = await import('../src/server/auth/throttle');
+  throttle.clearLoginThrottle(phone, 'phone-regression');
+  for (let i = 0; i < 5; i++) throttle.recordFailedLoginAttempt(`+${phone}`, 'phone-regression');
+  assert.equal(throttle.checkLoginThrottle(phone, 'phone-regression').allowed, false);
+  throttle.clearLoginThrottle(phone, 'phone-regression');
+});
+
+test('platform phone changes revoke sessions; formatting-only updates preserve credentials', async () => {
+  const platform = await import('../src/server/services/platform-users');
+  const sessions = await import('../src/server/auth/session');
+  const phone = testPhone('platform-phone-regression');
+  const user = await platform.createUser({ name: 'Phone platform user', phone: `+${phone}`, password: 'password123' });
+  assert.equal(user.phone, phone);
+  await assert.rejects(platform.createUser({ name: 'Duplicate', phone, password: 'password123' }), /already registered/);
+  const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  const session = await sessions.createSessionRow(user.id, row.credentialVersion);
+  await platform.updateUser(user.id, { name: user.name, phone: `(${phone})` });
+  assert.ok(await sessions.getSessionFromToken(session.token));
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).credentialVersion, row.credentialVersion);
+  const nextPhone = testPhone('platform-new-phone-regression');
+  await platform.updateUser(user.id, { name: user.name, phone: nextPhone });
+  assert.equal(await sessions.getSessionFromToken(session.token), null);
+  assert.equal(await prisma.session.count({ where: { userId: user.id } }), 0);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).credentialVersion, row.credentialVersion + 1);
+  const stores = await import('../src/server/services/stores');
+  assert.equal((await stores.lookupOwnerByPhone(`+${nextPhone}`))?.id, user.id);
+  assert.equal(await stores.lookupOwnerByPhone(phone), null);
+});
+
+test('phone migration rejects missing and duplicate normalized phones without losing usernames', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const migration = await readFile(new URL('../prisma/migrations/20260926210000_use_phone_as_login_identifier/migration.sql', import.meta.url), 'utf8');
+  const client = await control.connect();
+  const schema = 'phone_migration_regression';
+  try {
+    await client.query(`CREATE SCHEMA ${schema}`);
+    await client.query(`SET search_path TO ${schema}`);
+    await client.query('CREATE TABLE users (id text PRIMARY KEY, username text NOT NULL, phone text)');
+    await client.query("INSERT INTO users VALUES ('1', 'legacy', NULL)");
+    await assert.rejects(client.query(migration), /Backfill missing\/invalid phones first/);
+    await client.query('ROLLBACK');
+    assert.equal((await client.query('SELECT username FROM users')).rows[0].username, 'legacy');
+    await client.query("UPDATE users SET phone = '+91 98765 43210'; INSERT INTO users VALUES ('2', 'duplicate', '919876543210')");
+    await assert.rejects(client.query(migration), /Resolve duplicate phones first/);
+    await client.query('ROLLBACK');
+    assert.equal((await client.query('SELECT count(*) FROM users')).rows[0].count, '2');
+    await client.query("UPDATE users SET phone = '919876543211' WHERE id = '2'");
+    await client.query(migration);
+    assert.equal((await client.query("SELECT phone FROM users WHERE id = '1'")).rows[0].phone, '919876543210');
+    await assert.rejects(client.query("INSERT INTO users VALUES ('3', NULL)"), /not-null constraint/);
+    await assert.rejects(client.query("INSERT INTO users VALUES ('3', '919876543210')"), /unique constraint/);
+    assert.equal((await client.query("SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'users' AND column_name = 'username'", [schema])).rowCount, 0);
+  } finally {
+    await client.query('ROLLBACK');
+    await client.query('SET search_path TO public');
+    await client.query(`DROP SCHEMA ${schema} CASCADE`);
+    client.release();
+  }
+});
+
+test('Owner employee password reset preserves identity/outlets, revokes sessions, and rejects other stores/owners', async () => {
+  const { resetEmployeePassword } = await import('../src/server/services/employees');
+  const { verifyPassword } = await import('../src/server/auth/password');
+  const { createSessionRow } = await import('../src/server/auth/session');
+  const store = await prisma.store.create({ data: { name: 'Password reset store' } });
+  const other = await prisma.store.create({ data: { name: 'Other password reset store' } });
+  const employee = await prisma.user.create({ data: { name: 'Password employee', phone: testPhone('password-reset-employee'), passwordHash: await hashPassword('oldpassword123') } });
+  await prisma.storeMembership.create({ data: { userId: employee.id, storeId: store.id, role: Role.EMPLOYEE } });
+  const outlet = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'PASSWORD-RESET-OUTLET', displayName: 'Reset outlet' } });
+  await prisma.outletMembership.create({ data: { userId: employee.id, outletId: outlet.id, isDefault: true } });
+  await createSessionRow(employee.id, employee.credentialVersion);
+  await assert.rejects(resetEmployeePassword(other.id, employee.id, 'newpassword123'));
+  await assert.rejects(resetEmployeePassword(store.id, employee.id, 'short'));
+  assert.equal(await prisma.session.count({ where: { userId: employee.id } }), 1);
+  await resetEmployeePassword(store.id, employee.id, 'newpassword123');
+  const updated = await prisma.user.findUniqueOrThrow({ where: { id: employee.id } });
+  assert.equal(await verifyPassword('newpassword123', updated.passwordHash), true);
+  assert.equal(await verifyPassword('oldpassword123', updated.passwordHash), false);
+  assert.equal(updated.mustChangePassword, true);
+  assert.equal(updated.credentialVersion, employee.credentialVersion + 1);
+  assert.equal(updated.phone, employee.phone);
+  assert.equal(updated.name, employee.name);
+  assert.equal(await prisma.session.count({ where: { userId: employee.id } }), 0);
+  assert.equal(await prisma.outletMembership.count({ where: { userId: employee.id, outletId: outlet.id, isDefault: true } }), 1);
+  await prisma.storeMembership.update({ where: { userId_storeId: { userId: employee.id, storeId: store.id } }, data: { role: Role.OWNER } });
+  await assert.rejects(resetEmployeePassword(store.id, employee.id, 'anotherpassword123'));
 });

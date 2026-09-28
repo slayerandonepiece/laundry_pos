@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server';
-import { renderToBuffer } from '@react-pdf/renderer';
-import { requireStoreSession, AuthError } from '@/server/auth/session';
+import { invoicePdfResponse } from '@/lib/pdf/response';
+import { requireStoreSession, resolveStoreSelection, AuthError } from '@/server/auth/session';
 import { getOrCreateOrderInvoice } from '@/server/services/order-invoices';
 import { OrderInvoicePdf } from '@/features/admin/pdf/OrderInvoicePdf';
-import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 
 // @react-pdf/renderer needs a real Node runtime, not the edge runtime —
 // same requirement as the subscription invoice route.
@@ -17,7 +16,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // No role restriction: any signed-in member of the order's store (owner
     // or employee) can view/print/download/share the order's invoice,
     // matching today's order-detail access.
-    const session = await requireStoreSession();
+    const storeSelection = await resolveStoreSelection();
+    const session = await requireStoreSession(storeSelection?.multiStore ? storeSelection.storeId : undefined);
     storeId = session.storeId;
   } catch (error) {
     if (error instanceof AuthError) return new Response('Unauthorized', { status: error.code === 'UNAUTHENTICATED' ? 401 : 403 });
@@ -34,14 +34,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return new Response('Not found', { status: 404 });
   }
 
-  const buffer = await renderToBuffer(<OrderInvoicePdf invoice={invoice} />);
-  const download = request.nextUrl.searchParams.get('download') === '1';
-
-  return new Response(new Uint8Array(buffer), {
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${formatInvoiceNumber(invoice.invoiceSeq)}.pdf"`,
-      'Cache-Control': 'private, no-store',
-    },
-  });
+  return invoicePdfResponse(<OrderInvoicePdf invoice={invoice} />, invoice.invoiceSeq, request.nextUrl.searchParams.get('download') === '1');
 }

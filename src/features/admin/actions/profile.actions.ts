@@ -30,7 +30,7 @@ export interface PasswordActionResult {
 }
 
 export async function changePasswordAction(oldPassword: string, newPassword: string): Promise<PasswordActionResult> {
-  const session = await requireStoreSession(undefined, 'OWNER');
+  const session = await requireStoreSession();
   try {
     await changeOwnerPassword(session.id, oldPassword, newPassword);
     return { ok: true };

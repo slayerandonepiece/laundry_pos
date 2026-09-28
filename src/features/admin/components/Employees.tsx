@@ -4,6 +4,7 @@ import type { OutletListItem } from '@/features/super-admin/types';
 import { Badge, Tag, EmptyState } from '@/features/admin/components/ui';
 
 interface Props {
+  readOnly?: boolean;
   employees: Employee[];
   outlets: OutletListItem[];
   search: string;
@@ -11,21 +12,21 @@ interface Props {
   onNew: () => void;
   onEdit: (employee: Employee) => void;
   onToggle: (employee: Employee) => void;
+  onResetPassword: (employee: Employee) => void;
 }
 
-export default function Employees({ employees, outlets, search, onSearch, onNew, onEdit, onToggle }: Props) {
+export default function Employees({ readOnly = false, employees, outlets, search, onSearch, onEdit, onToggle, onResetPassword }: Props) {
   const unassignedCount = employees.filter(e => e.active && (!e.outlets || e.outlets.length === 0)).length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+    <div className="ad-employees-content" style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ fontSize: '20px', margin: 0, fontWeight: 700 }}>Team members</h2>
+
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
             {employees.length} {employees.length === 1 ? 'employee' : 'employees'}{unassignedCount > 0 ? ` (${unassignedCount} without outlet)` : ''} across {outlets.length} {outlets.length === 1 ? 'outlet' : 'outlets'}
           </p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={onNew}>＋ Add employee</button>
       </div>
 
       <div className="card">
@@ -34,7 +35,7 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
             type="search"
             className="search-input"
             aria-label="Search employees"
-            placeholder="Search by name or username…"
+            placeholder="Search by name or phone…"
             value={search}
             onChange={event => onSearch(event.target.value)}
             style={{ minWidth: '280px' }}
@@ -68,13 +69,13 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
                     <tr key={employee.id}>
                       <td>
                         <strong>{employee.name}</strong>
-                        <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.phone}</div>
                       </td>
                       <td>
                         {employee.active && hasNoOutlets ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                             <Badge tone="warn">No outlet assigned</Badge>
-                            <button
+                            <button disabled={readOnly}
                               type="button"
                               className="ad-text-link"
                               style={{ fontSize: '11.5px', color: 'var(--brand)' }}
@@ -98,8 +99,9 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <span className="row" style={{ gap: '8px', justifyContent: 'flex-end' }}>
-                          <button type="button" className="btn btn-secondary" onClick={() => onEdit(employee)}>Edit</button>
-                          <button
+                          <button disabled={readOnly} type="button" className="btn btn-secondary" onClick={() => onEdit(employee)}>Edit</button>
+                          <button disabled={readOnly} type="button" className="btn btn-secondary" onClick={() => onResetPassword(employee)}>Reset password</button>
+                          <button disabled={readOnly}
                             type="button"
                             className="btn btn-secondary"
                             style={{ color: employee.active ? '#b91c1c' : 'var(--brand)', borderColor: employee.active ? '#fca5a5' : undefined }}
@@ -124,14 +126,14 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
                   <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
                       <strong>{employee.name}</strong>
-                      <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.username}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{employee.phone}</div>
                     </div>
                     <Badge tone={employee.active ? 'on' : 'off'}>{employee.active ? 'Active' : 'Inactive'}</Badge>
                   </div>
                   {employee.active && hasNoOutlets ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                       <Badge tone="warn">No outlet assigned</Badge>
-                      <button
+                      <button disabled={readOnly}
                         type="button"
                         className="ad-text-link"
                         style={{ fontSize: '11.5px', color: 'var(--brand)' }}
@@ -149,9 +151,9 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
                       )) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>No outlets</span>}
                     </span>
                   )}
-                  <div className="employee-card-actions" style={{ display: 'flex', gap: '8px' }}>
-                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => onEdit(employee)}>Edit</button>
-                    <button
+                  <div className="employee-card-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button disabled={readOnly} type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => onEdit(employee)}>Edit</button>
+                    <button disabled={readOnly}
                       type="button"
                       className="btn btn-secondary"
                       style={{ flex: 1, color: employee.active ? '#b91c1c' : 'var(--brand)', borderColor: employee.active ? '#fca5a5' : undefined }}
@@ -159,6 +161,7 @@ export default function Employees({ employees, outlets, search, onSearch, onNew,
                     >
                       {employee.active ? 'Deactivate' : 'Reactivate'}
                     </button>
+                    <button disabled={readOnly} type="button" className="btn btn-secondary" style={{ flex: '1 1 100%' }} onClick={() => onResetPassword(employee)}>Reset password</button>
                   </div>
                 </article>
               );

@@ -25,7 +25,8 @@ assumed to be automatically discovered by every tool.
   containers handle interaction and state. Keep shared domain calculations in
   focused modules. Thin route pages choose screens.
 - Keep `/` as the owner dashboard and `/login` as the canonical login route.
-  Employees retain their Sales/Orders permissions and land at `/admin/sales`.
+  Employees land at `/admin/sales` for history. `/admin/orders` is the separate
+  service-selection and checkout route for owners and employees; order APIs/PDF routes remain.
 - Preserve the current visual design, responsive layouts, keyboard interactions,
   loading/error states, confirmation dialogs, INR formatting, and IST reporting.
 - Before Next.js implementation, read relevant bundled documentation in
@@ -55,3 +56,10 @@ flow tests; do not treat lint alone as behavioral validation.
 Keep `CURRENT-STATE.md` factual. Mark backend milestones complete only after
 implementation and verification. Report what changed, checks run, and remaining
 limits. Documentation-only edits need link/content checks, not application tests.
+
+Invoice primitives are shared in `src/lib/pdf/InvoiceLayout.tsx` and
+`src/lib/pdf/response.tsx`; browser preview/print/share live in
+`src/components/PdfPreview.tsx`, `src/lib/invoicePrint.ts` and
+`src/lib/invoiceShare.ts`. Keep authorization in each existing route/service.
+Order detail mutations share `src/features/admin/containers/useOrderMutation.ts`
+and the busy overlay in `Panel`, including failures and route refreshes.

@@ -1,48 +1,12 @@
-import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, View, Text } from '@react-pdf/renderer';
 import { dateLabelFull, paymentMethodLabel } from '@/features/admin/admin.data';
 import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 import { pdfMoney } from '@/lib/pdfMoney';
+import { InvoiceHeader, invoiceStyles as styles } from '@/lib/pdf/InvoiceLayout';
 import type { OrderInvoiceData } from '@/server/services/order-invoices';
 
-// Mirrors src/features/super-admin/pdf/InvoicePdf.tsx's styling/layout, but
-// this is the OTHER invoice system (store -> customer, for a laundry order)
-// — see .agents/2026-09-brainstorm-plan.md Item 7. Deliberately shows only
-// fields this app's order data actually has. No GST/tax line: the business
-// is cash-only and not GST-registered (explicitly out of scope) — don't add
-// tax fields here on a guess.
-const styles = StyleSheet.create({
-  page: { padding: 40, fontSize: 10.5, fontFamily: 'Helvetica', color: '#1a2233' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 28 },
-  brand: { fontSize: 16, fontWeight: 700 },
-  brandSub: { fontSize: 9, color: '#6b7684', marginTop: 2 },
-  invoiceTitle: { fontSize: 18, fontWeight: 700, textAlign: 'right' },
-  invoiceSub: { fontSize: 9, color: '#6b7684', textAlign: 'right', marginTop: 2 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
-  col: { width: '48%' },
-  label: { fontSize: 8.5, color: '#8a93a3', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
-  value: { fontSize: 11, fontWeight: 700, marginBottom: 2 },
-  muted: { fontSize: 9.5, color: '#565f6e' },
-  table: { borderTopWidth: 1, borderTopColor: '#dde2e9', borderBottomWidth: 1, borderBottomColor: '#dde2e9', marginTop: 8 },
-  tableHeadRow: { flexDirection: 'row', paddingVertical: 8, backgroundColor: '#f6f8fb' },
-  tableRow: { flexDirection: 'row', paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#eef1f5' },
-  th: { fontSize: 8.5, color: '#8a93a3', textTransform: 'uppercase', letterSpacing: 0.4 },
-  colDesc: { width: '46%' },
-  colQty: { width: '18%', textAlign: 'right' },
-  colRate: { width: '18%', textAlign: 'right' },
-  colAmount: { width: '18%', textAlign: 'right' },
-  kv: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f2f5' },
-  kvLabel: { fontSize: 9.5, color: '#565f6e' },
-  kvValue: { fontSize: 9.5, fontWeight: 700 },
-  total: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#1a2233' },
-  totalLabel: { fontSize: 11, fontWeight: 700 },
-  totalValue: { fontSize: 14, fontWeight: 700 },
-  footer: { position: 'absolute', bottom: 32, left: 40, right: 40, fontSize: 8, color: '#9aa4b2', textAlign: 'center' },
-});
-
-function rate(amount: number, quantity: number): number {
-  return quantity > 0 ? Math.round(amount / quantity) : amount;
-}
-
+// Customer-order and subscription invoices share the PDF primitives.
+// Business fields remain specific to their invoice type; no invented tax lines.
 export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
   const invoiceNumber = formatInvoiceNumber(invoice.invoiceSeq);
   const paymentMethods = [...new Set(invoice.payments.map(p => p.method))];
@@ -53,16 +17,7 @@ export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
   return (
     <Document title={invoiceNumber}>
       <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.brand}>{invoice.store.name}</Text>
-            {storeContactParts.length > 0 && <Text style={styles.brandSub}>{storeContactParts.join(' · ')}</Text>}
-          </View>
-          <View>
-            <Text style={styles.invoiceTitle}>{invoiceNumber}</Text>
-            <Text style={styles.invoiceSub}>Order {invoice.orderCode} - {dateLabelFull(invoice.orderDate)}</Text>
-          </View>
-        </View>
+        <InvoiceHeader brand={invoice.store.name} contact={storeContactParts.join(' · ')} number={invoiceNumber} subtitle={`Order ${invoice.orderCode} - ${dateLabelFull(invoice.orderDate)}`} />
 
         <View style={styles.row}>
           <View style={styles.col}>
@@ -87,10 +42,10 @@ export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
             <Text style={[styles.th, styles.colAmount]}>Amount</Text>
           </View>
           {invoice.lines.map((line, index) => (
-            <View style={styles.tableRow} key={index}>
+            <View style={styles.tableRow} key={index} wrap={false}>
               <Text style={[{ fontWeight: 700 }, styles.colDesc]}>{line.name}</Text>
               <Text style={styles.colQty}>{line.quantity} {line.unit}</Text>
-              <Text style={styles.colRate}>{pdfMoney(rate(line.amount, line.quantity))}</Text>
+              <Text style={styles.colRate}>{line.unit === 'pcs' && line.quantity > 0 ? pdfMoney(Math.round(line.amount / line.quantity)) : 'Slab pricing'}</Text>
               <Text style={[{ fontWeight: 700 }, styles.colAmount]}>{pdfMoney(line.amount)}</Text>
             </View>
           ))}
@@ -118,7 +73,7 @@ export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
                 <Text style={[styles.th, { width: '30%', textAlign: 'right' }]}>Amount</Text>
               </View>
               {invoice.payments.map((payment, index) => (
-                <View style={styles.tableRow} key={index}>
+                <View style={styles.tableRow} key={index} wrap={false}>
                   <Text style={{ width: '40%' }}>{dateLabelFull(payment.date)}</Text>
                   <Text style={{ width: '30%' }}>{paymentMethodLabel(payment.method)}</Text>
                   <Text style={{ width: '30%', textAlign: 'right', fontWeight: 700 }}>{pdfMoney(payment.amount)}</Text>
@@ -128,7 +83,7 @@ export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
           </View>
         )}
 
-        <Text style={styles.footer}>Generated {dateLabelFull(invoice.generatedAt.slice(0, 10))} - this is not a tax invoice.</Text>
+        <Text style={styles.footer} fixed>Generated {dateLabelFull(invoice.generatedAt.slice(0, 10))} - this is not a tax invoice.</Text>
       </Page>
     </Document>
   );

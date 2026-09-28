@@ -18,7 +18,7 @@ export function describeActivityEntry(entry: ActivityEntry): { icon: IconName; i
       icon: 'edit',
       iconTone: 'good',
       title: `${actor} onboarded the organization`,
-      detail: after?.ownerUsername ? `Owner @${after.ownerUsername}` : undefined,
+      detail: after?.ownerPhone ? `Owner @${after.ownerPhone}` : undefined,
     };
   }
   if (entry.action === 'UPDATE_ORGANIZATION') return { icon: 'edit', title: `${actor} edited organization details` };

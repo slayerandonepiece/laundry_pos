@@ -1,4 +1,5 @@
 'use client';
+import { isValidPhone } from '@/lib/contactValidation';
 import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
 import { useDialogClose, DialogFooter } from './Dialog';
@@ -22,9 +23,11 @@ export default function AddOutletDialog({ storeId, onSaved }: {
     const code = outletCode.trim().toUpperCase();
     if (!CODE_PATTERN.test(code)) return setError('Use only letters and numbers, 4–20 characters, no spaces — e.g. BWHYDWFD01.');
     if (!displayName.trim()) return setError('Enter an outlet name so staff can tell this outlet apart.');
+    if (!phone.trim()) return setError('Enter a contact phone number for this outlet.');
+    if (!isValidPhone(phone)) return setError('Enter a valid phone number.');
     setBusy(true);
     setError('');
-    createOutletAction(storeId, { outletCode: code, displayName: displayName.trim(), address: address.trim() || undefined, phone: phone.trim() || undefined })
+    createOutletAction(storeId, { outletCode: code, displayName: displayName.trim(), address: address.trim() || undefined, phone: phone.trim() })
       .then(result => {
         if (!result.ok || !result.outlet) { setError(result.error || 'Could not create this outlet. Try again.'); setBusy(false); return; }
         onSaved();
@@ -37,7 +40,7 @@ export default function AddOutletDialog({ storeId, onSaved }: {
     <p className="ad-help">Globally unique and immutable once created, e.g. OBLRCHN01.</p>
     <label>Outlet name<input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="e.g. Blue Wave — Whitefield" required /></label>
     <label>Address (optional)<input value={address} onChange={e => setAddress(e.target.value)} /></label>
-    <label>Phone (optional)<input value={phone} onChange={e => setPhone(e.target.value)} /></label>
+    <label>Phone *<input type="tel" required value={phone} onChange={e => setPhone(e.target.value)} /></label>
     {error && <p className="ad-error" role="alert">{error}</p>}
     <DialogFooter>
       <Button secondary type="button" onClick={onCancel}>Cancel</Button>

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import PageHeading from '../components/PageHeading';
 import Dialog from '../components/Dialog';
 import PaymentMethodsTable from '../components/PaymentMethodsTable';
 import AddPaymentMethodDialog from '../components/AddPaymentMethodDialog';
@@ -40,11 +41,7 @@ export default function PaymentMethodsScreenContainer({
 
   return <>
     {notice && <div className="ad-toast" role="status">✓ {notice}</div>}
-    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-      <button type="button" className="btn" onClick={() => setAddOpen(true)}>
-        + Add payment method
-      </button>
-    </div>
+    <PageHeading icon="card" title="Payment methods" subtitle="Global catalog of payment methods available to organizations." action={<button type="button" className="btn" onClick={() => setAddOpen(true)}>+ Add payment method</button>} />
 
     <PaymentMethodsTable
       methods={methods}

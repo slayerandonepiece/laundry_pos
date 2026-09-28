@@ -18,7 +18,7 @@ export default async function Page({ params }: { params: Promise<{ outletId: str
 
   try {
     const selection = await resolveStoreSelection();
-    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER');
+    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER', undefined, { allowLockedReadOnly: true });
     const [foundOutlet, orders, expenses, products, employees] = await Promise.all([
       getOutletDetailForAdmin(outletId, session.storeId),
       listOrders(session.storeId, { outletId }),

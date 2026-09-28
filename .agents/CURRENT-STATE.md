@@ -3,6 +3,62 @@
 Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
 changes are deployed to production.
 
+## Workspace notices and Super Admin self profile (2026-09-27 working tree)
+
+- SessionStatusResult exposes server-derived trial dates/state; AdminProvider clears/reconciles this with the session and store context. Shared AdminChrome shows a quiet trial strip on every workspace page after session verification. The old page-level TrialBanner is removed; blocking access and paid-renewal notices are unchanged.
+- WorkspaceNotice is shared by store/platform chrome for subscription status and dismissible information/maintenance announcements. Announcements are managed at /super-admin/announcements with drafts, publish/unpublish, store/platform/all audiences, optional organization targeting, information/warning tones and a safe optional link. The new workspace_announcements table requires the additive 20260927180000_workspace_announcements migration (currently pending on Neon). Server actions derive audience from the session; Super Admin writes are validated, revision checked and audited transactionally. Closing an announcement persists in sessionStorage per account/store/message revision across navigation and reload; trial status cannot be dismissed. Shell notices refresh on navigation/focus and every 60 seconds. See QA-ANNOUNCEMENTS.md for verification and pending live checks.
+- /super-admin/profile exposes the signed-in Super Admin's name, login phone and optional email, with Profile navigation/avatar links and a separate Log out action. Server actions derive the user ID from requireSuperAdmin, never accept a target account ID, and do not edit memberships or privilege flags. Phone changes enforce uniqueness, increment credentialVersion and revoke sessions. Password change reuses changeUserPassword, verifies the current password and revokes all sessions.
+- Validation: TypeScript and targeted ESLint pass; 86 disposable PostgreSQL integration tests pass (four new profile/security cases); isolated webpack production build passes. Authenticated desktop 1389px and mobile 375px checks cover the main owner/platform screens, with visual checks at 412px, mobile navigation, new-sale/outlet dialogs and profile editor. Owner account has empty lists; no live business/profile/password data was changed. See QA-WORKSPACE-NOTICES-PROFILE.md.
+- No schema changes, dependencies, deployment or production mutations.
+
+## Browser cache and sync (2026-09-27 working tree)
+
+- Session display/routing mirrors use guarded localStorage reads/writes at `express-laundry-admin-v1-session`, with server-confirmed `storeId`. Every tab reconciles with the server; cached data is enabled only after verification. Storage logout/clear events remove client caches and invalidate pending requests. Store switching rechecks context. Mirrors never authorize server operations.
+- Employee POS catalogue and enabled organization methods use five-minute store-scoped localStorage caches, optional Web Locks for cross-tab fetch serialization, storage updates, and online/focus refresh. `/api/v1/sync/status` provides uncached store-local maximum product/order update timestamps; catalogue version changes trigger refetch. POS drafts remain in sessionStorage.
+- Owner Orders uses a 60-second display cache plus paginated delta refresh. Cancellation tombstones remove cached rows. Successful owner sale creation writes through without advancing the sync checkpoint. Employees retain SSR Orders without reading owner caches.
+- Existing `/api/v1/orders/sync` accepts ISO timestamps and existing composite `(updatedAt, orderNumber)` cursors, default limit 100, maximum 500. Response retains `orders`/`nextCursor` and adds server `syncedAt`. Web clients drain all pages and checkpoint the first server request time, avoiding timestamp tie loss and device-clock gaps. Auth and outlet guards remain live; orders/expenses remain uncached on the server.
+- Successful JSON GET products/payment-methods responses have standards-compliant weak ETags `W/"<hash>"`; authorized matching conditional requests return bodyless 304 responses with private cache/Vary headers. Auth failures stay no-store and never return 304.
+- Manifest and static 192/512 PNG icons added, with standalone/Apple metadata. This supplies installation metadata; there is no service worker, offline navigation guarantee, or offline write queue.
+- Validation: TypeScript/lint pass (two existing QA-script warnings), 78 disposable database integration tests and four client cache tests pass; isolated webpack production build passes. Live owner reload/Orders navigation and manifest link checked. Cross-tab logout tested via StorageEvents; live logout and employee POS were not exercised in the existing owner session. No new packages or schema changes. See CLIENT-CACHE-IMPLEMENTATION.md.
+
+## Owner annotated UI fixes (2026-09-27 working tree)
+
+- Owner New sale uses a session-scoped server action to search existing customer names by phone on Search/Enter, with pending, found/new and error states. No customer table or authentication change.
+- Enabled organization payment methods precede Received now. COD uses its stable code and suppresses immediate collection. No enabled methods shows a Profile link and permits an unpaid sale; configuration is not changed automatically.
+- Shared DateInput requests the native picker from any input click with a guarded fallback. Orders date fields no longer inherit the flex-column field wrapper class. Owner form focus uses one outline; Dialog initial focus does not rerun on parent callbacks.
+- Employee outlet selections commit immediately with a top-right Clear; default outlet stays disabled until selected. Dialog title/body/footer have separate padding. Expense options share a responsive two-column row.
+- Mark expense paid accepts an optional calendar date, defaults to today for existing callers, rejects invalid/future dates, and applies the expense rollup on that date. Repeat calls preserve the original paid date. Outlet trend reuses DashboardPeriodControl with separate chart range state.
+- Validation: TypeScript and lint pass (two existing QA-script warnings); 75 isolated database integration tests pass. Live UI evidence and native-pointer verification limitation are recorded in QA-OWNER-UI-REPORT.md. No schema changes, new dependencies or live business-data mutations.
+
+## Owner loading and list caching (2026-09-27 working tree)
+
+- Client session readiness reuses Dashboard/Profile/Table skeletons by screen. Orders and Expenses route fallbacks share four 76px shimmer cards at widths <=768px and table skeletons above that breakpoint, in both workspace and nested boundaries.
+- `listProducts` and `listEmployees` cache DTOs for 60 seconds; legacy `listStorePaymentMethods` caches for 120 seconds, with active/all variants keyed separately. Keys include store ID; tags include domain and store ID. Store-tag invalidation clears these three lists for that store.
+- Owner actions and successful product/employee/legacy payment-method service writes immediately expire store tags with `revalidateTag(tag, { expire: 0 })`, including mobile API writes. Shared employee identity/outlet edits expire the employees domain tag. Organization payment-method reads and auth/session/order/expense/dashboard functions remain uncached.
+- Focused mocked cache-boundary tests cover store isolation, payment visibility variants, TTLs, successful invalidation and failed-write cache retention. Run `node --conditions=react-server --experimental-test-module-mocks --import tsx --test tests/owner-data-cache.test.mjs`. All 74 existing database integration tests passed in disposable PostgreSQL; they stub the framework cache boundary.
+- No dependencies, schema changes, shared-database mutations or deployment. Earlier QA fixes were preserved.
+
+## Backend performance pass (2026-09-26 working tree)
+
+- Added/deployed `20260926220000_add_perf_indexes` to the configured dev Neon database: `Store.deletedAt`, `Order.updatedAt`, composite `Order(storeId, phone, orderDate)`, `User.active`, and `User.isSuperAdmin`. SQL contains only index creation. Preflight confirmed all earlier migrations, including phone login, were already applied and only this index migration was pending.
+- Session lookups and owner/member reads now project needed fields. Order lists omit the per-event user include, then batch unique actor names; list/detail history values and complete default result sets remain unchanged.
+- `listStores` uses a 60-second `unstable_cache` entry tagged `stores`, invalidated immediately by contributing organization/subscription/plan/outlet/owner-identity mutations. Authorization/session/membership checks remain uncached.
+- Products/payment-methods successful mobile GET responses now use `private, max-age=30`, with `Vary: Authorization, Cookie, X-Store-Id, X-Outlet-Id`; errors, writes, auth, orders, expenses, employees and other endpoints retain `private, no-store`. Client catalogue results can be reused for 30 seconds without a server request.
+- Vercel project regions are pinned to `sin1`, matching the `ap-southeast-1` region encoded in both configured local Neon URLs; deployed production environment configuration was not inspected. Next.js explicitly externalizes the requested server packages, enables compression, and suppresses the powered-by header.
+- Chose the requested throttle fallback: Map-based throttling remains confined to each warm instance; this does not provide shared cross-instance protection. No Redis dependency or login-attempts table was added.
+- A silent default 200-order cap was not introduced because historical search and aggregate totals require complete data. Existing explicit limits remain honored; real web pagination remains future work.
+- Verification: TypeScript, Prisma validation, isolated production build, diff hygiene, and all 74 existing integration tests pass. Lint has zero errors and two pre-existing warnings. A temporary disposable-database harness checks simulated cache-boundary hits/invalidation, catalogue cache headers, actor names, and complete 201-order results. Test files and seed are unchanged from the start of this performance request. No measured latency improvement is claimed.
+- Exact old/new diffs and status for all ten requested items are in `PERFORMANCE-OPTIMIZATION.md` and `PERFORMANCE-OPTIMIZATION.patch`. No production deployment/migration was performed.
+
+## Phone login replacement (2026-09-26 working tree)
+
+- Platform admin, owner, and employee logins use a required personal phone number normalized to 8–15 digits by `src/lib/contactValidation.ts`. `User.username` is removed; `User.phone` is unique. Organization/outlet contact phones remain separate.
+- Web login and mobile `/api/v1/auth/login` accept phone/password. Mobile login/status return `user.phone`; session DTOs, user/employee management, onboarding, owner lookup, profile login display, and activity actor display use phone. Existing-owner lookup is an exact normalized personal-phone match, excluding platform admins.
+- Employee and platform-user phone changes bump `credentialVersion` and revoke sessions. Formatting-only edits preserve credentials. Password hashing, token/cookie structure, role rules, and order/payment logic are preserved.
+- Seed configuration requires `SEED_OWNER_PHONE` alongside existing password/name settings. Auxiliary QA lookups use `QA_OWNER_PHONE` / `QA_EMPLOYEE_PHONE`.
+- **At phone-login implementation time, not applied to the shared database (dev history was subsequently confirmed applied during the performance preflight):** migration `20260926210000_use_phone_as_login_identifier` is prepared and verified in disposable local PostgreSQL. It transactionally checks missing/invalid/duplicate normalized personal phones, normalizes valid values, adds required/unique constraints, and drops username. It stops without data loss when reconciliation is needed. Backfill verified personal phones and resolve collisions before applying; no invented numbers, truncation, or reseeding was performed. Production reconciliation remains a deployment prerequisite.
+- Verification: TypeScript and Prisma validation pass; lint has zero errors and two pre-existing unused-variable warnings in `scripts/qa_audit.mjs`; The production build passes in an isolated temporary copy (the existing dev server remains running). 74 integration tests pass, covering phone login/status, normalization, throttle equivalence, duplicate rejection, employee/platform phone session invalidation, exact owner lookup, migration failure rollback, and existing operational flows. Authenticated browser verification awaits database reconciliation/migration.
+
 ## Multi-outlet rollout: Tasks B1–B6 completed and verified
 
 The approved organization → outlet rollout is tracked task-by-task in
@@ -80,17 +136,17 @@ spec (published as an artifact this session) for the full plan. Done so far:
   "the user's only membership" since no store switcher exists yet) and
   `requireSuperAdmin()`. Every existing service/action/page was rewired to
   this — see `src/server/auth/session.ts`.
-- **Super Admin UI**: built and verified. `/super-admin/login` (separate from
-  the store app's `/login`, cross-linked both ways), `/super-admin` (dashboard:
+- **Super Admin UI**: built and verified. `/login` (canonical for platform admins, owners, and employees;
+  `/super-admin/login` redirects here), `/super-admin` (dashboard:
   store counts, needs-attention list), `/super-admin/stores` (directory + a
   real 4-step onboarding wizard — store details, new-or-existing owner,
-  subscription terms, review). Onboarding a store transactionally creates the
-  `Store`, `Subscription`, owner `User`+`StoreMembership`, and — if "deposit
-  and first year received" is checked — two `SubscriptionPayment` rows
-  (deposit + first-year renewal) with sequential invoice numbers, and sets
-  `paidThroughDate` to one year out. Verified in the browser end-to-end,
-  including logging in as a freshly-onboarded owner and confirming their store
-  shows zero orders — full tenant isolation from the migrated store.
+  plan selection, review). Onboarding transactionally creates the `Store`,
+  `Subscription`, owner `User`+`StoreMembership`, and enabled organization
+  entries for all currently active platform payment methods. The wizard does
+  not mark payments received; these are recorded from the Subscription tab.
+  Organization contact phone and a separate new-owner phone are required.
+  Existing owner contact details are preserved. Historical onboarding browser
+  verification predates the 2026-09-26 feedback changes.
 - Auth for this area is intentionally simpler than the store app's: Super
   Admin pages are plain Server Components calling `requireSuperAdmin()`
   directly (redirecting to `/super-admin/login` on failure) — no client-side
@@ -163,8 +219,9 @@ spec (published as an artifact this session) for the full plan. Done so far:
   Recording a renewal payment is reachable from both Store Detail's
   Subscription tab and the billing table's row action (confirmed both are
   wanted, not a duplicate) — same `RecordPaymentDialog` component either way.
-  `OnboardingWizard.tsx`'s subscription step now forks between "Use a plan"
-  and "Custom terms" (confirmed both must coexist, not a replacement).
+  `OnboardingWizard.tsx` now offers only plan selection, with an optional
+  discount and deposit waiver override. Custom subscription terms remain
+  supported by the service for existing callers; the wizard records payment later.
   **QA-01 concurrency fix verified (2026-09-08):** subscription payment
   recording now locks the `subscriptions` row with `SELECT ... FOR UPDATE`
   inside its transaction **before** reading `paidThroughDate`. Concurrent
@@ -515,7 +572,7 @@ The full migration from the browser-storage prototype to a real Postgres backend
 Orders, Expenses, Employees, Profile, Dashboard) reads and writes Postgres through
 Server Components/Actions — nothing in the app writes to `localStorage` anymore.
 
-- **Auth**: sign-in (`/login`, for owner and employee) creates a real server-side
+- **Auth**: sign-in (`/login`, for platform admin, owner and employee) creates a real server-side
   session — DB-backed `Session` row, HttpOnly cookie, bcrypt password check
   against the `User` table (`role` is `OWNER` or `EMPLOYEE`). See `src/server/auth/`.
   Client-side `Session`/`AdminUser` state (in `AdminProvider`) is purely a mirror
@@ -593,7 +650,7 @@ and the shared `AdminProvider`, preserving provider state across app routes.
 | `/admin/expenses` | Owner expenses (server-backed) |
 | `/admin/employees` | Owner employee management (server-backed) |
 | `/admin/profile` | Owner profile/password UI (server-backed) |
-| `/super-admin/login` | Platform-admin sign-in, separate from `/login` (cross-linked both ways) |
+| `/super-admin/login` | Compatibility redirect to canonical `/login` |
 | `/super-admin` | Platform dashboard: store counts, needs-attention (payment state) list |
 | `/super-admin/stores` | Store directory (search, edit/lock/unlock/delete row actions) + 4-step onboarding wizard |
 | `/super-admin/stores/[storeId]` | Store Detail — Overview, Users, Subscription tabs are real; Activity is a stub |
@@ -1325,7 +1382,7 @@ verified against an isolated PostgreSQL integration test cluster.
   - **Orders**:
     - `GET /api/v1/orders`: Lists store orders.
     - `POST /api/v1/orders`: Creates order with server-side price recomputation (`src/server/pricing.ts`) and client idempotency key pass-through.
-    - `GET /api/v1/orders/[orderCode]`: Detailed order view with status history, payments, and invoice status (`exists`, `canGenerate`, `accessToken`, `invoiceSeq`).
+    - `GET /api/v1/orders/[orderCode]`: Detailed order view with status history, payments, and invoice status (`exists`, `canGenerate`, `accessToken`, `invoiceSeq`, `generatedAt`).
     - `PATCH /api/v1/orders/[orderCode]/status`: Updates work status (`Pending`, `In Progress`, `Ready`, `Delivered`).
     - `POST /api/v1/orders/[orderCode]/payments`: Records order payment with transaction-level `SELECT ... FOR UPDATE` row lock, preventing concurrent overpayment. Allowed for both `OWNER` and `EMPLOYEE`.
     - `GET /api/v1/orders/[orderCode]/invoice`: Get-or-create customer invoice. Refuses generation unless order is paid in full and delivered.
@@ -1389,3 +1446,183 @@ verified against an isolated PostgreSQL integration test cluster.
   - Enforced single-organization active restriction for employees in `updateEmployee` and `toggleEmployeeActive`.
   - Added transactional `assignDefaultOutlet` and `assignEmployeeToOutlet` ensuring exactly one default outlet per employee per organization.
 - **Verification**: Verified via 5 dedicated integration tests in `tests/outlet-auth.integration.test.ts` (19/19 test suite pass, zero lint warnings, clean `tsc --noEmit`).
+
+### StoreOps feedback implementation (2026-09-26)
+
+- Unified login routes all roles using the server result. Logout waits for
+  session destruction, then clears sessionStorage and the legacy el_draft key.
+- Organization detail adds Add outlet and Employees header actions. Add outlet
+  requires phone in the form. PDF viewers show loading status until iframe load.
+  Header search is decorative; the broken Cmd/Ctrl+K shortcut is removed.
+- Onboarding uses a compact plan radio list; billing cycle is plain Yearly text.
+- Plan and platform payment method lists use 60-second tagged caches. Mutations
+  immediately expire tags, including plan assignment and onboarding counts.
+- Four indexes added for user phone, session expiry, subscription paid-through,
+  and order date. Migration SQL is generated and verified locally; remote
+  application is pending approval (migrate dev escalation was rejected).
+- Integration tests mock only the Next cache boundary outside the framework;
+  their database, authorization, and transaction behavior remains real.
+
+Feedback validation: Prisma schema validation and TypeScript passed; ESLint
+has zero errors and two pre-existing warnings in the unrelated QA audit script.
+All 62 isolated PostgreSQL integration tests pass, including five onboarding
+regressions and application of the generated index SQL. Production build passed.
+In-app browser verified super-admin sign-in through /login, authenticated-login
+redirect, logout to /login, required organization/outlet phones, new-owner phone
+field, compact plan rows, Yearly billing text, and org header actions. Subscription
+PDF loading status cleared on iframe load, but rendered PDF content remained blank
+in this browser. Owner/employee browser flows, order PDF rendering, and the live
+onboarding success screen remain unverified; no live QA organization was created.
+
+
+### Onboarding plan UI correction (2026-09-26)
+
+Plan choices show the annual fee and the effective deposit (or waiver). The
+charge-deposit-anyway control is removed; onboarding follows the plan's waiver.
+Discounts have no cap relative to the plan price and apply to deposit plus the
+first annual fee, with the amount due floored at zero. The full discount is
+retained on the subscription. The legacy mark-paid service path allocates the
+discount to deposit first, then first-year maintenance. Desktop and 390px mobile
+plan UI checked with an unsaved draft; no organization was created. TypeScript,
+lint (two existing warnings), and 63 local integration tests passed.
+
+
+### Onboarding, subscription lifecycle, and PDF preview (2026-09-26)
+
+Supersedes the earlier plan-only onboarding description. Onboarding offers a
+plan, free trial, or custom terms. Trial dates must be valid future IST calendar
+dates; trial onboarding creates no invoice or paid-through term. Plan/custom
+onboarding can explicitly record a payment with Cash/UPI, reference, and the
+recording super admin. Subscription and positive-amount invoices are created
+atomically, with discount applied across deposit then first-year fee.
+
+Plan editing uses Charge deposit / No deposit radios; no-deposit saves zero.
+Plans carry optional defaultTrialDays, used when switching a selected plan to
+trial onboarding. The nullable defaultTrialDays and Store.accessGrantedUntil
+columns were applied to Neon with additive migrate deploy (no reset). Existing
+organization billing/history was not changed.
+
+Super admins can set/extend trials and grant temporary access for up to 30 days.
+Actions require super-admin auth, validate real dates server-side, record audit
+activity, and revalidate organization screens. Temporary access clears payment
+lapse for auth/read/write checks until expiry, but never bypasses locked or
+archived status. Live trials also override an expired paid term consistently.
+Creating an outlet now requires a current paid term, trial, or temporary grant;
+the Outlets tab warns when absent. Never-started subscriptions remain readable
+under existing auth behavior, while outlet creation is gated.
+
+Onboarding phones validate 8–15 digits with optional formatting; owner names
+require 2–100 characters and new owner passwords require at least eight
+characters including a letter and a number. Employee optional phones and profile
+name/phone validation are enforced in services. The pasted acceptance example
+pass123 has only seven characters; pass1234 meets the stated policy.
+
+RecordPaymentDialog uses organization terms for its initial renewal amount and
+updates the amount when Deposit/Renewal changes; renewal success includes the
+paid-through date. Both invoice modal previews render actual PDFs via PDF.js
+canvas, with loading, retry/error, and Open PDF fallback. Print/download/share
+continue using the original PDF URLs. The PDF.js worker is copied locally from
+the installed package by postinstall, predev, prebuild, and vercel-build; it is
+generated/ignored rather than checked in.
+
+Verified: TypeScript, lint (two existing qa_audit warnings), 71 disposable-local-
+Postgres integration tests including onboarding/payment/trial/access expiry and
+lock/archive regressions. Authenticated browser: subscription invoice rendered;
+renewal/deposit prefill; plan/custom/trial drafts and 30-day review; formatted org
+phone accepted and abc rejected; no-deposit editor hides amount; 390px editor.
+Browser drafts were discarded, with no QA organization, payment, or access grant
+written to Neon. Creation/payment/access workflows were tested in isolated local
+Postgres rather than changing the live organization.
+
+Final production build, Prisma schema validation, and diff hygiene also passed.
+
+
+### Owner feedback: Sales consolidation and corrections (2026-09-27)
+
+Sales is the visible order workspace for owners and employees. Orders was removed
+from desktop/mobile navigation; /admin/orders redirects to /admin/sales while
+retaining query parameters and order drilldowns. Order HTTP APIs and invoice PDF
+routes under /admin/orders/[orderCode] remain unchanged. Employees have New sale
+and Sales register views in Sales; server-rendered employee records are scoped to
+the currently authorized outlet. The verified-owner 60-second browser order cache
+now runs in Sales, with server store-id matching before cache use.
+
+Order details stack compact full-width delivery progress, a service/quantity/rate/
+amount bill table and chronological status history. Invoice actions appear at the
+end of the header only after delivery and full payment. Pieces/weight use validated
+text fields with numeric/decimal keyboards to prevent native wheel/spinner steps.
+
+Expenses now expose View/Edit/Delete on desktop rows and mobile cards. Owner-only
+web actions verify tenant scope. Edits change one bill and retain its paid date;
+monthly due dates remain in the original month. Confirmed deletion removes the
+selected bill and deactivates its recurring series, preserving other recorded
+occurrences. Recurrence generation and mutations serialize by store transaction
+lock. Affected paid-date/outlet expense totals are recomputed from remaining bills,
+including legacy data without existing rollups; other daily metrics stay intact.
+No schema migration or new HTTP edit/delete route was added.
+
+Employee lists expose a dedicated owner-only Reset password action. The service
+checks employee membership, updates only passwordHash/credentialVersion and the
+existing mustChangePassword flag, and revokes sessions in the transaction. Identity
+and outlet grants remain unchanged. The existing mobile password-change flag
+contract remains; this task did not add a web first-login password-change screen.
+
+Verified: TypeScript, lint (two existing qa_audit warnings), 82 isolated local-PG
+integration tests, five cache/payment-method unit tests and isolated production
+webpack build. Authenticated owner desktop/mobile UI, unsaved quantity/customer
+lookup draft, expense view/edit/delete review and password reset review inspected.
+No live record deletion, password mutation or order submission; employee browser
+login remains unverified. See QA-OWNER-FEEDBACK-REPORT.md for comment-level evidence.
+
+### Invoice reuse and workspace density follow-up (2026-09-27)
+
+Customer and subscription invoices share `src/lib/pdf/InvoiceLayout.tsx` for PDF
+styles and a bounded two-column header. Their business document bodies remain
+separate. All four PDF endpoints use `src/lib/pdf/response.tsx` to render and set
+PDF headers; authentication, invoice settlement gates and token checks stay in
+the original routes/services. PDF preview is defined once at
+`src/components/PdfPreview.tsx`; print is at `src/lib/invoicePrint.ts`, and native
+file/link/WhatsApp sharing is at `src/lib/invoiceShare.ts`. Weight service rates
+show Slab pricing instead of an average unit rate. Long organization addresses
+wrap within the header's brand column.
+
+Order payment/status actions in Sales and the retained OrdersClient share
+`useOrderMutation`: dialog-wide spinner overlay, inert content, duplicate-action
+guard, action-result cache update and route refresh, with error recovery. Fresh
+server snapshots supersede the acknowledged action result. This does not add an
+offline write queue. Profile separates organization contact details, current owner
+account and outlet contacts. Employees has one page heading with Add employee;
+Expenses keeps date filters and Add expense together. Shared shell/card spacing
+is tighter and the mobile dashboard topbar truncates a long outlet label within
+the available width. Footer sizing follows the flex workspace shell.
+
+### Customer invoice web preview (27 September 2026)
+
+`/i/[token]/view` is a public read-only invoice preview page. It validates the existing 32-byte random invoice access token with `getOrderInvoiceByToken`, rejects missing/invalid invoices, and renders the shared `PdfPreview` from `/i/[token]`. Owner invoice Open and shared links use this page; Download retains the token-protected PDF endpoint. URLs contain no order or customer identifiers. Owner WhatsApp opens the web composer directly without a native share sheet; Super Admin controls are unchanged.
+
+
+### Locked-store read-only workspace (27 September 2026)
+
+Owner workspace server-rendered read pages explicitly opt into `allowLockedReadOnly`; organization membership, active membership, and role validation still apply. Archived stores remain blocked. The shared shell displays a non-dismissible Store locked / Read-only banner, while record browsing, filters, navigation and logout remain available. Mutation controls are disabled and mutation dialogs are suppressed. Default server session guards and `assertStoreWritable` retain lock enforcement; the read option must never be used for mutation authorization.
+
+Announcements require `20260927180000_workspace_announcements`, applied to the configured shared database on 27 September 2026 after explicit user authorization. The editor page displays setup pending when the table is missing. The development Prisma singleton recreates a client that predates the new model after hot reload.
+
+
+Migration verification: `prisma migrate deploy` successfully applied `20260927180000_workspace_announcements`; follow-up `prisma migrate status` confirmed all 16 migrations are applied. Live announcement publication/dismissal verification remains separate.
+
+## Orders and sales route split (2026-09-27)
+
+- `/admin/orders` is the dedicated service-selection/new-order route for owners and employees; it no longer redirects to Sales. `/admin/sales` is history with per-order amounts and detail dialogs, without aggregate metric cards or counter tabs. Navigation exposes both routes; existing role landing routes remain unchanged.
+- Adding the first service reveals checkout beside the catalogue on desktop and before the catalogue on narrow screens. The large fixed View order bar is removed. Customer phone search reuses the tenant-scoped server action; customer name remains optional, followed by delivery and payment. Multi-outlet owners must choose an active outlet.
+- Draft restoration runs once per user/store key rather than on each catalogue-method refresh. Locked stores cannot create orders; existing history remains readable.
+- Verified employee browser flow: service selection, returning-customer lookup, delivery/payment review, desktop and 375px overflow check; no live order/payment submitted. TypeScript, scoped ESLint and all 89 disposable-Postgres integration tests pass.
+
+### Full-width counter and compact-screen steps
+
+Orders uses top navigation instead of the desktop sidebar. Services render as price-breakdown rows with selected quantities and service totals; checkout does not duplicate the items table. At widths up to 950px, Add starts customer entry, followed by service quantity selection and then payment. Step navigation supports revisiting customer/services/payment without discarding the draft. Quantity dialogs use text inputs with decimal/numeric keyboards and explicit quantity validation, avoiding native wheel-driven number changes. Received amount also uses a decimal text input with server-side/domain validation unchanged. Existing draft restoration selects the services step when the customer is already ready.
+
+Browser verified desktop price list, no duplicate checkout items, unchanged weight after wheel scrolling, customer/services/payment navigation and 320/375px overflow checks. No live order or payment submitted.
+
+### Compact catalogue and independent customer entry
+
+The Orders catalogue uses smaller row spacing and typography; Clear belongs to its heading. Customer entry is rendered independently of selected services. The customer step has no order-total or Punch order control. Continuing with selected services opens delivery/payment; without services, checkout remains unavailable. Mobile step navigation uses the same guard. Verified an empty temporary draft, optional blank name, service quantity entry and the next payment screen with correct total; 375px has no horizontal overflow. No live order submitted.

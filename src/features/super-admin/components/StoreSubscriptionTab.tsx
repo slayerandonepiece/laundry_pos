@@ -1,4 +1,5 @@
 'use client';
+import SetTrialDialog from './SetTrialDialog';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Dialog from './Dialog';
@@ -31,18 +32,20 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
   trialEndsAt?: string;
 }) {
   const router = useRouter();
+  const [accessDialog, setAccessDialog] = useState<'trial' | 'temporary' | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [viewingInvoiceSeq, setViewingInvoiceSeq] = useState<number | null>(null);
   const [notice, setNotice] = useState('');
 
-  const isTrialActive = !!trialEndsAt && !store.paidThroughDate && trialEndsAt >= today();
+  const isTrialActive = !!trialEndsAt && (!store.paidThroughDate || store.paidThroughDate < today()) && trialEndsAt >= today();
   const trialDaysLeft = isTrialActive ? daysUntil(trialEndsAt!, today()) : undefined;
 
   let stage: Stage;
   if (!hasSubscription) stage = 'terms-not-set';
   else if (isTrialActive) stage = trialDaysLeft !== undefined && trialDaysLeft <= TRIAL_ENDING_SOON_DAYS ? 'trial-ending' : 'trial';
-  else if (store.paymentState === 'locked') stage = 'restricted';
+  else if ((store.accessGrantedUntil && store.accessGrantedUntil >= today())) stage = 'active';
+  else if ((trialEndsAt && trialEndsAt < today() && (!store.paidThroughDate || store.paidThroughDate < today())) || store.paymentState === 'locked') stage = 'restricted';
   else if (store.paymentState === 'expiring') stage = 'ending';
   else if (store.paymentState === 'unset') stage = 'unset';
   else stage = 'active';
@@ -65,8 +68,10 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
         <span className="ic l"><Icon name="card" size="l" /></span>
         <h3>Subscription terms haven&apos;t been set</h3>
         <p>Set a plan or custom deposit and annual fee to start billing {store.name}.</p>
+        <button type="button" className="btn outline" onClick={() => setAccessDialog('trial')}>Set trial period</button>
         <button type="button" className="btn" style={{ marginTop: 14 }} onClick={() => setPlanOpen(true)}><Icon name="edit" size="s" />Set subscription terms</button>
       </div></div>
+      {accessDialog && <Dialog title="Set trial period" onClose={() => setAccessDialog(null)}><SetTrialDialog storeId={store.id} onSaved={() => { setAccessDialog(null); router.refresh(); }} /></Dialog>}
       {planOpen && (
         <Dialog title="Set subscription terms" description={`Choose the terms ${store.name} will use.`} size="wide" onClose={() => setPlanOpen(false)} warnOnChanges>
           <ChangePlanDialog store={store} plans={plans} onSaved={() => { setPlanOpen(false); setNotice('Subscription terms set'); router.refresh(); setTimeout(() => setNotice(''), 4000); }} />
@@ -87,16 +92,17 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
     {stage === 'restricted' && (
       <div className="notice danger" style={{ marginBottom: 16 }}>
         <Icon name="lock" size="s" />
-        <span>Subscription has lapsed and access is restricted. Only recording a payment is available until it&apos;s renewed.</span>
+        <span>Access blocked — subscription expired on {store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : trialEndsAt ? dateLabelFull(trialEndsAt) : 'an unknown date'}. Record a renewal payment to restore access automatically.</span>
       </div>
     )}
     {(stage === 'trial' || stage === 'trial-ending') && (
       <div className={'notice' + (stage === 'trial-ending' ? ' warn' : '')} style={{ marginBottom: 16 }}>
         <Icon name="clock" size="s" />
-        <span>On trial{trialEndsAt ? ` until ${dateLabelFull(trialEndsAt)}` : ''} — no invoices yet.</span>
+        <span>{stage === 'trial-ending' ? `Trial ending in ${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'}` : 'On trial'}{trialEndsAt ? store.trialStartsAt ? ` from ${dateLabelFull(store.trialStartsAt)} to ${dateLabelFull(trialEndsAt)}` : ` until ${dateLabelFull(trialEndsAt)}` : ''}. Record a payment or extend the trial to continue access.</span>
       </div>
     )}
 
+    {store.accessGrantedUntil && store.accessGrantedUntil >= today() && <div className="notice warn">Temporary access granted until {dateLabelFull(store.accessGrantedUntil)}.</div>}
     <div className="card">
       <div className="card-head"><h2><Icon name="card" />Subscription terms</h2></div>
       <div className="card-body" style={{ paddingTop: 6 }}>
@@ -104,12 +110,15 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
         {store.planId && <div className="kv"><span>Discount</span><strong className="num">{money(store.discountAmount)}</strong></div>}
         <div className="kv"><span>Deposit</span><strong className="num">{money(store.depositAmount)}{!store.depositPaidAt && ' · unpaid'}</strong></div>
         <div className="kv"><span>Annual fee</span><strong className="num">{money(store.annualFeeAmount)}</strong></div>
+        {trialEndsAt && <div className="kv"><span>Trial period</span><strong>{store.trialStartsAt ? `${dateLabelFull(store.trialStartsAt)} – ${dateLabelFull(trialEndsAt)}` : `Until ${dateLabelFull(trialEndsAt)}`}</strong></div>}
         <div className="kv"><span>Paid through</span><strong className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</strong></div>
         <div className="kv"><span>Status</span><span className={'badge ' + statusTone}>{statusLabel}</span></div>
       </div>
     </div>
     <div className="filters" style={{ marginTop: 16, marginBottom: 0 }}>
       <button type="button" className="btn" onClick={() => setPaymentOpen(true)}><Icon name="card" size="s" />Record payment</button>
+      {['trial', 'trial-ending', 'unset'].includes(stage) && <button type="button" className="btn outline" onClick={() => setAccessDialog('trial')}>Set trial period</button>}
+      {stage === 'restricted' && <button type="button" className="btn outline" onClick={() => setAccessDialog('temporary')}>Grant temporary access</button>}
       <button type="button" className="btn outline" onClick={() => setPlanOpen(true)} disabled={stage === 'restricted'} title={stage === 'restricted' ? 'Renew the subscription before changing plan terms.' : undefined}><Icon name="edit" size="s" />Change plan</button>
     </div>
 
@@ -172,9 +181,10 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
       <InvoicePdfViewer invoiceSeq={viewingInvoiceSeq} onClose={() => setViewingInvoiceSeq(null)} />
     )}
 
+    {accessDialog && <Dialog title={accessDialog === 'temporary' ? 'Grant temporary access' : 'Set trial period'} onClose={() => setAccessDialog(null)} warnOnChanges><SetTrialDialog storeId={store.id} temporary={accessDialog === 'temporary'} onSaved={() => { setAccessDialog(null); setNotice('Access updated'); router.refresh(); }} /></Dialog>}
     {paymentOpen && (
       <Dialog title="Record a payment" description={`Add a deposit or renewal payment for ${store.name}.`} onClose={() => setPaymentOpen(false)} warnOnChanges>
-        <RecordPaymentDialog storeId={store.id} storeName={store.name} onSaved={() => { setPaymentOpen(false); setNotice('Payment recorded'); router.refresh(); setTimeout(() => setNotice(''), 4000); }} />
+        <RecordPaymentDialog storeId={store.id} storeName={store.name} store={store} onSaved={invoice => { setPaymentOpen(false); setNotice(invoice.coversTo ? `Payment recorded. Access paid through: ${dateLabelFull(invoice.coversTo)}.` : 'Deposit payment recorded.'); router.refresh(); setTimeout(() => setNotice(''), 4000); }} />
       </Dialog>
     )}
     {planOpen && (

@@ -17,3 +17,5 @@ out
 
 # Ephemeral per-session task-handoff checkpoint (personal, not durable knowledge)
 .claude/CHECKPOINT.md
+
+/public/pdfjs/

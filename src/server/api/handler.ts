@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
 import {
   AuthError,
@@ -134,10 +135,27 @@ export async function requireApiOutletSession(
   return requireOutletSession(storeId, outletId, role, session, options);
 }
 
-export async function handleApiRoute(handler: () => Promise<Response>): Promise<Response> {
+export async function handleApiRoute(
+  handler: () => Promise<Response>,
+  options?: { request: Request; cacheTtlSeconds: number },
+): Promise<Response> {
   try {
     const res = await handler();
-    if (!res.headers.has('Cache-Control')) {
+    if (options?.request.method === 'GET' && res.ok && Number.isSafeInteger(options.cacheTtlSeconds) && options.cacheTtlSeconds > 0) {
+      res.headers.set('Cache-Control', `private, max-age=${options.cacheTtlSeconds}`);
+      const vary = new Set((res.headers.get('Vary') ?? '').split(',').map(value => value.trim()).filter(Boolean));
+      for (const header of ['Authorization', 'Cookie', 'X-Store-Id', 'X-Outlet-Id']) vary.add(header);
+      res.headers.set('Vary', [...vary].join(', '));
+      if (res.headers.get('Content-Type')?.includes('application/json')) {
+        const bodyText = await res.clone().text();
+        const etag = `W/"${createHash('sha1').update(bodyText).digest('hex').slice(0, 12)}"`;
+        res.headers.set('ETag', etag);
+        const candidates = options.request.headers.get('If-None-Match')?.split(',').map(value => value.trim().replace(/^W\//, '')) ?? [];
+        if (candidates.includes('*') || candidates.includes(etag.replace(/^W\//, ''))) {
+          return new Response(null, { status: 304, headers: res.headers });
+        }
+      }
+    } else if (!res.headers.has('Cache-Control')) {
       res.headers.set('Cache-Control', 'private, no-store');
     }
     return res;

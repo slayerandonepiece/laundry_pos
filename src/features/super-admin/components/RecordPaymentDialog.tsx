@@ -3,20 +3,21 @@ import { useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
 import { useDialogClose, DialogFooter } from './Dialog';
 import { recordSubscriptionPaymentAction } from '../actions/stores.actions';
-import type { PaymentMethod, StoreInvoice } from '../types';
+import type { PaymentMethod, StoreInvoice, StoreDetail } from '../types';
 
 // Platform subscription billing is intentionally fixed and independent of
 // each store's customer-order payment methods.
 const PAYMENT_METHODS = [{ value: 'UPI', label: 'UPI' }, { value: 'CASH', label: 'Cash' }] as const;
 
-export default function RecordPaymentDialog({ storeId, storeName, onSaved }: {
+export default function RecordPaymentDialog({ storeId, storeName, store, onSaved }: {
   storeId: string;
   storeName: string;
+  store: Pick<StoreDetail, 'annualFeeAmount' | 'depositAmount'>;
   onSaved: (invoice: StoreInvoice) => void;
 }) {
   const onCancel = useDialogClose();
   const [type, setType] = useState<'DEPOSIT' | 'RENEWAL'>('RENEWAL');
-  const [amount, setAmount] = useState('5000');
+  const [amount, setAmount] = useState(String(store.annualFeeAmount / 100));
   const [method, setMethod] = useState<PaymentMethod>('UPI');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
@@ -38,8 +39,8 @@ export default function RecordPaymentDialog({ storeId, storeName, onSaved }: {
   return <div className="ad-form">
     <p className="ad-help">Recording a payment for {storeName}.</p>
     <div className="ad-form-grid">
-      <label className="ad-checkbox"><input type="radio" name="type" checked={type === 'RENEWAL'} onChange={() => setType('RENEWAL')} />Renewal — extends the paid-through date</label>
-      <label className="ad-checkbox"><input type="radio" name="type" checked={type === 'DEPOSIT'} onChange={() => setType('DEPOSIT')} />Deposit</label>
+      <label className="ad-checkbox"><input type="radio" name="type" checked={type === 'RENEWAL'} onChange={() => { setType('RENEWAL'); setAmount(String(store.annualFeeAmount / 100)); }} />Renewal — extends the paid-through date</label>
+      <label className="ad-checkbox"><input type="radio" name="type" checked={type === 'DEPOSIT'} onChange={() => { setType('DEPOSIT'); setAmount(String(store.depositAmount / 100)); }} />Deposit</label>
     </div>
     <div className="ad-form-grid">
       <label>Amount (₹)<input type="number" min="0" step="1" value={amount} onChange={e => setAmount(e.target.value)} /></label>

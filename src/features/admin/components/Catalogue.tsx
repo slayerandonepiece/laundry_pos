@@ -6,6 +6,7 @@ interface Props {
   products: Product[];
   totalCount?: number;
   search: string;
+  actionsDisabled?: boolean;
   readOnly?: boolean;
   onSearch: (search: string) => void;
   onEdit: (product: Product) => void;
@@ -33,6 +34,7 @@ export default function Catalogue({
   products,
   totalCount,
   search,
+  actionsDisabled = false,
   readOnly = false,
   onSearch,
   onEdit,
@@ -51,7 +53,7 @@ export default function Catalogue({
         <CardHeading
           title={isFiltered ? `Services & pricing (${products.length} of ${totalCount ?? products.length})` : `Services & pricing (${products.length})`}
           subtitle={readOnly ? 'Service prices for new orders. Contact the owner for changes.' : 'Manage services and their pricing.'}
-          action={!readOnly && <button type="button" className="btn btn-primary" onClick={onNew}>＋ Add service</button>}
+          action={!readOnly && <button type="button" className="btn btn-primary" disabled={actionsDisabled} onClick={onNew}>＋ Add service</button>}
         />
 
         <div className="row" style={{ justifyContent: 'space-between', gap: '8px' }}>
@@ -62,7 +64,7 @@ export default function Catalogue({
             placeholder="Search by service or category…"
             value={search}
             onChange={event => onSearch(event.target.value)}
-            style={{ minWidth: '280px' }}
+            style={{ minWidth: 0, flex: 1 }}
           />
           {isFiltered && (
             <button
@@ -81,7 +83,7 @@ export default function Catalogue({
             isFiltered={isFiltered}
             firstUseTitle="No services yet"
             firstUseDescription="Add your first service to start taking orders."
-            firstUseAction={!readOnly ? <button type="button" className="btn btn-primary" onClick={onNew}>＋ Add service</button> : undefined}
+            firstUseAction={!readOnly ? <button type="button" className="btn btn-primary" disabled={actionsDisabled} onClick={onNew}>＋ Add service</button> : undefined}
             filteredTitle="No matching services"
             filteredDescription="Try adjusting your search terms to find what you are looking for."
             filteredAction={<button type="button" className="btn btn-secondary" onClick={() => onSearch('')}>Clear search</button>}
@@ -112,7 +114,7 @@ export default function Catalogue({
                       </td>
                       {!readOnly && (
                         <td style={{ textAlign: 'right' }}>
-                          <button type="button" className="btn btn-secondary" aria-label={'Edit ' + product.name} onClick={() => onEdit(product)}>
+                          <button type="button" className="btn btn-secondary" aria-label={'Edit ' + product.name} disabled={actionsDisabled} onClick={() => onEdit(product)}>
                             Edit
                           </button>
                         </td>
@@ -125,12 +127,12 @@ export default function Catalogue({
 
             <div className="catalogue-cards">
               {products.map(product => {
-                const ProductCard = readOnly ? 'article' : 'button';
+                const ProductCard = readOnly || actionsDisabled ? 'article' : 'button';
                 return (
                   <ProductCard
                     key={product.id}
                     className="catalogue-card"
-                    onClick={readOnly ? undefined : () => onEdit(product)}
+                    onClick={readOnly || actionsDisabled ? undefined : () => onEdit(product)}
                     aria-label={readOnly ? undefined : 'Edit ' + product.name}
                   >
                     <div className="row" style={{ justifyContent: 'space-between' }}>

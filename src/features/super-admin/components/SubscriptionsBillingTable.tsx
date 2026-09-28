@@ -89,7 +89,15 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
     </div>
 
     <div className="filters">
-      {([['all', 'All'], ['active', 'Active'], ['expiring', 'Expiring'], ['locked', 'Locked'], ['unset', 'Terms not set']] as [Filter, string][]).map(([value, label]) => (
+      {([
+        ['all', 'All'],
+        ['active', 'Active'],
+        ['expiring', 'Expiring'],
+        ['locked', 'Locked'],
+        ['trial', 'Trial'],
+        ['trial_ending', 'Trial ending'],
+        ['unset', 'Terms not set'],
+      ] as [Filter, string][]).map(([value, label]) => (
         <button key={value} type="button" className={'fpill' + (filter === value ? ' on' : '')} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>
       ))}
       <span className="ftools">

@@ -32,7 +32,7 @@ export default function InvoiceDetail({ invoice, store }: { invoice: StoreInvoic
             <div>
               <small style={{ fontSize: 11.5, color: 'var(--muted)' }}>Owner</small>
               <p style={{ color: 'var(--ink)', fontWeight: 600, margin: '5px 0 3px' }}>{store.ownerName}</p>
-              <p style={{ fontSize: 12.5, lineHeight: 1.65 }}>@{store.ownerUsername}</p>
+              <p style={{ fontSize: 12.5, lineHeight: 1.65 }}>{store.ownerPhone}</p>
             </div>
           </div>
         </div>

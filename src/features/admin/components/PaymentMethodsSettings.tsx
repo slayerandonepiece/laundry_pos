@@ -7,7 +7,7 @@ import { Card, CardHeading, Toggle } from '@/features/admin/components/ui';
 import ConfirmationDialog from '@/features/admin/components/ConfirmationDialog';
 import { setOrganizationPaymentMethodEnabledAction } from '../actions/payment-methods.actions';
 
-export default function PaymentMethodsSettings({ methods }: { methods: OrganizationPaymentMethodDTO[] }) {
+export default function PaymentMethodsSettings({ readOnly = false, methods }: { readOnly?: boolean; methods: OrganizationPaymentMethodDTO[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [pendingDisable, setPendingDisable] = useState<OrganizationPaymentMethodDTO | null>(null);
@@ -47,7 +47,7 @@ export default function PaymentMethodsSettings({ methods }: { methods: Organizat
                     handleToggle(method.id, true);
                   }
                 }}
-                disabled={busy === method.id}
+                disabled={readOnly || busy === method.id}
                 aria-label={`${method.name} · ${method.enabled ? 'Enabled' : 'Disabled'}`}
               />
             </div>
