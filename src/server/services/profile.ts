@@ -1,4 +1,6 @@
 import 'server-only';
+import { revalidateTag } from 'next/cache';
+import { isValidPhone } from '@/lib/contactValidation';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { verifyPassword, hashPassword } from '@/server/auth/password';
@@ -26,8 +28,8 @@ export async function getStoreProfile(storeId: string, ownerName: string): Promi
 }
 
 const profileSchema = z.object({
-  name: z.string().trim().min(1),
-  phone: z.string().trim().regex(/^\+?[0-9]{10,15}$/, 'Enter a valid phone number with 10 to 15 digits.'),
+  name: z.string().trim().min(2),
+  phone: z.string().trim().refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
   email: z.union([z.string().trim().email(), z.literal('')]),
   store: z.string().trim().min(1),
   address: z.string().trim().min(1),
@@ -43,6 +45,7 @@ export async function saveStoreProfile(storeId: string, input: unknown, ownerId:
     // Keep the owner's login display name in sync with the profile name shown in the UI.
     prisma.user.update({ where: { id: ownerId }, data: { name: data.name } }),
   ]);
+  revalidateTag('stores', { expire: 0 });
   return toDTO(store, data.name);
 }
 

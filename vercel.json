@@ -5,5 +5,8 @@
   "buildCommand": "npm run vercel-build",
   "git": {
     "deploymentEnabled": false
-  }
+  },
+  "regions": [
+    "sin1"
+  ]
 }

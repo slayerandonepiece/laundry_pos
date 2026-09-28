@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -87,7 +88,7 @@ async function setupStoreWithOutlets(suffix: string) {
   const passwordHash = await hashPassword('password123');
 
   const emp1User = await prisma.user.create({
-    data: { name: `Emp 1 ${suffix}`, username: `emp1_${suffix}`, passwordHash },
+    data: { name: `Emp 1 ${suffix}`, phone: testPhone(`emp1_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: emp1User.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -97,7 +98,7 @@ async function setupStoreWithOutlets(suffix: string) {
   });
 
   const emp2User = await prisma.user.create({
-    data: { name: `Emp 2 ${suffix}`, username: `emp2_${suffix}`, passwordHash },
+    data: { name: `Emp 2 ${suffix}`, phone: testPhone(`emp2_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: emp2User.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -107,7 +108,7 @@ async function setupStoreWithOutlets(suffix: string) {
   });
 
   const ownerUser = await prisma.user.create({
-    data: { name: `Owner ${suffix}`, username: `owner_${suffix}`, passwordHash },
+    data: { name: `Owner ${suffix}`, phone: testPhone(`owner_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: ownerUser.id, storeId: store.id, role: Role.OWNER, active: true },

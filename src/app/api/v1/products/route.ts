@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const session = await requireApiStoreSession(req);
     const products = await listProducts(session.storeId);
     return jsonResponse(products);
-  });
+  }, { request: req, cacheTtlSeconds: 30 });
 }
 
 export async function POST(req: NextRequest) {

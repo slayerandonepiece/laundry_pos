@@ -80,6 +80,25 @@ export function TableLoading({
   );
 }
 
+export function CardLoading() {
+  return (
+    <div className="workspace-loading workspace-card-loading" role="status" aria-label="Loading content" aria-busy="true">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="shimmer workspace-loading-card" aria-hidden="true" />
+      ))}
+    </div>
+  );
+}
+
+export function ResponsiveListLoading({ hasStats = false, cols = 5, rows = 6 }: { hasStats?: boolean; cols?: number; rows?: number }) {
+  return (
+    <>
+      <div className="workspace-loading-desktop"><TableLoading hasStats={hasStats} cols={cols} rows={rows} /></div>
+      <div className="workspace-loading-mobile"><CardLoading /></div>
+    </>
+  );
+}
+
 export function ProfileLoading() {
   return (
     <div className="workspace-loading" role="status" aria-label="Loading profile" aria-busy="true" style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>

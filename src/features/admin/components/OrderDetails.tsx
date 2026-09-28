@@ -13,10 +13,12 @@ export default function OrderDetails({
   onStatus, 
   onPayment, 
   error, 
+  readOnly = false,
   canRecordPayment = true,
   asDialog = false,
   onClose
 }: { 
+  readOnly?: boolean;
   canRecordPayment?: boolean; 
   order: Order; 
   paymentMethods: StorePaymentMethod[]; 
@@ -32,11 +34,15 @@ export default function OrderDetails({
   const content = (
     <div className="ad-order-detail-content">
       <div className="ad-detail-columns">
-        <div className="ad-detail-main">
-          <OrderDeliveryDetails order={order}/>
-          <section className="ad-detail-section ad-detail-note"><h3>Care instructions</h3><p className="ad-detail-notes">{order.notes || 'No special instructions added to this order.'}</p></section>
-        </div>
-        <div className="ad-detail-summary"><OrderPaymentSummary order={order} paymentMethods={paymentMethods} canRecordPayment={canRecordPayment} onPayment={onPayment}/><section className="ad-detail-section ad-detail-audit"><h3>Status history</h3>{order.history?.length ? <ol className="ad-status-history">{[...order.history].reverse().map((event, index) => <li key={event.at + index}><strong>{event.status}</strong><span>{event.by}</span><small>{new Date(event.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} IST</small></li>)}</ol> : <p>History was not recorded for this older order.</p>}</section></div>
+        <OrderDeliveryDetails order={order}/>
+        <OrderPaymentSummary order={order} paymentMethods={paymentMethods} canRecordPayment={canRecordPayment} onPayment={onPayment}/>
+        <section className="ad-detail-section ad-detail-audit">
+          <h3>Status history</h3>
+          {order.history?.length ? <ol className="ad-status-history">{[...order.history].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).map((event, index, events) => <li key={event.at + index} aria-current={index === events.length - 1 ? 'step' : undefined}>
+            <strong>{event.status}</strong><span>{event.by}</span><time dateTime={event.at}>{new Date(event.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} IST</time>
+          </li>)}</ol> : <p>History was not recorded for this older order.</p>}
+        </section>
+        <section className="ad-detail-section ad-detail-note"><h3>Care instructions</h3><p className="ad-detail-notes">{order.notes || 'No special instructions added to this order.'}</p></section>
       </div>
     </div>
   );
@@ -44,7 +50,7 @@ export default function OrderDetails({
   const footer = (
     <div className="ad-detail-footer" style={{ width: '100%' }}>
       {error && <p className="ad-error" role="alert">{error}</p>}
-      <label>Update work status<select value={order.status} aria-label="Work status" onChange={e => onStatus(e.target.value as WorkStatus)}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label>
+      <label>Update work status<select disabled={readOnly} value={order.status} aria-label="Work status" onChange={e => onStatus(e.target.value as WorkStatus)}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label>
       <Button secondary onClick={handleClose}>Close</Button>
     </div>
   );

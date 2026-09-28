@@ -3,10 +3,11 @@ import { listOrders } from '@/server/services/orders';
 import { listProducts } from '@/server/services/products';
 import { listOrganizationPaymentMethods } from '@/server/services/platform-payment-methods';
 import { listOutletsForStoreAdmin } from '@/server/services/outlets';
-import { requireStoreSession, resolveStoreSelection, AuthError } from '@/server/auth/session';
+import { requireStoreSession, resolveStoreSelection, resolveOutletSelection, AuthError } from '@/server/auth/session';
 import type { StorePaymentMethod } from '@/features/admin/admin.types';
 
 export default async function Page() {
+  let serverStoreId = '';
   let serverOrders: Awaited<ReturnType<typeof listOrders>> = [];
   let serverProducts: Awaited<ReturnType<typeof listProducts>> = [];
   let serverPaymentMethods: StorePaymentMethod[] = [];
@@ -19,9 +20,11 @@ export default async function Page() {
     // own store-switcher display is resolved independently in
     // src/app/(workspace)/layout.tsx.
     const selection = await resolveStoreSelection();
-    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined);
+    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, undefined, undefined, { allowLockedReadOnly: true });
+    serverStoreId = session.storeId;
+    const outletSelection = session.storeRole === 'EMPLOYEE' ? await resolveOutletSelection(session) : null;
     const [orders, products, orgMethods] = await Promise.all([
-      listOrders(session.storeId),
+      session.storeRole === 'OWNER' ? listOrders(session.storeId) : outletSelection?.outletId ? listOrders(session.storeId, { outletId: outletSelection.outletId }) : Promise.resolve([]),
       listProducts(session.storeId),
       listOrganizationPaymentMethods(session.storeId),
     ]);
@@ -29,11 +32,11 @@ export default async function Page() {
     serverProducts = products;
     serverPaymentMethods = orgMethods
       .filter(method => method.enabled)
-      .map(method => ({ id: method.id, storeId: session.storeId, name: method.name, active: true }));
+      .map(method => ({ id: method.id, storeId: session.storeId, name: method.name, code: method.code, active: true }));
     // Owners pick the outlet on New sale when the store has more than one active outlet.
-    if (session.storeRole === 'OWNER') serverOutlets = (await listOutletsForStoreAdmin(session.storeId)).filter(outlet => outlet.status === 'ACTIVE');
+    serverOutlets = (await listOutletsForStoreAdmin(session.storeId)).filter(outlet => session.storeRole === 'OWNER' || outlet.id === outletSelection?.outletId);
   } catch (error) {
     if (!(error instanceof AuthError)) throw error;
   }
-  return <AdminScreenContainer screen="sales" serverOrders={serverOrders} serverProducts={serverProducts} serverPaymentMethods={serverPaymentMethods} serverOutlets={serverOutlets} />;
+  return <AdminScreenContainer screen="sales" serverStoreId={serverStoreId} serverOrders={serverOrders} serverProducts={serverProducts} serverPaymentMethods={serverPaymentMethods} serverOutlets={serverOutlets} />;
 }

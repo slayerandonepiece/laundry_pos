@@ -1,6 +1,7 @@
 'use client';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import WorkspaceAnnouncements from '@/components/WorkspaceAnnouncements';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { lockBodyScroll } from '@/features/admin/admin.dialog';
 import { superAdminLogoutAction } from '../actions/auth.actions';
@@ -14,7 +15,9 @@ const links: [string, IconName, string][] = [
   ['/super-admin/subscriptions', 'subscriptions', 'Subscriptions'],
   ['/super-admin/billing', 'card', 'Billing'],
   ['/super-admin/payment-methods', 'card', 'Payment methods'],
+  ['/super-admin/announcements', 'bell', 'Announcements'],
   ['/super-admin/activity', 'history', 'Activity'],
+  ['/super-admin/profile', 'users', 'Profile'],
 ];
 
 function Nav({ pathname, name, onNavigate }: { pathname: string; name: string; onNavigate?: () => void }) {
@@ -85,23 +88,12 @@ export default function SuperAdminChrome({ name, children }: { name: string; chi
   const [menu, setMenu] = useState(false);
 
   function logout() {
-    superAdminLogoutAction().then(() => router.replace('/super-admin/login'));
+    superAdminLogoutAction().then(() => {
+      try { sessionStorage.clear(); } catch {}
+      try { localStorage.removeItem('el_draft'); } catch {}
+      router.replace('/login');
+    });
   }
-
-  // The header search has no data of its own to search — each screen (Stores,
-  // Users, Billing) already has a real, working search input. Cmd/Ctrl+K and
-  // clicking the header search jump to whichever of those is on the current
-  // page, rather than the control looking clickable while doing nothing.
-  const focusPageSearch = () => {
-    document.querySelector<HTMLInputElement>('.fsearch input')?.focus();
-  };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); focusPageSearch(); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
 
   const activeLink = links.find(([href]) => href === '/super-admin' ? pathname === href : pathname === href || pathname.startsWith(href + '/'));
   const crumbLabel = activeLink?.[2] ?? 'Dashboard';
@@ -115,14 +107,16 @@ export default function SuperAdminChrome({ name, children }: { name: string; chi
       <header className="top">
         <button className="menu-toggle icon-btn" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="hamburger" /></button>
         <div className="crumb">Platform <Icon name="chevronRight" /> <b>{crumbLabel}</b></div>
-        <button type="button" className="searchbar" onClick={focusPageSearch} aria-label="Jump to this page's search (Ctrl+K)">
-          <Icon name="search" size="s" /><span>Search…</span><span className="kbd">⌘K</span>
-        </button>
+        <div className="searchbar" aria-hidden="true" style={{ cursor: 'default' }}>
+          <Icon name="search" size="s" /><span>Search…</span>
+        </div>
         <div className="top-right">
           <span className="icon-btn plain" aria-hidden="true" title="Notifications aren't built yet"><Icon name="bell" /></span>
-          <button className="av" aria-label={`${name} · Log out`} onClick={logout} title="Log out">{initials(name)}</button>
+          <Link className="av" href="/super-admin/profile" aria-label={`Profile: ${name}`} title="Profile">{initials(name)}</Link>
+          <button className="btn outline" onClick={logout}>Log out</button>
         </div>
       </header>
+      <WorkspaceAnnouncements audience="platform" />
       <main className="main">
         {children}
       </main>

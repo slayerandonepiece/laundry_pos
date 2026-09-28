@@ -1,4 +1,5 @@
 import 'server-only';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { ValidationError } from '@/server/errors';
@@ -17,11 +18,13 @@ function toDTO(method: { id: string; name: string; active: boolean }): StorePaym
 }
 
 export async function listStorePaymentMethods(storeId: string, includeInactive = false): Promise<StorePaymentMethod[]> {
-  const methods = await prisma.storePaymentMethod.findMany({
-    where: { storeId, ...(includeInactive ? {} : { active: true }) },
-    orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
-  });
-  return methods.map(toDTO);
+  return unstable_cache(async () => {
+    const methods = await prisma.storePaymentMethod.findMany({
+      where: { storeId, ...(includeInactive ? {} : { active: true }) },
+      orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
+    });
+    return methods.map(toDTO);
+  }, ['payment-methods', storeId, String(includeInactive)], { tags: ['payment-methods', storeId], revalidate: 120 })();
 }
 
 async function assertUniqueName(storeId: string, name: string, excludeId?: string) {
@@ -34,7 +37,9 @@ async function assertUniqueName(storeId: string, name: string, excludeId?: strin
 export async function createStorePaymentMethod(storeId: string, input: string): Promise<StorePaymentMethod> {
   const name = parseName(input);
   await assertUniqueName(storeId, name);
-  return toDTO(await prisma.storePaymentMethod.create({ data: { storeId, name } }));
+  const method = await prisma.storePaymentMethod.create({ data: { storeId, name } });
+  revalidateTag(storeId, { expire: 0 });
+  return toDTO(method);
 }
 
 export async function renameStorePaymentMethod(storeId: string, methodId: string, input: string): Promise<StorePaymentMethod> {
@@ -42,11 +47,13 @@ export async function renameStorePaymentMethod(storeId: string, methodId: string
   const existing = await prisma.storePaymentMethod.findFirst({ where: { id: methodId, storeId } });
   if (!existing) throw new ValidationError('Payment method not found.');
   await assertUniqueName(storeId, name, methodId);
-  return toDTO(await prisma.storePaymentMethod.update({ where: { id: methodId }, data: { name } }));
+  const method = await prisma.storePaymentMethod.update({ where: { id: methodId }, data: { name } });
+  revalidateTag(storeId, { expire: 0 });
+  return toDTO(method);
 }
 
 export async function setStorePaymentMethodActive(storeId: string, methodId: string, active: boolean): Promise<StorePaymentMethod> {
-  return prisma.$transaction(async tx => {
+  const method = await prisma.$transaction(async tx => {
     const existing = await tx.storePaymentMethod.findFirst({ where: { id: methodId, storeId } });
     if (!existing) throw new ValidationError('Payment method not found.');
     if (!active && existing.active) {
@@ -55,4 +62,6 @@ export async function setStorePaymentMethodActive(storeId: string, methodId: str
     }
     return toDTO(await tx.storePaymentMethod.update({ where: { id: methodId }, data: { active } }));
   });
+  revalidateTag(storeId, { expire: 0 });
+  return method;
 }

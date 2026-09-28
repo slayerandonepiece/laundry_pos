@@ -1,16 +1,16 @@
 export type Screen = 'login' | 'dashboard' | 'products' | 'sales' | 'expenses' | 'profile' | 'employees' | 'orders' | 'outlets';
 export type Role = 'owner' | 'employee';
-export interface Employee { id: string; name: string; username: string; active: boolean; credentialVersion: number; outlets?: { id: string; name: string }[]; defaultOutletId?: string }
+export interface Employee { id: string; name: string; phone: string; active: boolean; credentialVersion: number; outlets?: { id: string; name: string }[]; defaultOutletId?: string }
 // Client-side mirror of the server-verified session (see loginAction), used
 // only for routing/display; every Server Action/Component re-checks the real
 // HttpOnly session independently.
-export interface Session { id: string; role: Role; name: string }
-export interface AdminUser { id: string; name: string; role: Role }
+export interface Session { id: string; role: Role; name: string; storeId: string }
+export interface AdminUser { id: string; name: string; role: Role; storeId: string }
 export type WorkStatus = 'Pending' | 'In Progress' | 'Ready' | 'Delivered';
 export type Product = { id: string; name: string; category: string; active: boolean } & ({ type: 'item'; price: number } | { type: 'weight'; slabs: { limit: number; price: number }[]; extra: number });
 export interface Line { productId: string; name: string; quantity: number; unit: string; amount: number }
 export type PaymentMethod = string;
-export interface StorePaymentMethod { id: string; name: string; active: boolean }
+export interface StorePaymentMethod { id: string; name: string; active: boolean; code?: string }
 export interface Payment { id: string; amount: number; date: string; method: PaymentMethod; clientActionId?: string }
 export interface StatusEvent { status: WorkStatus; at: string; by: string }
 export interface Order { history?: StatusEvent[]; id: string; name: string; phone: string; date: string; due: string; completed?: string; legacyCancelled?: boolean; status: WorkStatus; lines: Line[]; payments: Payment[]; notes: string; outletId?: string; offlineId?: string }

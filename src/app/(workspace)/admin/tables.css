@@ -229,3 +229,192 @@
  .ad-dialog-details .ad-detail-footer label{min-width:0;width:100%;flex-direction:column;align-items:stretch}
  .ad-dialog-details .ad-detail-footer select,.ad-dialog-details .ad-detail-footer .ad-button{width:100%}
 }
+
+/* Order detail: full-width progress, charges, and chronological activity. */
+.ad-root .ad-detail-columns{grid-template-columns:minmax(0,1fr);gap:14px}
+.ad-root .ad-delivery-section{padding:14px 16px}
+.ad-root .ad-delivery-section>h3{margin-bottom:10px}
+.ad-root .ad-delivery-facts{display:flex;flex-wrap:wrap;gap:10px 32px;margin:0 0 12px}
+.ad-root .ad-delivery-facts>div{min-width:0}
+.ad-root .ad-delivery-steps{margin:0;gap:16px}
+.ad-root .ad-delivery-steps small{display:none}
+.ad-root .ad-bill-table-wrap{overflow-x:auto}
+.ad-root .ad-bill-table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}
+.ad-root .ad-bill-table th{font-size:11px;color:var(--ad-muted);background:#f7f9fc}
+.ad-root .ad-bill-table th,.ad-root .ad-bill-table td{padding:10px 12px;border-bottom:1px solid #e5eaf2}
+.ad-root .ad-bill-table th:first-child,.ad-root .ad-bill-table td:first-child{padding-left:0}
+.ad-root .ad-bill-table td:not(:first-child){white-space:nowrap}
+.ad-root .ad-bill-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.ad-root .ad-detail-section .ad-receipt{max-width:360px;margin:16px 0 16px auto}
+.ad-root .ad-status-history{padding-left:8px}
+.ad-root .ad-status-history li{position:relative;border-left:2px solid #bbd9c9;padding:0 0 20px 22px;display:grid;grid-template-columns:1fr;gap:4px}
+.ad-root .ad-status-history li::before{content:'✓';position:absolute;left:-10px;top:0;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#168354;color:white;font-size:11px;box-shadow:0 0 0 4px white}
+.ad-root .ad-status-history li[aria-current=step]::before{background:var(--ad-blue)}
+.ad-root .ad-status-history li:last-child{border-left-color:transparent;padding-bottom:0}
+.ad-root .ad-status-history time{font-size:12px;color:var(--ad-muted)}
+.ad-root .ad-details-header>.ad-details-invoice{grid-column:1/-1;padding:0;background:none;border:0}
+.ad-root .ad-details-invoice .ad-order-invoice-actions{justify-content:flex-end;margin:0}
+.ad-root .ad-sales-toolbar{align-items:center;gap:8px;margin-bottom:16px!important}
+.ad-root .ad-sales-toolbar .ad-category-tabs{margin:0;align-items:center}
+.ad-root .ad-sales-toolbar input,.ad-root .ad-sales-toolbar .switcher-trigger,.ad-root .ad-sales-toolbar .ad-category-tabs button{min-height:44px;height:44px}
+.ad-root .ad-customer-lookup-note{padding-top:4px;line-height:1.5;font-size:11px;margin:0}
+@media(min-width:768px){.ad-root .ad-customer-lookup-note{white-space:nowrap;grid-column:1/-1}}
+@media(max-width:767px){
+ .ad-root .ad-delivery-steps{gap:6px}
+ .ad-root .ad-delivery-steps strong{font-size:11px}
+ .ad-root .ad-bill-table th,.ad-root .ad-bill-table td{padding:10px 6px;font-size:11px}
+ .ad-root .ad-details-invoice .ad-order-invoice-actions{justify-content:flex-start}
+ .ad-root .ad-customer-lookup-note{max-width:100%;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+}
+
+.expense-row-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap}
+.expense-row-actions .btn{padding:6px 9px;font-size:12px;white-space:nowrap}
+.expense-row-actions .expense-delete{color:#b91c1c;border-color:#fecaca}
+.expense-detail-facts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0}
+.expense-detail-facts dt{font-size:12px;color:var(--muted)}
+.expense-detail-facts dd{margin:4px 0 0;overflow-wrap:anywhere;font-weight:600}
+.expenses-cards{display:none}
+@media(max-width:768px){
+ .expenses-table{display:none}
+ .expenses-cards{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+ .expense-card{padding:14px;border:1px solid var(--border);border-radius:12px;background:white}
+ .expense-card>.row{justify-content:space-between;gap:10px}
+ .expense-card p{font-size:12px;margin:8px 0;color:var(--muted)}
+ .expense-card .expense-row-actions{justify-content:flex-start;margin-top:12px}
+ .expense-card .btn{min-height:40px}
+}
+
+.ad-root .ad-details-invoice a.ad-button{color:white;font-size:12.5px}
+.ad-bill-table .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.ad-root .ad-details-header>.ad-details-invoice:last-child{grid-column:1/-1;padding:0;background:none;border:0}
+@media(max-width:767px){.ad-root .ad-delivery-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}.ad-root .ad-delivery-facts dd{font-size:12px}.ad-root .ad-delivery-facts dt{font-size:10px}}
+
+/* Order bill and payment form: compact, consistent reading rhythm. */
+.ad-root .ad-order-bill{padding:14px;font-size:13px}
+.ad-root .ad-order-bill .ad-payment-heading{margin-bottom:8px;min-height:24px}
+.ad-root .ad-order-bill h3{font-size:14px;line-height:1.4;margin:0 0 8px;padding:0;border:0}
+.ad-root .ad-order-bill .ad-payment-heading h3,.ad-root .ad-order-bill .ad-payment-heading .ad-badge{margin:0}
+.ad-root .ad-order-bill .ad-bill-table th,.ad-root .ad-order-bill .ad-bill-table td{padding:8px 6px;font-size:12px}
+.ad-root .ad-order-bill .ad-bill-table th{font-size:11px}
+.ad-root .ad-order-bill .ad-bill-table th:first-child,.ad-root .ad-order-bill .ad-bill-table td:first-child{padding-left:0}
+.ad-root .ad-order-bill .ad-receipt{max-width:none;margin:10px 0 14px;padding:0}
+.ad-root .ad-order-bill .ad-receipt>div{padding:5px 0;font-size:13px}
+.ad-root .ad-order-bill .ad-receipt .ad-balance{padding:8px 10px;margin-top:6px;font-size:13px}
+.ad-root .ad-order-bill>p{margin:0 0 12px;font-size:12px;line-height:1.5}
+.ad-root .ad-order-bill .ad-history{font-size:12px;padding:8px 0}
+.ad-root .ad-order-bill .ad-record-payment{gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #e5e9ef}
+.ad-root .ad-order-bill .ad-record-payment h3{margin:0}
+.ad-root .ad-order-bill .ad-record-payment label{gap:5px;font-size:12px;line-height:1.4}
+.ad-root .ad-order-bill .ad-record-payment input,.ad-root .ad-order-bill .ad-record-payment select{margin:0;min-height:44px;padding:9px 10px;font-size:13px}
+.ad-root .ad-record-payment-amount{display:flex;gap:8px;min-width:0}
+.ad-root .ad-record-payment-amount input{min-width:0;width:0}
+.ad-root .ad-order-bill .ad-record-payment .ad-button{min-height:44px;padding:9px 12px;font-size:13px;white-space:nowrap}
+/* Match the close control to the title row, with a full touch target. */
+.ad-root.ad-dialog-details>header{padding:16px}
+.ad-root.ad-dialog-details>header>.ad-icon-button{top:16px;right:16px;width:44px;height:44px;min-width:44px;min-height:44px;padding:0;display:grid;place-items:center}
+.ad-root .ad-details-header>.ad-order-title-row{min-height:44px;padding-right:52px;align-items:center}
+.ad-root .ad-details-header .ad-order-title-row .ad-badge{align-self:center}
+@media(max-width:767px){
+ .ad-root .ad-order-form .ad-form-footer>.ad-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;width:100%;flex-wrap:nowrap}
+ .ad-root .ad-order-form .ad-form-footer>.ad-row .ad-button{width:100%;min-height:48px;padding:12px 16px;font-size:14px}
+ .ad-root .ad-order-bill{padding:12px}
+ .ad-root .ad-order-bill .ad-bill-table th,.ad-root .ad-order-bill .ad-bill-table td{padding:8px 4px;font-size:11px}
+ .ad-root .ad-order-bill .ad-bill-table th:first-child,.ad-root .ad-order-bill .ad-bill-table td:first-child{padding-left:0}
+}
+
+/* Consistent workspace density, with touch targets retained. */
+.ad-root .ad-main{padding-top:16px;padding-bottom:0}
+.ad-root .ad-page-heading{margin-bottom:12px;align-items:center}
+.ad-root .ad-filter-row{border:0;padding:0;margin-bottom:14px;gap:12px;align-items:center;flex-wrap:wrap}
+.ad-root .ad-screen-expenses .ad-filter-row>.ad-button{margin-left:auto}
+.ad-root .ad-screen-products .card,.ad-root .ad-screen-expenses .card,.ad-root .ad-screen-employees .card,.ad-root .ad-profile-grid .card{padding:17px}
+.ad-root .ad-employees-content{gap:12px!important}
+.ad-root .ad-employees-content>.row p{margin:0!important}
+.ad-root footer.ad-bottom{min-height:0;padding:0;gap:8px;line-height:1.5;font-size:11px;border-top:1px solid #dce2e9;flex-direction:row;align-items:center;margin-top:auto;padding:8px 0 max(16px,env(safe-area-inset-bottom))}
+.ad-root footer.ad-bottom>span{padding:0}
+.ad-root .ad-profile-details{display:grid;gap:10px;margin:0}
+.ad-root .ad-profile-details>div{min-width:0}
+.ad-root .ad-profile-details dt{font-size:11px;color:var(--ad-muted);margin-bottom:2px}
+.ad-root .ad-profile-details dd{font-size:13px;margin:0;overflow-wrap:anywhere;color:var(--ad-text)}
+.ad-root .ad-profile-outlets{display:grid;gap:12px}
+.ad-root .ad-profile-outlet+.ad-profile-outlet{border-top:1px solid #e5e9ef;padding-top:12px}
+.ad-root .ad-profile-outlet>.ad-row{justify-content:space-between;gap:8px;margin-bottom:10px}
+.ad-root .ad-profile-outlet h3{font-size:14px;margin:0;overflow-wrap:anywhere}
+.ad-root .ad-pdf-toolbar a.ad-button.ad-secondary{color:var(--ad-text);font-size:13px}
+.ad-root .ad-pdf-toolbar a.ad-button:not(.ad-secondary){color:white;font-size:13px}
+.ad-root .ad-dialog-loader{position:absolute;inset:0;z-index:100;background:rgba(255,255,255,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;border-radius:inherit;color:var(--ad-text);font-size:14px;pointer-events:auto}
+@media(max-width:767px){
+ .ad-root .ad-main{padding-top:12px}
+ .ad-root .ad-page-heading{margin-bottom:10px;gap:8px}
+ .ad-root .ad-screen-products .card,.ad-root .ad-screen-expenses .card,.ad-root .ad-screen-employees .card,.ad-root .ad-profile-grid .card{padding:15px}
+ .ad-root .ad-screen-expenses .expense-card,.ad-root .ad-screen-employees .employee-card{padding:10px}
+ .ad-root .ad-screen-expenses .expense-card p{margin:5px 0}
+ .ad-root .ad-screen-employees .employees-cards{gap:10px}
+ .ad-root .ad-screen-sales .ad-sales-register{padding:15px}
+ .ad-root .ad-screen-sales .ad-sales-register>.card-heading{margin-bottom:12px}
+ .ad-root .ad-screen-sales .ad-sales-order-card{gap:6px!important}
+ .ad-root .ad-screen-sales .ad-sales-toolbar{margin-bottom:10px!important}
+ .ad-root .ad-topbar{height:auto;min-height:56px;padding:8px 12px;gap:8px;flex-wrap:wrap;align-items:center}
+ .ad-root .ad-topbar>.ad-row:first-child{flex:0 1 auto;flex-wrap:nowrap;gap:8px}
+ .ad-root .ad-topbar>.ad-row:last-child{flex:1;justify-content:flex-end;gap:8px}
+ .ad-root .ad-topbar .ad-breadcrumb,.ad-root .ad-topbar .ad-user-role{display:none}
+ .ad-root .ad-topbar .ad-menu-toggle,.ad-root .ad-topbar .ad-avatar{flex-shrink:0}
+ .ad-root #dashboard-outlet-control{flex:1;min-width:0}
+ .ad-root .dashboard-outlet-control,.ad-root .dashboard-outlet-control fieldset{min-width:0;width:100%}
+ .ad-root .dashboard-outlet-control .switcher-trigger{width:100%;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .ad-root .ad-topbar:has(.ad-store-switcher)>.ad-row:first-child{flex-basis:100%}
+ .ad-root .ad-filter-row{gap:8px;margin-bottom:12px}
+ .ad-root .ad-screen-expenses .ad-filter-row>.ad-button{min-height:44px}
+}
+@media(max-width:767px){
+ .ad-root .ad-screen-expenses .ad-filter-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+ .ad-root .ad-screen-expenses .ad-filter-row>.ad-dates{display:contents}
+ .ad-root .ad-screen-expenses .ad-filter-row>.ad-dates>select{grid-column:1;grid-row:1;min-width:0;width:100%}
+ .ad-root .ad-screen-expenses .ad-filter-row>.ad-button{grid-column:2;grid-row:1;margin:0}
+ .ad-root .ad-screen-expenses .ad-filter-row>.ad-dates>span{grid-column:1/-1;grid-row:2;font-size:11px}
+ .ad-root .ad-screen-expenses .ad-filter-row .ad-date-bound{min-width:0}
+}
+.ad-root .ad-workspace{min-height:100dvh;display:flex;flex-direction:column}
+.ad-root .ad-topbar{flex-shrink:0}
+.ad-root .ad-main{flex:1;min-height:0}
+.ad-root footer.ad-bottom{flex-shrink:0}
+@media(max-width:767px){.ad-root .expense-card .btn,.ad-root .employee-card-actions .btn{min-height:44px}}
+.ad-root .ad-screen-products .catalogue{gap:12px!important}
+.ad-root .ad-screen-products .catalogue>.info-banner{margin:0}
+.ad-root .ad-screen-products .card,.ad-root .ad-screen-expenses .card,.ad-root .ad-screen-employees .card{gap:10px}
+.ad-root .ad-screen-sales .ad-sales-register{gap:0}
+
+/* The single invoice action belongs to the title row, before Close. */
+.ad-root .ad-order-title-row>.ad-details-invoice { margin-left:auto; }
+.ad-root .ad-order-title-row>.ad-details-invoice .ad-order-invoice-actions { margin:0; }
+.ad-root .ad-order-title-row>.ad-details-invoice .ad-button { min-height:38px; }
+.ad-root .ad-order-title-row:has(>.ad-details-invoice) { position:relative; padding-right:132px; }
+.ad-root .ad-order-title-row>.ad-details-invoice { position:absolute; right:52px; top:3px; }
+
+/* Order summary: stretch all cards in each grid row to the same height. */
+.ad-root .ad-details-header { align-items:stretch; }
+.ad-root .ad-details-header>.ad-order-summary-card { justify-content:flex-start; padding:12px; gap:5px; }
+.ad-root .ad-order-summary-card small { font-size:11px; }
+.ad-root .ad-order-summary-card strong { font-size:13px; line-height:1.45; }
+.ad-root .ad-order-summary-card span,.ad-root .ad-order-summary-card a { font-size:12px; line-height:1.45; }
+
+/* Match the platform PDF dialog's single-row header in this owner viewer only. */
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading) { width:min(1160px,calc(100vw - 32px)); max-width:min(1160px,calc(100vw - 32px)); height:min(92vh,920px); max-height:min(92vh,920px); }
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading)>header { align-items:center; gap:12px; padding:18px 22px; }
+.ad-root .ad-order-pdf-heading { display:flex; align-items:center; justify-content:space-between; flex:1; min-width:0; gap:16px; }
+.ad-root .ad-order-pdf-heading h2 { margin:0; font-size:17px; }
+.ad-root .ad-order-pdf-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.ad-root .ad-order-pdf-actions .ad-button { display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:13px; min-height:38px; padding:8px 12px; }
+.ad-root .ad-order-pdf-actions a.ad-button { color:white; }
+.ad-root .ad-order-pdf-actions a.ad-secondary { color:var(--ad-text); }
+.ad-root .ad-order-pdf-actions .ad-pdf-whatsapp { color:#059669; border-color:#a7f3d0; }
+.ad-root .ad-order-pdf-actions .ic { display:inline-flex; color:inherit; }
+.ad-root .ad-order-pdf-actions .ic svg { width:16px; height:16px; }
+@media(max-width:767px) {
+ .ad-root .ad-details-header { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .ad-root .ad-details-header>.ad-order-summary-card { grid-column:auto; }
+ .ad-root .ad-order-pdf-heading { flex-wrap:wrap; gap:10px; }
+ .ad-root .ad-order-pdf-actions { flex-wrap:wrap; flex-shrink:1; }
+ .ad-root.ad-dialog-modal:has(.ad-order-pdf-heading)>header { align-items:flex-start; padding:14px; }
+}

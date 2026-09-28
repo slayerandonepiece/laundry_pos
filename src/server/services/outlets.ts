@@ -1,4 +1,8 @@
 import 'server-only';
+import { revalidateTag } from 'next/cache';
+import { hasCurrentAccess } from '@/lib/subscriptionAccess';
+import { isValidPhone } from '@/lib/contactValidation';
+import { todayIST, formatCalendarDate } from '@/server/dates';
 import { prisma } from '@/server/db';
 import { ValidationError } from '@/server/errors';
 import type { OutletMembership, OutletStatus } from '@/generated/prisma/client';
@@ -33,6 +37,13 @@ export async function createOutlet(input: CreateOutletInput): Promise<OutletDTO>
     throw new ValidationError('Organization not found.');
   }
 
+  const subscription = await prisma.subscription.findUnique({ where: { storeId: input.storeId } });
+  const date = (value: Date | null | undefined) => value ? formatCalendarDate(value) : undefined;
+  if (store.status === 'LOCKED' || !hasCurrentAccess(todayIST(), date(subscription?.paidThroughDate), date(subscription?.trialEndsAt), date(store.accessGrantedUntil))) {
+    throw new ValidationError('Set up an active subscription or trial before adding outlets.');
+  }
+  if (input.phone && !isValidPhone(input.phone)) throw new ValidationError('Enter a valid phone number.');
+
   const existingCode = await prisma.outlet.findUnique({ where: { outletCode: input.outletCode } });
   if (existingCode) {
     throw new ValidationError('This outlet code is already in use. Choose another.');
@@ -49,6 +60,7 @@ export async function createOutlet(input: CreateOutletInput): Promise<OutletDTO>
     },
   });
 
+  revalidateTag('stores', { expire: 0 });
   return outlet;
 }
 
@@ -100,7 +112,7 @@ export async function assignDefaultOutlet(
     throw new ValidationError('User does not have an active membership in this organization.');
   }
 
-  return prisma.$transaction(async tx => {
+  const membership = await prisma.$transaction(async tx => {
     // 1. Clear isDefault on all outlet memberships for this user in this store
     const storeOutlets = await tx.outlet.findMany({
       where: { storeId },
@@ -131,6 +143,8 @@ export async function assignDefaultOutlet(
       },
     });
   });
+  revalidateTag('employees', { expire: 0 });
+  return membership;
 }
 
 /**
@@ -152,7 +166,7 @@ export async function assignEmployeeToOutlet(
     throw new ValidationError('Invalid or inactive outlet for this organization.');
   }
 
-  return prisma.outletMembership.upsert({
+  const membership = await prisma.outletMembership.upsert({
     where: { userId_outletId: { userId, outletId } },
     create: {
       userId,
@@ -164,6 +178,8 @@ export async function assignEmployeeToOutlet(
       active: true,
     },
   });
+  revalidateTag('employees', { expire: 0 });
+  return membership;
 }
 
 /**
@@ -186,10 +202,12 @@ export async function removeEmployeeFromOutlet(
   });
   if (!existing) return null;
 
-  return prisma.outletMembership.update({
+  const membership = await prisma.outletMembership.update({
     where: { userId_outletId: { userId, outletId } },
     data: { active: false, isDefault: false },
   });
+  revalidateTag('employees', { expire: 0 });
+  return membership;
 }
 
 // --- Super Admin-facing queries and mutations below. Authorization
@@ -244,7 +262,7 @@ export async function updateOutlet(outletId: string, storeId: string, input: Upd
   if (!outlet || outlet.storeId !== storeId) throw new ValidationError('Outlet not found.');
   if (!input.displayName.trim()) throw new ValidationError('Enter an outlet name.');
 
-  return prisma.outlet.update({
+  const updated = await prisma.outlet.update({
     where: { id: outletId },
     data: {
       displayName: input.displayName.trim(),
@@ -252,6 +270,8 @@ export async function updateOutlet(outletId: string, storeId: string, input: Upd
       phone: input.phone.trim(),
     },
   });
+  revalidateTag('employees', { expire: 0 });
+  return updated;
 }
 
 /** Same outlet, same code — only the address changes. Marks the outlet RELOCATED. */

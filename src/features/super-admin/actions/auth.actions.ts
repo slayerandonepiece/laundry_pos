@@ -9,9 +9,9 @@ export interface SuperAdminLoginResult {
   name?: string;
 }
 
-export async function superAdminLoginAction(username: string, password: string): Promise<SuperAdminLoginResult> {
-  const result = await loginAction(username, password);
-  if (!result.ok || !result.user) return { ok: false, error: result.error ?? 'Invalid username or password' };
+export async function superAdminLoginAction(phone: string, password: string): Promise<SuperAdminLoginResult> {
+  const result = await loginAction(phone, password);
+  if (!result.ok || !result.user) return { ok: false, error: result.error ?? 'Invalid phone number or password' };
   if (!result.user.isSuperAdmin) {
     // A real account, just not a platform admin — don't leave them holding a
     // session cookie for an area they can't use.

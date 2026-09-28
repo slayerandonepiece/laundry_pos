@@ -1,4 +1,5 @@
 'use client';
+import DateInput from './DateInput';
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { DateRange } from '../admin.types';
@@ -123,7 +124,7 @@ export default function DashboardPeriodControl({
                 <label htmlFor="dashboard-from-date" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: '4px' }}>
                   From
                 </label>
-                <input
+                <DateInput
                   id="dashboard-from-date"
                   type="date"
                   value={range.from}
@@ -141,7 +142,7 @@ export default function DashboardPeriodControl({
                 <label htmlFor="dashboard-to-date" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: '4px' }}>
                   To
                 </label>
-                <input
+                <DateInput
                   id="dashboard-to-date"
                   type="date"
                   value={range.to}

@@ -6,7 +6,7 @@ export default async function Page() {
   let serverOutlets: Awaited<ReturnType<typeof listOutletsForStoreAdmin>> = [];
   try {
     const selection = await resolveStoreSelection();
-    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER');
+    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER', undefined, { allowLockedReadOnly: true });
     serverOutlets = await listOutletsForStoreAdmin(session.storeId);
   } catch (error) {
     if (!(error instanceof AuthError)) throw error;

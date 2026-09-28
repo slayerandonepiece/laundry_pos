@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { OutletDetail as OutletDetailType } from '@/features/super-admin/types';
 import type { Order, Expense, Product, Employee } from '@/features/admin/admin.types';
 import { useAdmin } from '@/features/admin/containers/AdminProvider';
 import { AccessBlockedScreen, PaymentWarningBanner } from '@/features/admin/components/AccessNotices';
-import { Card, CardHeading, StatTile, StatsRow, Badge, Pill, ErrorBanner } from '@/features/admin/components/ui';
+import { Card, CardHeading, StatTile, StatsRow, Badge, ErrorBanner } from '@/features/admin/components/ui';
+import DashboardPeriodControl from './DashboardPeriodControl';
 import { SalesChart, EarningsDonut } from '@/features/admin/components/DashboardCharts';
 import { dashboardData } from '@/features/admin/admin.analytics';
 import { money, today } from '@/features/admin/admin.data';
@@ -36,6 +37,10 @@ export default function OutletDetail({
     const from = new Date(Date.parse(current) - 13 * 86400000).toISOString().slice(0, 10);
     return { from, to: current };
   }, [current]);
+
+  const [trendPeriod, setTrendPeriod] = useState('14d');
+  const [trendRange, setTrendRange] = useState(range14d);
+  const trend = useMemo(() => dashboardData({ orders: serverOrders, expenses: serverExpenses, products: serverProducts }, trendRange), [serverOrders, serverExpenses, serverProducts, trendRange]);
 
   const d = useMemo(() => {
     return dashboardData(
@@ -69,7 +74,7 @@ export default function OutletDetail({
     return { delivered, ready, inProgress, pending, total: todayOrders.length };
   }, [todayOrders]);
 
-  if (blockedReason) {
+  if (blockedReason && blockedReason !== 'store_locked') {
     return (
       <div className="ad-screen-content">
         <AccessBlockedScreen reason={blockedReason} isOwner={isOwner} paidThroughDate={blockedPaidThroughDate} />
@@ -159,10 +164,10 @@ export default function OutletDetail({
 
             <Card className="dashboard-trend">
               <CardHeading 
-                title={<><h2 style={{ fontSize: '15px', margin: 0 }}>Sales trend — last 14 days</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only</p></>} 
-                action={<Pill>Last 14 days</Pill>} 
+                title={<><h2 style={{ fontSize: '15px', margin: 0 }}>{trendPeriod === '14d' ? 'Sales trend — last 14 days' : 'Sales trend — selected period'}</h2><p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>This outlet only</p></>}
+                action={<DashboardPeriodControl period={trendPeriod} range={trendRange} currentDate={current} onPeriodChange={setTrendPeriod} onRangeChange={setTrendRange} />}
               />
-              <SalesChart points={d.bars} />
+              <SalesChart points={trend.bars} />
             </Card>
 
             <Card style={{ padding: 0, overflow: 'hidden' }}>
@@ -171,12 +176,12 @@ export default function OutletDetail({
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table className="grid">
-                  <thead><tr><th>Name</th><th>Username</th><th style={{ textAlign: 'right' }}>Status</th></tr></thead>
+                  <thead><tr><th>Name</th><th>Phone number</th><th style={{ textAlign: 'right' }}>Status</th></tr></thead>
                   <tbody>
                     {serverEmployees.length > 0 ? serverEmployees.map(emp => (
                       <tr key={emp.id}>
                         <td><strong>{emp.name}</strong></td>
-                        <td className="mono">{emp.username}</td>
+                        <td className="mono">{emp.phone}</td>
                         <td style={{ textAlign: 'right' }}>
                           <Badge tone={emp.active ? 'on' : 'off'}>{emp.active ? 'Active' : 'Inactive'}</Badge>
                         </td>

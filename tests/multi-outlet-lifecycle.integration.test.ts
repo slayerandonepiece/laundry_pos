@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -63,7 +64,7 @@ async function setupBlueWave(suffix: string) {
   const passwordHash = await hashPassword('password123');
 
   const owner = await prisma.user.create({
-    data: { name: 'Blue Wave Owner', username: `bwowner_${suffix}`, passwordHash },
+    data: { name: 'Blue Wave Owner', phone: testPhone(`bwowner_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: owner.id, storeId: store.id, role: Role.OWNER, active: true },
@@ -71,7 +72,7 @@ async function setupBlueWave(suffix: string) {
 
   // staff1 works a single outlet; staff2 works two, defaulting to Kukatpally.
   const staff1 = await prisma.user.create({
-    data: { name: 'Blue Wave Staff One', username: `bwstaff1_${suffix}`, passwordHash },
+    data: { name: 'Blue Wave Staff One', phone: testPhone(`bwstaff1_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: staff1.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -81,7 +82,7 @@ async function setupBlueWave(suffix: string) {
   });
 
   const staff2 = await prisma.user.create({
-    data: { name: 'Blue Wave Staff Two', username: `bwstaff2_${suffix}`, passwordHash },
+    data: { name: 'Blue Wave Staff Two', phone: testPhone(`bwstaff2_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: staff2.id, storeId: store.id, role: Role.EMPLOYEE, active: true },
@@ -138,7 +139,7 @@ test('Blue Wave: outlet access resolves per role — owner all three, staff scop
 
 test('Blue Wave: an employee cannot open an outlet they were not granted', async () => {
   const ctx = await setupBlueWave('denial');
-  const actor = { id: ctx.staff1.id, name: ctx.staff1.name, username: ctx.staff1.username, isSuperAdmin: false };
+  const actor = { id: ctx.staff1.id, name: ctx.staff1.name, phone: ctx.staff1.phone, isSuperAdmin: false };
 
   await assert.rejects(
     () => session.requireOutletSession(ctx.store.id, ctx.kukatpally.id, undefined, actor),

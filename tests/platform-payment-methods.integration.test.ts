@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -67,18 +68,18 @@ async function setupContext(suffix: string) {
   const passwordHash = await hashPassword('password123');
 
   const superAdmin = await prisma.user.create({
-    data: { name: `SA ${suffix}`, username: `sa_${suffix}`, passwordHash, isSuperAdmin: true },
+    data: { name: `SA ${suffix}`, phone: testPhone(`sa_${suffix}`), passwordHash, isSuperAdmin: true },
   });
 
   const owner = await prisma.user.create({
-    data: { name: `Owner ${suffix}`, username: `owner_p_${suffix}`, passwordHash },
+    data: { name: `Owner ${suffix}`, phone: testPhone(`owner_p_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: owner.id, storeId: store.id, role: Role.OWNER, active: true },
   });
 
   const emp = await prisma.user.create({
-    data: { name: `Emp ${suffix}`, username: `emp_p_${suffix}`, passwordHash },
+    data: { name: `Emp ${suffix}`, phone: testPhone(`emp_p_${suffix}`), passwordHash },
   });
   await prisma.storeMembership.create({
     data: { userId: emp.id, storeId: store.id, role: Role.EMPLOYEE, active: true },

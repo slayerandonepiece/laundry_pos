@@ -23,7 +23,7 @@ export default async function Page({ params }: { params: Promise<{ storeId: stri
     getOrgLifecycleFacts(storeId),
   ]);
   if (!lifecycle) notFound();
-  const membersWithOutlets = members.map((m: { userId: string; name: string; username: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }) => ({
+  const membersWithOutlets = members.map((m: { userId: string; name: string; phone: string; active: boolean; role: 'OWNER' | 'EMPLOYEE' }) => ({
     ...m,
     outletsGranted: m.role === 'OWNER' ? 'All outlets' : outlets.length === 0 ? '—' : `${(membershipsByUser[m.userId] ?? []).length} of ${outlets.length}`,
   }));

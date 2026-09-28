@@ -6,7 +6,7 @@ import Icon from './Icon';
 import RowMenu from './RowMenu';
 import type { BillingCycle, SubscriptionPlanListItem } from '../types';
 
-const CYCLE_LABEL: Record<BillingCycle, string> = { ANNUAL: 'Yearly' };
+const CYCLE_LABEL: Record<BillingCycle, string> = { ANNUAL: 'Yearly', HALF_YEARLY: 'Half-yearly', QUARTERLY: 'Quarterly', MONTHLY: 'Monthly' };
 
 export default function SubscriptionPlansTable({ plans, onEdit, onArchive, onDuplicate, onDelete }: {
   plans: SubscriptionPlanListItem[];
@@ -56,7 +56,7 @@ export default function SubscriptionPlansTable({ plans, onEdit, onArchive, onDup
     </div>
     <div className="notice" style={{ marginTop: 14 }}>
       <Icon name="check" size="s" />
-      <span>A plan sets the default deposit and fee. Individual organizations can still override the deposit at onboarding. A plan in use can be archived but not deleted until every organization is moved off it.</span>
+      <span>A plan sets the default deposit and fee. Choose custom terms at onboarding for negotiated pricing. A plan in use can be archived but not deleted until every organization is moved off it.</span>
     </div>
   </>;
 }

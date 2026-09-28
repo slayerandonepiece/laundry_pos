@@ -1,6 +1,9 @@
 'use client';
+import { useAdmin } from '../containers/AdminProvider';
+import { useOrdersCache } from '../containers/useOrdersCache';
+import { useOrderMutation } from '../containers/useOrderMutation';
+import DateInput from './DateInput';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import type { Order, StorePaymentMethod, WorkStatus } from '../admin.types';
 import { dateLabel, money, paid, total, paymentStatus } from '../admin.data';
 import { MultiSelectDropdown, SingleSelectDropdown } from './ui/Dropdown';
@@ -23,6 +26,9 @@ export default function OrderTable({
   outlets,
   isFiltered,
   onClearFilters,
+  firstUseTitle,
+  firstUseDescription,
+  firstUseAction,
 }: {
   orders: Order[];
   onSelect: (o: Order) => void;
@@ -31,6 +37,9 @@ export default function OrderTable({
   outlets?: { id: string; name: string }[];
   isFiltered?: boolean;
   onClearFilters?: () => void;
+  firstUseTitle?: string;
+  firstUseDescription?: string;
+  firstUseAction?: React.ReactNode;
 }) {
   const [page, setPage] = useState(0);
   const pageSize = compact ? 5 : 10;
@@ -52,7 +61,7 @@ export default function OrderTable({
 
   const getOutletName = (id?: string) => outlets?.find(outlet => outlet.id === id)?.name || 'Organization-wide';
 
-  const showOutletCol = !!(outlets && outlets.length > 1);
+  const showOutletCol = Boolean(outlets?.length);
 
   // Desktop Table (Grid)
   const desktopTable = (
@@ -109,8 +118,9 @@ export default function OrderTable({
               </button>
             ) : undefined
           }
-          firstUseTitle="Nothing here yet"
-          firstUseDescription="Get started by creating your first entry."
+          firstUseTitle={firstUseTitle ?? 'Nothing here yet'}
+          firstUseDescription={firstUseDescription ?? 'Get started by creating your first entry.'}
+          firstUseAction={firstUseAction}
         />
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -130,7 +140,7 @@ export default function OrderTable({
              {mobileRows.map(o => {
                const pay = paymentStatus(o);
                return (
-                 <div key={o.id} className="card" style={{ padding: '14px', border: '1px solid var(--border)', borderRadius: '14px', background: '#fff', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer' }} onClick={() => onSelect(o)}>
+                 <div key={o.id} className="card ad-sales-order-card" style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '14px', background: '#fff', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer' }} onClick={() => onSelect(o)}>
                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                      <strong className="mono">
                        <button type="button" className="dashboard-order-link" onClick={() => onSelect(o)} aria-label={`Open order ${o.id}`}>
@@ -183,8 +193,9 @@ export default function OrderTable({
   );
 }
 
-export function OrdersClient({ serverOrders, paymentMethods, outlets }: { serverOrders: Order[]; paymentMethods: StorePaymentMethod[]; outlets: { id: string; name: string }[] }) {
-  const router = useRouter();
+export function OrdersClient({ storeId, serverOrders, paymentMethods, outlets }: { storeId: string; serverOrders: Order[]; paymentMethods: StorePaymentMethod[]; outlets: { id: string; name: string }[] }) {
+  const { user, sessionVerified } = useAdmin();
+  const orders = useOrdersCache(storeId, sessionVerified && user?.role === 'owner' && user.storeId === storeId, serverOrders);
 
   const outletOptions = useMemo(() => [
     ...outlets.map(outlet => ({ value: outlet.id, label: outlet.name })),
@@ -202,9 +213,9 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
   
-  // Keep only the code: the open order is read from serverOrders so it reflects router.refresh().
+  // Keep only the code: the open order comes from the synchronized list, including router.refresh().
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selectedOrder = selectedId ? serverOrders.find(order => order.id === selectedId) ?? null : null;
+  const selectedOrder = selectedId ? orders.find(order => order.id === selectedId) ?? null : null;
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -231,7 +242,7 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
     if (dateFrom && dateTo && dateFrom > dateTo) {
       return [];
     }
-    return serverOrders.filter(o => {
+    return orders.filter(o => {
       if (selectedOutlets.length > 0 && selectedOutlets.length < outletOptions.length) {
         if (!o.outletId) {
           if (!selectedOutlets.includes('org-wide')) return false;
@@ -248,7 +259,7 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
       }
       return true;
     });
-  }, [serverOrders, selectedOutlets, outletOptions.length, statusFilter, dateFrom, dateTo, search]);
+  }, [orders, selectedOutlets, outletOptions.length, statusFilter, dateFrom, dateTo, search]);
 
   const allOutletsSelected = selectedOutlets.length === 0 || selectedOutlets.length === outletOptions.length;
   const subtitle = useMemo(() => {
@@ -264,6 +275,8 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
     return `Showing ${orderText} across ${selectedOutlets.length} selected outlets`;
   }, [filteredOrders.length, allOutletsSelected, outletOptions, selectedOutlets]);
 
+  const orderMutation = useOrderMutation({ storeId, serverOrders, onError: setError, onSuccess: setNotice });
+
   const handleStatusUpdate = (next: WorkStatus) => {
     if (!selectedOrder || next === selectedOrder.status) return;
     const id = selectedOrder.id;
@@ -274,22 +287,15 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
       description: deliverWithBalance ? `${id} still has ${money(balanceDue)} due. Mark it delivered anyway?` : `Change ${id} from ${selectedOrder.status} to ${next}.`,
       confirmLabel: deliverWithBalance ? 'Deliver anyway' : 'Update status',
       onConfirm: () => {
-        updateOrderStatusAction(id, next).then(() => {
-          router.refresh();
-          setNotice('Order status updated');
-          setError('');
-        }).catch(() => setError('Could not update the status. Try again.'));
+        orderMutation.run(() => updateOrderStatusAction(id, next), 'Updating status…', 'Order status updated', 'Could not update the status. Try again.');
       }
     });
   };
 
   const handlePaymentRecord = (amount: number, method: string) => {
     if (!selectedOrder) return;
-    recordPaymentAction(selectedOrder.id, amount, method).then(() => {
-      router.refresh();
-      setNotice('Payment recorded');
-      setError('');
-    }).catch(() => setError('Could not record the payment. Try again.'));
+    const id = selectedOrder.id;
+    orderMutation.run(() => recordPaymentAction(id, amount, method), 'Recording payment…', 'Payment recorded', 'Could not record the payment. Try again.');
   };
 
   return (
@@ -328,10 +334,9 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
           <span style={{ width: '1px', height: '22px', background: 'var(--border)', flexShrink: 0 }} />
           <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', fontWeight: 500, gap: '6px', fontSize: '12.5px', color: 'var(--muted)' }}>
             From
-            <input
+            <DateInput
               type="date"
               aria-label="From date"
-              className="field"
               style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '7px 9px', fontSize: '12.5px', width: '132px' }}
               value={dateFrom}
               max={dateTo || undefined}
@@ -340,10 +345,9 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
           </label>
           <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', fontWeight: 500, gap: '6px', fontSize: '12.5px', color: 'var(--muted)' }}>
             To
-            <input
+            <DateInput
               type="date"
               aria-label="To date"
-              className="field"
               style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '7px 9px', fontSize: '12.5px', width: '132px' }}
               value={dateTo}
               min={dateFrom || undefined}
@@ -380,7 +384,7 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ display: 'flex', flexWrap: 'nowrap', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
             {statusOptions.map(opt => (
               <Pill key={opt.value} active={statusFilter === opt.value} onClick={() => setStatusFilter(opt.value)}>{opt.label}</Pill>
             ))}
@@ -402,7 +406,7 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
             )}
             <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', fontWeight: 500, gap: '4px', fontSize: '12px', color: 'var(--muted)' }}>
               From
-              <input
+              <DateInput
                 type="date"
                 aria-label="From date"
                 max={dateTo || undefined}
@@ -413,7 +417,7 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
             </label>
             <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', fontWeight: 500, gap: '4px', fontSize: '12px', color: 'var(--muted)' }}>
               To
-              <input
+              <DateInput
                 type="date"
                 aria-label="To date"
                 min={dateFrom || undefined}
@@ -448,13 +452,15 @@ export function OrdersClient({ serverOrders, paymentMethods, outlets }: { server
       {selectedOrder && (
         <Panel
           variant="details"
+          busy={orderMutation.pending}
+          busyLabel={orderMutation.label}
           title={selectedOrder.id}
-          headerContent={<OrderDetailsHeader order={selectedOrder} outletName={outlets.find(outlet => outlet.id === selectedOrder.outletId)?.name || 'Organization-wide'} />}
+          headerContent={<OrderDetailsHeader order={orderMutation.updatedOrder?.id === selectedOrder.id ? orderMutation.updatedOrder : selectedOrder} outletName={outlets.find(outlet => outlet.id === selectedOrder.outletId)?.name || 'Organization-wide'} />}
           onClose={() => setSelectedId(null)}
           warnOnChanges={false}
         >
           <OrderDetails
-            order={selectedOrder}
+            order={orderMutation.updatedOrder?.id === selectedOrder.id ? orderMutation.updatedOrder : selectedOrder}
             paymentMethods={paymentMethods}
             onStatus={handleStatusUpdate}
             onPayment={handlePaymentRecord}

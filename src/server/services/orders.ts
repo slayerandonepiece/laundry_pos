@@ -56,7 +56,7 @@ const createOrderSchema = z.object({
     .refine((id) => parseOrderCode(id) === null, "offlineId cannot look like an order code.")
     .optional(),
   customerName: z.string().trim().default(""),
-  phone: z.string().regex(/^\+?[0-9]{10,15}$/),
+  phone: z.string().regex(/^\+?[0-9]{8,15}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().trim().default(""),
   entries: z.array(entrySchema).min(1),
@@ -69,15 +69,23 @@ const createOrderSchema = z.object({
     .optional(),
 });
 
+const includeForList = {
+  lines: true,
+  payments: { orderBy: { paidAt: "asc" } },
+  statusEvents: { orderBy: { at: "asc" } },
+} satisfies Prisma.OrderInclude;
+
 const includeForDTO = {
   lines: true,
   payments: { orderBy: { paidAt: "asc" } },
-  statusEvents: { orderBy: { at: "asc" }, include: { byUser: true } },
+  statusEvents: { orderBy: { at: "asc" }, include: { byUser: { select: { name: true } } } },
 } satisfies Prisma.OrderInclude;
 
 type OrderRow = Prisma.OrderGetPayload<{ include: typeof includeForDTO }>;
 
-function toOrderDTO(row: OrderRow): Order {
+type OrderListRow = Prisma.OrderGetPayload<{ include: typeof includeForList }>;
+
+function toOrderDTO(row: OrderRow | OrderListRow, actorNames?: Map<string, string>): Order {
   return {
     id: toOrderCode(row.orderNumber),
     offlineId: row.offlineId ?? undefined,
@@ -108,7 +116,7 @@ function toOrderDTO(row: OrderRow): Order {
     history: row.statusEvents.map((event) => ({
       status: STATUS_FROM_DB[event.status],
       at: event.at.toISOString(),
-      by: event.byUser?.name ?? "System",
+      by: ("byUser" in event ? event.byUser?.name : actorNames?.get(event.byUserId ?? "")) ?? "System",
     })),
   };
 }
@@ -129,11 +137,14 @@ export async function listOrders(
       legacyCancelled: false,
       ...(options?.outletId ? { outletId: options.outletId } : {}),
     },
-    include: includeForDTO,
+    include: includeForList,
     orderBy: { orderNumber: "desc" },
     ...(options?.limit ? { take: options.limit } : {}),
   });
-  return rows.map(toOrderDTO);
+  const actorIds = [...new Set(rows.flatMap(row => row.statusEvents.flatMap(event => event.byUserId ? [event.byUserId] : [])))];
+  const actors = actorIds.length ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } }) : [];
+  const actorNames = new Map(actors.map(actor => [actor.id, actor.name]));
+  return rows.map(row => toOrderDTO(row, actorNames));
 }
 
 /**

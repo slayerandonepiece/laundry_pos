@@ -12,7 +12,7 @@ export default async function Page() {
     // The chrome's own store-switcher display is resolved independently in
     // src/app/(workspace)/layout.tsx.
     const selection = await resolveStoreSelection();
-    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER');
+    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER', undefined, { allowLockedReadOnly: true });
     serverProducts = await listProducts(session.storeId);
   } catch (error) {
     if (!(error instanceof AuthError)) throw error;

@@ -1,6 +1,4 @@
 import type { Order } from '../admin.types';
-import { money, paid, total } from '../admin.data';
-import { Metric } from './Primitives';
 import OrderTable from './OrderTable';
 
 import { Card, CardHeading, SingleSelectDropdown } from './ui';
@@ -12,19 +10,17 @@ interface Props {
   onClear: () => void; onSelect: (order: Order) => void;
   delivery: string; onDelivery: (value: string) => void;
   outlets?: { id: string; name: string }[];
+  onNewOrder?: () => void;
 }
-export default function Sales({ orders, matching, employee, attentionOnly, query, status, payment, onQuery, onStatus, onPayment, onClear, onSelect, delivery, onDelivery, outlets }: Props) {
-  const scope = delivery === 'today' ? 'Due today · all dates' : delivery === 'late' ? 'Late · all dates' : attentionOnly ? 'Due today or late' : 'In the selected period';
+export default function Sales({ matching, employee, attentionOnly, query, status, payment, onQuery, onStatus, onPayment, onClear, onSelect, delivery, onDelivery, outlets, onNewOrder }: Props) {
   const hasFilters = Boolean(query.trim()) || status !== 'All' || payment !== 'All' || delivery !== 'all' || attentionOnly;
-  const emptyText = hasFilters ? 'No orders match this search. Try another filter.' : 'No orders yet for this period — punch a new sale to get started.';
   return <>
-    {employee ? <div className="ad-metrics ad-order-counts"><Metric primary label="Total orders" value={String(orders.length)} detail={scope}/>{(['Pending', 'In Progress', 'Ready', 'Delivered'] as const).map(state => <Metric key={state} label={state} value={String(orders.filter(order => order.status === state).length)} detail={scope}/>)}</div> : <div className="ad-metrics three"><Metric primary label="Order value" value={money(matching.reduce((sum, order) => sum + total(order), 0))} detail={matching.length + ' matching orders'}/><Metric label="Collected on these orders" value={money(matching.reduce((sum, order) => sum + paid(order), 0))} detail="Payments received, across all dates"/><Metric label="Balance to collect" value={money(matching.reduce((sum, order) => sum + total(order) - paid(order), 0))} detail="On matching orders"/></div>}
-    <Card>
+    <Card className="ad-sales-register">
       <CardHeading
         title={delivery === 'today' ? 'Orders due today' : delivery === 'late' ? 'Late orders' : attentionOnly ? 'Orders due today & overdue' : employee ? 'Orders' : 'Sales register'}
         subtitle="Open an order to view its details and update its status."
       />
-      <div className="ad-toolbar" style={{ margin: 0, padding: 0 }}>
+      <div className="ad-toolbar ad-sales-toolbar" style={{ margin: 0, padding: 0 }}>
         <div className="ad-category-tabs" aria-label="Delivery filter">
           {[['all','Selected dates'],['today','Due today'],['late','Late']].map(([value,label]) => (
             <button key={value} aria-pressed={delivery === value && !attentionOnly} onClick={() => onDelivery(value)}>{label}</button>
@@ -35,7 +31,20 @@ export default function Sales({ orders, matching, employee, attentionOnly, query
         <SingleSelectDropdown ariaLabel="Filter payment status" value={payment} onChange={onPayment} options={['All', 'Unpaid', 'Part-paid', 'Paid'].map(value => ({ value, label: value === 'All' ? 'All payment statuses' : value }))}/>
         <button className="ad-text-link" onClick={onClear}>Clear</button>
       </div>
-      <OrderTable orders={matching} onSelect={onSelect} emptyText={emptyText} outlets={outlets}/>
+      <OrderTable
+        orders={matching}
+        onSelect={onSelect}
+        isFiltered={hasFilters}
+        emptyText={hasFilters ? 'No orders match this search. Try another filter.' : undefined}
+        firstUseTitle="No orders yet"
+        firstUseDescription="Orders you create in Orders will appear here."
+        firstUseAction={employee ?
+          <a href="/admin/orders" className="btn btn-primary">Go to counter →</a> :
+          (onNewOrder ? <button type="button" className="btn btn-primary" onClick={onNewOrder}>＋ Create a new sale</button> : undefined)
+        }
+        onClearFilters={hasFilters ? onClear : undefined}
+        outlets={outlets}
+      />
     </Card>
   </>;
 }

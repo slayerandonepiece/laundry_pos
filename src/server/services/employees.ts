@@ -1,4 +1,6 @@
 import 'server-only';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import { hashPassword } from '@/server/auth/password';
@@ -29,11 +31,11 @@ function findAll(storeId: string) {
 // other store they may (per stale-membership policy) still hold. See
 // .agents/2026-09-brainstorm-plan.md Item 1.
 function toDTO(row: MembershipRow): Employee {
-  return { 
-    id: row.user.id, 
-    name: row.user.name, 
-    username: row.user.username, 
-    active: row.active, 
+  return {
+    id: row.user.id,
+    name: row.user.name,
+    phone: row.user.phone,
+    active: row.active,
     credentialVersion: row.user.credentialVersion,
     outlets: row.user.outletMemberships?.map(om => ({ id: om.outlet.id, name: om.outlet.displayName })) || [],
     defaultOutletId: row.user.outletMemberships?.find(om => om.isDefault)?.outletId
@@ -41,20 +43,17 @@ function toDTO(row: MembershipRow): Employee {
 }
 
 export async function listEmployees(storeId: string): Promise<Employee[]> {
-  const rows = await findAll(storeId);
-  return rows.map(toDTO);
+  return unstable_cache(async () => {
+    const rows = await findAll(storeId);
+    return rows.map(toDTO);
+  }, ['employees', storeId], { tags: ['employees', storeId], revalidate: 60 })();
 }
 
-const usernameSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(/^[a-z0-9._-]{3,40}$/, 'Enter a username with 3–40 letters, numbers, dots, underscores or hyphens.');
 
 const createEmployeeSchema = z.object({
   idempotencyKey: z.string().trim().min(1).max(64).optional(),
   name: z.string().trim().min(1),
-  username: usernameSchema,
+  phone: z.string().transform(normalizePhone).refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
   password: z.string().min(8),
   active: z.boolean(),
   outlets: z.array(z.string()).optional(),
@@ -100,8 +99,8 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
   const existingByKey = await findExistingEmployee(storeId, data.idempotencyKey);
   if (existingByKey) return existingByKey;
 
-  const existing = await prisma.user.findUnique({ where: { username: data.username } });
-  if (existing) throw new ValidationError('This username is already in use. Choose another.');
+  const existing = await prisma.user.findUnique({ where: { phone: data.phone } });
+  if (existing) throw new ValidationError('This phone number is already registered.');
 
   const passwordHash = await hashPassword(data.password);
   let row: MembershipRow;
@@ -109,7 +108,7 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
     row = await prisma.$transaction(async tx => {
       // The User row itself is always created active — "active" as entered on
       // this form is this store's membership flag, not a platform-wide state.
-      const user = await tx.user.create({ data: { name: data.name, username: data.username, passwordHash, mustChangePassword: true } });
+      const user = await tx.user.create({ data: { name: data.name, phone: data.phone, passwordHash, mustChangePassword: true } });
       await tx.storeMembership.create({
         data: {
           role: 'EMPLOYEE',
@@ -119,7 +118,7 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
           idempotencyKey: data.idempotencyKey ?? null,
         },
       });
-      
+
       if (data.outlets && data.outlets.length > 0) {
         await tx.outletMembership.createMany({
           data: data.outlets.map(outletId => ({
@@ -130,7 +129,7 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
           }))
         });
       }
-      
+
       return tx.storeMembership.findUniqueOrThrow({
         where: { userId_storeId: { userId: user.id, storeId } },
         include: {
@@ -151,13 +150,14 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
     }
     throw err;
   }
+  revalidateTag(storeId, { expire: 0 });
   return toDTO(row);
 }
 
 const updateEmployeeSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1),
-  username: usernameSchema,
+  phone: z.string().transform(normalizePhone).refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
   password: z.union([z.string().min(8), z.literal('')]).optional(),
   active: z.boolean(),
   outlets: z.array(z.string()).optional(),
@@ -173,20 +173,20 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
   if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
   const current = membership.user;
 
-  const usernameChanged = data.username !== current.username;
-  if (usernameChanged) {
-    const conflict = await prisma.user.findUnique({ where: { username: data.username } });
-    if (conflict) throw new ValidationError('This username is already in use. Choose another.');
+  const phoneChanged = data.phone !== current.phone;
+  if (phoneChanged) {
+    const conflict = await prisma.user.findUnique({ where: { phone: data.phone } });
+    if (conflict) throw new ValidationError('This phone number is already registered.');
   }
 
   const passwordChanged = Boolean(data.password);
-  // Only username/password are real credential changes — bumping
+  // Only phone/password are real credential changes — bumping
   // credentialVersion for those still force-logs-out any live session
   // everywhere (correct: it's the same login at every store). The active
   // flag below is store-scoped and deliberately does NOT touch credentials
   // or sessions at all — see requireStoreSession's live membership check,
   // which is what actually enforces per-store access now.
-  const credentialsChanged = usernameChanged || passwordChanged;
+  const credentialsChanged = phoneChanged || passwordChanged;
   const passwordHash = passwordChanged ? await hashPassword(data.password!) : undefined;
 
   if (data.active) {
@@ -208,7 +208,7 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
       where: { id: data.id },
       data: {
         name: data.name,
-        username: data.username,
+        phone: data.phone,
         passwordHash,
         credentialVersion: credentialsChanged ? { increment: 1 } : undefined,
         mustChangePassword: passwordChanged ? true : undefined,
@@ -244,7 +244,10 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
     });
   });
 
+  revalidateTag('stores', { expire: 0 });
+  revalidateTag('employees', { expire: 0 });
   if (credentialsChanged) await revokeAllSessionsForUser(data.id);
+  revalidateTag(storeId, { expire: 0 });
   return toDTO(row);
 }
 
@@ -287,5 +290,21 @@ export async function toggleEmployeeActive(storeId: string, id: string): Promise
       }
     },
   });
+  revalidateTag(storeId, { expire: 0 });
   return toDTO(updated);
+}
+
+export async function resetEmployeePassword(storeId: string, employeeId: string, password: string): Promise<void> {
+  await assertStoreWritable(storeId);
+  const parsed = z.string().min(8).max(128).safeParse(password);
+  if (!parsed.success) throw new ValidationError('Use a password with 8–128 characters.');
+  const passwordHash = await hashPassword(parsed.data);
+  await prisma.$transaction(async tx => {
+    const membership = await tx.storeMembership.findUnique({ where: { userId_storeId: { userId: employeeId, storeId } } });
+    if (!membership || membership.role !== 'EMPLOYEE') throw new ValidationError('Employee not found.');
+    await tx.user.update({ where: { id: employeeId }, data: { passwordHash, mustChangePassword: true, credentialVersion: { increment: 1 } } });
+    await tx.session.deleteMany({ where: { userId: employeeId } });
+  });
+  revalidateTag('employees', { expire: 0 });
+  revalidateTag(storeId, { expire: 0 });
 }

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
-import { archiveStore, lookupOwnerByUsername, onboardStore, recordSubscriptionPayment, setStoreStatus, updateStore } from '@/server/services/stores';
+import { grantTemporaryAccess, setStoreTrial, archiveStore, lookupOwnerByPhone, onboardStore, recordSubscriptionPayment, setStoreStatus, updateStore } from '@/server/services/stores';
 import { ValidationError } from '@/server/errors';
 import { createOutlet, type OutletDTO } from '@/server/services/outlets';
 import { recordStoreActivity } from '@/server/services/activity';
@@ -18,7 +18,7 @@ export async function onboardStoreAction(input: OnboardStoreInput): Promise<Onbo
   const session = await requireSuperAdmin();
   try {
     const store = await onboardStore(input, session.id);
-    await recordStoreActivity({ storeId: store.id, actorId: session.id, action: 'ONBOARD_ORGANIZATION', entityType: 'Store', entityId: store.id, after: { name: store.name, ownerUsername: store.ownerUsername } });
+    await recordStoreActivity({ storeId: store.id, actorId: session.id, action: 'ONBOARD_ORGANIZATION', entityType: 'Store', entityId: store.id, after: { name: store.name, ownerPhone: store.ownerPhone } });
     revalidatePath('/super-admin');
     revalidatePath('/super-admin/stores');
     return { ok: true, store };
@@ -28,9 +28,9 @@ export async function onboardStoreAction(input: OnboardStoreInput): Promise<Onbo
   }
 }
 
-export async function lookupOwnerAction(query: string): Promise<OwnerLookupResult | null> {
+export async function lookupOwnerByPhoneAction(query: string): Promise<OwnerLookupResult | null> {
   await requireSuperAdmin();
-  return lookupOwnerByUsername(query);
+  return lookupOwnerByPhone(query);
 }
 
 export interface UpdateStoreResult {
@@ -135,10 +135,11 @@ export async function createOutletAction(storeId: string, input: {
   outletCode: string;
   displayName: string;
   address?: string;
-  phone?: string;
+  phone: string;
 }): Promise<CreateOutletResult> {
   const session = await requireSuperAdmin();
   try {
+    if (!input.phone?.trim()) throw new ValidationError('Enter a contact phone number for this outlet.');
     const outlet = await createOutlet({ storeId, createdById: session.id, ...input });
     await recordStoreActivity({ storeId, outletId: outlet.id, actorId: session.id, action: 'CREATE_OUTLET', entityType: 'Outlet', entityId: outlet.id, after: { outletCode: outlet.outletCode, displayName: outlet.displayName } });
     revalidatePath(`/super-admin/stores/${storeId}`);
@@ -149,3 +150,23 @@ export async function createOutletAction(storeId: string, input: {
     throw error;
   }
 }
+
+async function updateAccessDate(storeId: string, date: string, temporary: boolean, startDate?: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSuperAdmin();
+  try {
+    if (temporary) await grantTemporaryAccess(storeId, date);
+    else await setStoreTrial(storeId, date, startDate);
+    await recordStoreActivity({ storeId, actorId: session.id, action: temporary ? 'GRANT_TEMPORARY_ACCESS' : 'SET_TRIAL_PERIOD', entityType: 'Store', entityId: storeId, after: { until: date, from: startDate } });
+    revalidatePath('/super-admin/stores');
+    revalidatePath(`/super-admin/stores/${storeId}`);
+    revalidatePath(`/super-admin/stores/${storeId}/subscription`);
+    revalidatePath(`/super-admin/stores/${storeId}/outlets`);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+export async function setTrialDatesAction(storeId: string, trialEndDate: string, trialStartDate?: string) { return updateAccessDate(storeId, trialEndDate, false, trialStartDate); }
+export async function setTrialEndsAtAction(storeId: string, trialEndDate: string) { return updateAccessDate(storeId, trialEndDate, false); }
+export async function grantTemporaryAccessAction(storeId: string, untilDate: string) { return updateAccessDate(storeId, untilDate, true); }

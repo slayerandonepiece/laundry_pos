@@ -1,12 +1,17 @@
 import 'server-only';
+import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 import { z } from 'zod';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { prisma } from '@/server/db';
 import { hashPassword } from '@/server/auth/password';
 import { parseCalendarDate, formatCalendarDate, todayIST } from '@/server/dates';
+import { hasCurrentAccess } from '@/lib/subscriptionAccess';
+import { isValidNewPassword } from '@/lib/contactValidation';
 import { ValidationError } from '@/server/errors';
 import type { CollectedThisYearStats, DashboardStats, OnboardStoreInput, OwnerLookupResult, PaymentState, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '@/features/super-admin/types';
 
 const EXPIRING_SOON_DAYS = 30;
+const TRIAL_ENDING_DAYS = 7;
 
 type StoreRow = Awaited<ReturnType<typeof findAllStores>>[number];
 
@@ -15,7 +20,7 @@ function findAllStores() {
     where: { deletedAt: null },
     include: {
       subscription: { include: { plan: true } },
-      memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } },
+      memberships: { where: { role: 'OWNER' }, select: { user: { select: { id: true, name: true, phone: true, email: true } } }, orderBy: { createdAt: 'asc' } },
       _count: { select: { outlets: true } },
     },
     orderBy: { onboardedAt: 'desc' },
@@ -39,7 +44,33 @@ function addYears(date: string, years: number): string {
   return formatCalendarDate(result);
 }
 
-function paymentStateFor(paidThroughDate: string | undefined, today: string): PaymentState {
+function addMonths(date: string, months: number): string {
+  const parsed = parseCalendarDate(date);
+  const targetMonth = parsed.getUTCMonth() + months;
+  const result = new Date(Date.UTC(parsed.getUTCFullYear(), targetMonth, parsed.getUTCDate()));
+  // If day overflowed (e.g. Jan 31 + 1 month → Mar 3), clamp to last day of target month.
+  if (result.getUTCDate() !== parsed.getUTCDate()) result.setUTCDate(0);
+  return formatCalendarDate(result);
+}
+
+function addBillingCycle(date: string, cycle: string): string {
+  switch (cycle) {
+    case 'HALF_YEARLY': return addMonths(date, 6);
+    case 'QUARTERLY':   return addMonths(date, 3);
+    case 'MONTHLY':     return addMonths(date, 1);
+    default:            return addYears(date, 1); // ANNUAL
+  }
+}
+
+function paymentStateFor(
+  paidThroughDate: string | undefined,
+  trialEndsAt: string | undefined,
+  today: string,
+): PaymentState {
+  // Active trial takes precedence over a missing/expired paidThroughDate
+  if (trialEndsAt && trialEndsAt >= today) {
+    return trialEndsAt <= addDays(today, TRIAL_ENDING_DAYS) ? 'trial_ending' : 'trial';
+  }
   if (!paidThroughDate) return 'unset';
   if (paidThroughDate < today) return 'locked';
   if (paidThroughDate <= addDays(today, EXPIRING_SOON_DAYS)) return 'expiring';
@@ -49,6 +80,7 @@ function paymentStateFor(paidThroughDate: string | undefined, today: string): Pa
 function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number; paidAt: Date }): StoreListItem {
   const owner = row.memberships[0]?.user;
   const paidThroughDate = row.subscription?.paidThroughDate ? formatCalendarDate(row.subscription.paidThroughDate) : undefined;
+  const trialEndsAt = row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined;
   return {
     id: row.id,
     name: row.name,
@@ -57,7 +89,6 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     email: row.email,
     ownerId: owner?.id,
     ownerName: owner?.name ?? '—',
-    ownerUsername: owner?.username ?? '—',
     ownerEmail: owner?.email ?? undefined,
     ownerPhone: owner?.phone ?? undefined,
     planName: row.subscription?.plan?.name,
@@ -65,7 +96,8 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     depositPaidAt: row.subscription?.depositPaidAt ? formatCalendarDate(row.subscription.depositPaidAt) : undefined,
     annualFeeAmount: row.subscription?.annualFeeAmount ?? 0,
     paidThroughDate,
-    paymentState: row.status === 'LOCKED' ? 'locked' : paymentStateFor(paidThroughDate, today),
+    trialEndsAt,
+    paymentState: row.status === 'LOCKED' ? 'locked' : paymentStateFor(paidThroughDate, trialEndsAt, today),
     status: row.status,
     lastInvoiceSeq: lastInvoice?.invoiceSeq,
     lastInvoiceAt: lastInvoice ? formatCalendarDate(lastInvoice.paidAt) : undefined,
@@ -73,7 +105,7 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
   };
 }
 
-export async function listStores(): Promise<StoreListItem[]> {
+export const listStores = unstable_cache(async (): Promise<StoreListItem[]> => {
   const today = todayIST();
   const rows = await findAllStores();
 
@@ -90,7 +122,7 @@ export async function listStores(): Promise<StoreListItem[]> {
   for (const p of payments) if (!lastInvoiceByStore.has(p.storeId)) lastInvoiceByStore.set(p.storeId, p);
 
   return rows.map(row => toDTO(row, today, lastInvoiceByStore.get(row.id)));
-}
+}, ['stores'], { tags: ['stores'], revalidate: 60 });
 
 export async function getStore(storeId: string): Promise<StoreDetail | null> {
   const today = todayIST();
@@ -98,7 +130,7 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
     where: { id: storeId },
     include: {
       subscription: { include: { plan: true } },
-      memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } },
+      memberships: { where: { role: 'OWNER' }, select: { user: { select: { id: true, name: true, phone: true, email: true } } }, orderBy: { createdAt: 'asc' } },
       _count: { select: { outlets: true } },
     },
   });
@@ -109,6 +141,13 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
     planId: row.subscription?.planId ?? undefined,
     planName: row.subscription?.plan?.name,
     discountAmount: row.subscription?.discountAmount ?? 0,
+    trialStartsAt: row.subscription?.trialStartsAt ? formatCalendarDate(row.subscription.trialStartsAt) : undefined,
+    trialEndsAt: row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined,
+    accessGrantedUntil: row.accessGrantedUntil ? formatCalendarDate(row.accessGrantedUntil) : undefined,
+    hasActiveAccess: row.status === 'ACTIVE' && !row.deletedAt && hasCurrentAccess(today,
+      row.subscription?.paidThroughDate ? formatCalendarDate(row.subscription.paidThroughDate) : undefined,
+      row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined,
+      row.accessGrantedUntil ? formatCalendarDate(row.accessGrantedUntil) : undefined),
   };
 }
 
@@ -136,6 +175,7 @@ export async function updateStore(storeId: string, input: UpdateStoreInput): Pro
   const existing = await prisma.store.findUnique({ where: { id: storeId } });
   if (!existing) throw new ValidationError('Store not found.');
   await prisma.store.update({ where: { id: storeId }, data });
+  revalidateTag('stores', { expire: 0 });
   const store = await getStore(storeId);
   if (!store) throw new Error('Store not found after update.');
   return store;
@@ -145,6 +185,7 @@ export async function setStoreStatus(storeId: string, status: 'ACTIVE' | 'LOCKED
   const existing = await prisma.store.findUnique({ where: { id: storeId } });
   if (!existing) throw new ValidationError('Store not found.');
   await prisma.store.update({ where: { id: storeId }, data: { status } });
+  revalidateTag('stores', { expire: 0 });
   const store = await getStore(storeId);
   if (!store) throw new Error('Store not found after update.');
   return store;
@@ -155,159 +196,81 @@ export async function archiveStore(storeId: string, confirmName: string): Promis
   if (!existing || existing.deletedAt) throw new ValidationError('Store not found.');
   if (confirmName.trim() !== existing.name) throw new ValidationError('Type the store name exactly to confirm.');
   await prisma.store.update({ where: { id: storeId }, data: { deletedAt: new Date() } });
+  revalidateTag('stores', { expire: 0 });
 }
 
-export async function lookupOwner(query: string): Promise<OwnerLookupResult | null> {
-  const trimmed = query.trim();
-  if (!trimmed) return null;
-  const digitsOnly = trimmed.replace(/\D/g, '');
-  const last10 = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : digitsOnly;
-  const normalizedUsername = trimmed.toLowerCase();
-
-  let user = await prisma.user.findFirst({
-    where: {
-      isSuperAdmin: false,
-      OR: [
-        { username: normalizedUsername },
-        { name: { contains: trimmed, mode: 'insensitive' } },
-        ...(digitsOnly.length >= 7 ? [
-          { phone: { contains: last10 } },
-          { phone: { contains: digitsOnly } },
-          { phone: { contains: trimmed } },
-          { memberships: { some: { store: { phone: { contains: last10 }, deletedAt: null } } } },
-          { memberships: { some: { store: { phone: { contains: digitsOnly }, deletedAt: null } } } },
-          { memberships: { some: { store: { phone: { contains: trimmed }, deletedAt: null } } } },
-          { memberships: { some: { store: { outlets: { some: { phone: { contains: last10 } } }, deletedAt: null } } } },
-        ] : trimmed.length >= 3 ? [
-          { phone: { contains: trimmed } },
-          { memberships: { some: { store: { phone: { contains: trimmed }, deletedAt: null } } } },
-        ] : []),
-      ],
-    },
-    include: {
-      _count: { select: { memberships: { where: { store: { deletedAt: null } } } } },
-      memberships: {
-        where: { store: { deletedAt: null } },
-        include: {
-          store: {
-            select: {
-              name: true,
-              phone: true,
-              outlets: { select: { phone: true } },
-            },
-          },
-        },
-      },
-    },
+export async function lookupOwnerByPhone(phone: string): Promise<OwnerLookupResult | null> {
+  const normalized = normalizePhone(phone);
+  if (!isValidPhone(normalized)) return null;
+  const user = await prisma.user.findUnique({
+    where: { phone: normalized },
+    select: { id: true, name: true, phone: true, isSuperAdmin: true, memberships: { where: { store: { deletedAt: null } }, select: { store: { select: { name: true } } } } },
   });
-
-  if (!user && digitsOnly.length >= 7) {
-    const allUsers = await prisma.user.findMany({
-      where: { isSuperAdmin: false },
-      include: {
-        _count: { select: { memberships: { where: { store: { deletedAt: null } } } } },
-        memberships: {
-          where: { store: { deletedAt: null } },
-          include: {
-            store: {
-              select: {
-                name: true,
-                phone: true,
-                outlets: { select: { phone: true } },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    user = allUsers.find(u => {
-      const uDigits = (u.phone || '').replace(/\D/g, '');
-      if (uDigits.length >= 7 && (uDigits.includes(last10) || last10.includes(uDigits.slice(-10)))) return true;
-      for (const m of u.memberships) {
-        const sDigits = (m.store.phone || '').replace(/\D/g, '');
-        if (sDigits.length >= 7 && (sDigits.includes(last10) || last10.includes(sDigits.slice(-10)))) return true;
-        for (const o of m.store.outlets || []) {
-          const oDigits = (o.phone || '').replace(/\D/g, '');
-          if (oDigits.length >= 7 && (oDigits.includes(last10) || last10.includes(oDigits.slice(-10)))) return true;
-        }
-      }
-      return false;
-    }) ?? null;
-  }
-
-  if (!user) return null;
-
-  const resolvedPhone = user.phone
-    || user.memberships.find((m: { store: { phone?: string } }) => m.store.phone)?.store.phone
-    || user.memberships.flatMap((m: { store: { outlets?: { phone?: string }[] } }) => m.store.outlets || []).find((o: { phone?: string }) => o.phone)?.phone
-    || undefined;
-
-  return {
-    id: user.id,
-    name: user.name,
-    username: user.username,
-    phone: resolvedPhone,
-    storeCount: user._count.memberships,
-    storeNames: user.memberships.map((m: { store: { name: string } }) => m.store.name),
-  };
+  if (!user || user.isSuperAdmin) return null;
+  return { id: user.id, name: user.name, phone: user.phone, storeCount: user.memberships.length, storeNames: user.memberships.map(m => m.store.name) };
 }
-
-export const lookupOwnerByUsername = lookupOwner;
-
-const usernameSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(/^[a-z0-9._-]{3,40}$/, 'Enter a username with 3–40 letters, numbers, dots, underscores or hyphens.');
 
 const onboardSchema = z.object({
   storeName: z.string().trim().min(1),
   address: z.string().trim().default(''),
-  phone: z.string().trim().default(''),
+  phone: z.string().trim().min(1, 'Enter a contact phone number for this organization.').refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
   owner: z.discriminatedUnion('mode', [
-    z.object({ mode: z.literal('new'), name: z.string().trim().min(1), username: usernameSchema, password: z.string().min(8) }),
+    z.object({ mode: z.literal('new'), name: z.string().trim().min(2, 'Name must be at least 2 characters.').max(100), password: z.string().refine(isValidNewPassword, 'Use at least 8 characters with a letter and a number.'), ownerPhone: z.string().transform(normalizePhone).refine(value => !!value, "Enter the owner's phone number.").refine(isValidPhone, 'Enter a valid phone number (8–15 digits).') }),
     z.object({ mode: z.literal('existing'), userId: z.string().min(1) }),
   ]),
   subscription: z.discriminatedUnion('mode', [
     z.object({ mode: z.literal('plan'), planId: z.string().min(1), discountAmount: z.number().int().nonnegative().default(0), chargeDepositAnyway: z.boolean().default(false) }),
+    z.object({ mode: z.literal('trial'), trialStartDate: z.string().optional(), trialEndDate: z.string() }),
     z.object({ mode: z.literal('custom'), depositAmount: z.number().int().nonnegative(), annualFeeAmount: z.number().int().nonnegative() }),
   ]),
   markPaid: z.boolean(),
+  paymentMethod: z.enum(['UPI', 'CASH']).optional(),
+  paymentReference: z.string().trim().optional(),
   notes: z.string().trim().optional(),
 });
 
 export async function onboardStore(input: OnboardStoreInput, superAdminId: string): Promise<StoreListItem> {
-  const data = onboardSchema.parse(input);
+  const parsed = onboardSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  const data = parsed.data;
   const today = todayIST();
+  if (data.subscription.mode === 'trial') {
+    const sub = data.subscription;
+    validateAccessDate(sub.trialEndDate, addDays(today, 1));
+    if (sub.trialStartDate && sub.trialStartDate > sub.trialEndDate)
+      throw new ValidationError('Trial start date must be before end date.');
+    if (data.markPaid) throw new ValidationError('A free trial cannot record a payment.');
+  }
 
   const storeId = await prisma.$transaction(async tx => {
     let ownerId: string;
 
     if (data.owner.mode === 'new') {
-      const existing = await tx.user.findUnique({ where: { username: data.owner.username } });
-      if (existing) throw new ValidationError('This username is already in use. Choose another.');
+      const existing = await tx.user.findUnique({ where: { phone: data.owner.ownerPhone } });
+      if (existing) throw new ValidationError('This phone number is already registered.');
       const passwordHash = await hashPassword(data.owner.password);
       const created = await tx.user.create({
         data: {
           name: data.owner.name,
-          username: data.owner.username,
           passwordHash,
-          phone: data.phone || null,
+          phone: data.owner.ownerPhone,
         },
       });
       ownerId = created.id;
     } else {
       const existing = await tx.user.findUnique({ where: { id: data.owner.userId } });
       if (!existing || existing.isSuperAdmin) throw new ValidationError('Owner not found.');
-      if (data.phone && !existing.phone) {
-        await tx.user.update({ where: { id: existing.id }, data: { phone: data.phone } });
-      }
       ownerId = existing.id;
     }
 
     const store = await tx.store.create({
       data: { name: data.storeName, address: data.address, phone: data.phone, onboardedById: superAdminId },
+    });
+
+    // auto-enable all active platform payment methods for the new org
+    const activeMethods = await tx.platformPaymentMethod.findMany({ where: { active: true }, select: { id: true } });
+    await tx.organizationPaymentMethod.createMany({
+      data: activeMethods.map(method => ({ storeId: store.id, platformPaymentMethodId: method.id, enabled: true })),
     });
 
     await tx.storePaymentMethod.createMany({
@@ -316,52 +279,57 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
 
     await tx.storeMembership.create({ data: { storeId: store.id, userId: ownerId, role: 'OWNER' } });
 
-    let depositAmount: number;
-    let annualFeeAmount: number;
+    let depositAmount = 0;
+    let annualFeeAmount = 0;
     let planId: string | null = null;
     let discountAmount = 0;
 
     if (data.subscription.mode === 'plan') {
       const plan = await tx.subscriptionPlan.findUnique({ where: { id: data.subscription.planId } });
       if (!plan || plan.archivedAt) throw new ValidationError('Plan not found.');
-      // A waived-by-default plan still carries its own depositAmount on
-      // file — that's the "charge anyway" amount, not a separate figure.
-      depositAmount = plan.depositWaivedByDefault && !data.subscription.chargeDepositAnyway ? 0 : plan.depositAmount;
+      depositAmount = plan.depositWaivedByDefault ? 0 : plan.depositAmount;
       annualFeeAmount = plan.annualFeeAmount;
       planId = plan.id;
       discountAmount = data.subscription.discountAmount;
-    } else {
+    } else if (data.subscription.mode === 'custom') {
       depositAmount = data.subscription.depositAmount;
       annualFeeAmount = data.subscription.annualFeeAmount;
     }
 
-    const paidThroughDate = data.markPaid ? parseCalendarDate(addYears(today, 1)) : null;
+    const amountDue = Math.max(depositAmount + annualFeeAmount - discountAmount, 0);
+    const recordPayment = data.markPaid && data.subscription.mode !== 'trial' && amountDue > 0;
+    const paidThroughDate = recordPayment ? parseCalendarDate(addYears(today, 1)) : null;
     await tx.subscription.create({
       data: {
         storeId: store.id,
         planId,
         depositAmount,
-        depositPaidAt: data.markPaid ? parseCalendarDate(today) : null,
+        depositPaidAt: recordPayment ? parseCalendarDate(today) : null,
         annualFeeAmount,
         discountAmount,
         paidThroughDate,
+        trialStartsAt: data.subscription.mode === 'trial' && data.subscription.trialStartDate ? parseCalendarDate(data.subscription.trialStartDate) : null,
+        trialEndsAt: data.subscription.mode === 'trial' ? parseCalendarDate(data.subscription.trialEndDate) : null,
         notes: data.notes ?? '',
       },
     });
 
-    if (data.markPaid) {
-      await tx.subscriptionPayment.create({
-        data: { storeId: store.id, type: 'DEPOSIT', amount: Math.max(depositAmount - discountAmount, 0), paidAt: parseCalendarDate(today), notes: 'Onboarding deposit' },
+    if (recordPayment) {
+      const depositDue = Math.max(depositAmount - discountAmount, 0);
+      const annualDue = Math.max(annualFeeAmount - Math.max(discountAmount - depositAmount, 0), 0);
+      if (depositDue > 0) await tx.subscriptionPayment.create({
+        data: { storeId: store.id, type: 'DEPOSIT', amount: depositDue, paidAt: parseCalendarDate(today), notes: 'Onboarding deposit', method: data.paymentMethod ?? 'UPI', reference: data.paymentReference ?? '', recordedById: superAdminId },
       });
-      await tx.subscriptionPayment.create({
+      if (annualDue > 0) await tx.subscriptionPayment.create({
         data: {
           storeId: store.id,
           type: 'RENEWAL',
-          amount: annualFeeAmount,
+          amount: annualDue,
           paidAt: parseCalendarDate(today),
           coversFrom: parseCalendarDate(today),
           coversTo: paidThroughDate,
           notes: 'First year, included at onboarding',
+          method: data.paymentMethod ?? 'UPI', reference: data.paymentReference ?? '', recordedById: superAdminId,
         },
       });
     }
@@ -369,6 +337,8 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
     return store.id;
   });
 
+  revalidateTag('plans', { expire: 0 });
+  revalidateTag('stores', { expire: 0 });
   const rows = await findAllStores();
   const row = rows.find(r => r.id === storeId);
   if (!row) throw new Error('Store not found after creation.');
@@ -401,16 +371,17 @@ export async function recordSubscriptionPayment(storeId: string, input: RecordSu
       SELECT id FROM subscriptions WHERE "storeId" = ${storeId} FOR UPDATE
     `;
     if (!locked.length) throw new ValidationError('This store has no subscription yet.');
-    const subscription = await tx.subscription.findUniqueOrThrow({ where: { storeId } });
+    const subscription = await tx.subscription.findUniqueOrThrow({ where: { storeId }, include: { plan: { select: { billingCycle: true } } } });
 
     let coversFrom: Date | undefined;
     let coversTo: Date | undefined;
 
     if (data.type === 'RENEWAL') {
+      const billingCycle = subscription.plan?.billingCycle ?? 'ANNUAL';
       const currentPaidThrough = subscription.paidThroughDate ? formatCalendarDate(subscription.paidThroughDate) : undefined;
       const base = currentPaidThrough && currentPaidThrough > today ? currentPaidThrough : today;
       coversFrom = parseCalendarDate(base);
-      coversTo = parseCalendarDate(addYears(base, 1));
+      coversTo = parseCalendarDate(addBillingCycle(base, billingCycle));
       await tx.subscription.update({ where: { storeId }, data: { paidThroughDate: coversTo } });
     } else {
       await tx.subscription.update({ where: { storeId }, data: { depositPaidAt: paidAt } });
@@ -422,6 +393,7 @@ export async function recordSubscriptionPayment(storeId: string, input: RecordSu
     });
   });
 
+  revalidateTag('stores', { expire: 0 });
   return {
     invoiceSeq: result.invoiceSeq,
     storeId,
@@ -512,27 +484,27 @@ export async function getCollectedThisYearStats(): Promise<CollectedThisYearStat
 export async function setStoreTrial(
   storeId: string,
   trialEndsAt: string,
-): Promise<{ trialEndsAt: string; storeId: string }> {
+  trialStartsAt?: string,
+): Promise<{ trialEndsAt: string; trialStartsAt: string | undefined; storeId: string }> {
   const store = await prisma.store.findUnique({ where: { id: storeId } });
-  if (!store || store.deletedAt) {
-    throw new ValidationError('Store not found.');
+  if (!store || store.deletedAt) throw new ValidationError('Store not found.');
+
+  const parsedEnd = validateAccessDate(trialEndsAt, todayIST());
+  let parsedStart: Date | undefined;
+  if (trialStartsAt) {
+    parseCalendarDate(trialStartsAt); // validates format
+    if (trialStartsAt > trialEndsAt) throw new ValidationError('Trial start date must be before end date.');
+    parsedStart = parseCalendarDate(trialStartsAt);
   }
 
-  const parsedDate = parseCalendarDate(trialEndsAt);
   await prisma.subscription.upsert({
     where: { storeId },
-    create: {
-      storeId,
-      depositAmount: 0,
-      annualFeeAmount: 0,
-      trialEndsAt: parsedDate,
-    },
-    update: {
-      trialEndsAt: parsedDate,
-    },
+    create: { storeId, depositAmount: 0, annualFeeAmount: 0, trialStartsAt: parsedStart ?? null, trialEndsAt: parsedEnd },
+    update: { trialStartsAt: parsedStart ?? null, trialEndsAt: parsedEnd },
   });
 
-  return { storeId, trialEndsAt };
+  revalidateTag('stores', { expire: 0 });
+  return { storeId, trialEndsAt, trialStartsAt };
 }
 
 export interface ExpiringSubscriptionItem {
@@ -605,4 +577,19 @@ export async function listExpiringSubscriptions(withinDays = 30): Promise<Expiri
   }
 
   return results.sort((a, b) => a.daysRemaining - b.daysRemaining);
+}
+
+function validateAccessDate(value: string, minimum: string, maximum?: string): Date {
+  let parsed: Date;
+  try { parsed = parseCalendarDate(value); } catch { throw new ValidationError('Enter a valid calendar date.'); }
+  if (value < minimum || (maximum && value > maximum)) throw new ValidationError(maximum ? 'Choose a date from today through the next 30 days.' : 'Choose a trial end date after today.');
+  return parsed;
+}
+
+export async function grantTemporaryAccess(storeId: string, untilDate: string): Promise<void> {
+  const date = validateAccessDate(untilDate, todayIST(), addDays(todayIST(), 30));
+  const store = await prisma.store.findUnique({ where: { id: storeId } });
+  if (!store || store.deletedAt) throw new ValidationError('Organization not found.');
+  if (store.status === 'LOCKED') throw new ValidationError('Unlock the organization before granting temporary access.');
+  await prisma.store.update({ where: { id: storeId }, data: { accessGrantedUntil: date } });
 }

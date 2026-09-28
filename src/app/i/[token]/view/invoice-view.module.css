@@ -1,0 +1,26 @@
+@media print {
+  @page { size: A4; margin: 0; }
+
+  .invoice {
+    padding: 0 !important;
+    min-height: 0 !important;
+    background: white !important;
+  }
+
+  .invoice > header { display: none !important; }
+  .invoice > div { max-width: none !important; margin: 0 !important; }
+  .invoice :global(.pdf-preview-pages) { padding: 0 !important; gap: 0 !important; }
+  .invoice :global(canvas) {
+    display: block;
+    width: 210mm !important;
+    height: 297mm !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    break-after: page;
+  }
+  .invoice :global(canvas:last-child) { break-after: auto; }
+  .invoice :global(.ad-pdf-loading),
+  .invoice :global(.pdf-preview-error) { display: none !important; }
+}

@@ -67,7 +67,7 @@ export default function Dashboard({ data: d, summaries = [], allOutletsSelected,
   const recent = <Card className="dashboard-recent">
     <CardHeading title={isAllOutlets ? 'Recent orders — all outlets' : 'Recent orders'}
       subtitle={isAllOutlets ? 'Newest first, every outlet combined' : 'Latest activity at this outlet'}
-      action={<Link href="/admin/orders" className="btn btn-secondary">View all →</Link>} />
+      action={<Link href="/admin/sales" className="btn btn-secondary">View all →</Link>} />
     {recentOrders.length ? <div className="dashboard-table-scroll" tabIndex={0} role="region" aria-label="Recent orders">
       <table className="grid"><thead><tr><th scope="col">Order</th><th scope="col">Customer</th>{isAllOutlets && <th scope="col">Outlet</th>}<th scope="col">Status</th><th scope="col" className="num">Amount</th></tr></thead>
         <tbody>{recentOrders.slice(0, isAllOutlets ? 3 : 4).map(order => <tr key={order.id}>

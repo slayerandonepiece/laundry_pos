@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     const session = await requireApiAuth(req);
     const user = await prisma.user.findUnique({
       where: { id: session.id },
-      select: { id: true, name: true, username: true, isSuperAdmin: true, mustChangePassword: true, active: true },
+      select: { id: true, name: true, phone: true, isSuperAdmin: true, mustChangePassword: true, active: true },
     });
 
     if (!user || !user.active) {
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       user: {
         id: user.id,
         name: user.name,
-        username: user.username,
+        phone: user.phone,
         isSuperAdmin: user.isSuperAdmin,
         mustChangePassword: user.mustChangePassword,
       },

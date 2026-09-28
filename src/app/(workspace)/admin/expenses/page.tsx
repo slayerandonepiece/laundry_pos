@@ -10,7 +10,7 @@ export default async function Page() {
     // Expenses always requires one specific store — no "All stores" view
     // outside Dashboard (Item 2).
     const selection = await resolveStoreSelection();
-    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER');
+    const session = await requireStoreSession(selection?.multiStore ? selection.storeId : undefined, 'OWNER', undefined, { allowLockedReadOnly: true });
     serverExpenses = await listExpenses(session.storeId);
     serverOutlets = await listOutletsForStoreAdmin(session.storeId);
   } catch (error) {

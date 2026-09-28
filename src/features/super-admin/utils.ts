@@ -10,10 +10,12 @@ export function initials(name: string): string {
 
 /** Badge label + CSS tone class for each organisation payment state. */
 export const PAYMENT_STATE_BADGE: Record<StoreListItem['paymentState'], { label: string; cls: string }> = {
-  active:   { label: 'Active',       cls: 'good' },
-  expiring: { label: 'Expiring',     cls: 'warm' },
-  locked:   { label: 'Locked',       cls: 'bad'  },
-  unset:    { label: 'Terms not set', cls: 'gray' },
+  active:       { label: 'Active',       cls: 'good' },
+  expiring:     { label: 'Expiring',     cls: 'warm' },
+  locked:       { label: 'Locked',       cls: 'bad'  },
+  unset:        { label: 'Terms not set', cls: 'gray' },
+  trial:        { label: 'Trial',        cls: 'info' },
+  trial_ending: { label: 'Trial ending', cls: 'warm' },
 };
 
 /**

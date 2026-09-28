@@ -1,4 +1,5 @@
 import 'server-only';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
 import type { Product } from '@/features/admin/admin.types';
@@ -49,8 +50,10 @@ function toDTO(row: ProductRow): Product {
 }
 
 export async function listProducts(storeId: string): Promise<Product[]> {
-  const rows = await findAll(storeId);
-  return rows.map(toDTO);
+  return unstable_cache(async () => {
+    const rows = await findAll(storeId);
+    return rows.map(toDTO);
+  }, ['products', storeId], { tags: ['products', storeId], revalidate: 60 })();
 }
 
 export async function saveProduct(storeId: string, input: unknown): Promise<Product> {
@@ -83,5 +86,6 @@ export async function saveProduct(storeId: string, input: unknown): Promise<Prod
     return { ...saved, slabs };
   });
 
+  revalidateTag(storeId, { expire: 0 });
   return toDTO(row as ProductRow);
 }

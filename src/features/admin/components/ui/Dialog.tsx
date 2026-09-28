@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, useId, type ReactNode } from 'react';
 import { lockBodyScroll } from '../../admin.dialog';
 import ConfirmationDialog from '../ConfirmationDialog';
 
@@ -30,6 +30,9 @@ export function Dialog({
   warnOnChanges = false,
   className = '',
 }: DialogProps) {
+  const titleId = useId();
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
   const [confirmClose, setConfirmClose] = useState(false);
   const isDirty = useRef(false);
   const scrimRef = useRef<HTMLDivElement>(null);
@@ -40,8 +43,8 @@ export function Dialog({
       setConfirmClose(true);
       return;
     }
-    onClose();
-  }, [warnOnChanges, onClose]);
+    closeRef.current();
+  }, [warnOnChanges]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -72,6 +75,17 @@ export function Dialog({
     }, 50);
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const dialog = dialogRef.current;
+      if (!dialog || !dialog.contains(document.activeElement)) return;
+      if (e.key === 'Tab') {
+        const fields = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(el => el.getClientRects().length > 0);
+        const target = e.shiftKey ? fields[fields.length - 1] : fields[0];
+        const boundary = e.shiftKey ? fields[0] : fields[fields.length - 1];
+        if (document.activeElement === boundary || fields.length === 0) {
+          e.preventDefault();
+          (target || dialog).focus();
+        }
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         requestClose();
@@ -109,7 +123,7 @@ export function Dialog({
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="dialog-title"
+            aria-labelledby={titleId}
             tabIndex={-1}
             className={`dialog ${wide ? 'wide' : ''} ${className}`.trim()}
             onChangeCapture={() => {
@@ -117,7 +131,7 @@ export function Dialog({
             }}
           >
             <div className="dialog-head">
-              <h2 id="dialog-title" style={{ fontSize: '16px' }}>
+              <h2 id={titleId} style={{ fontSize: '16px' }}>
                 {title}
               </h2>
               <button

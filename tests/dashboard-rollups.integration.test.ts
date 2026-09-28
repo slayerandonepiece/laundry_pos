@@ -1,3 +1,4 @@
+import { testPhone } from './test-phone';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -78,10 +79,9 @@ async function setupStoreEnvironment(suffix: string) {
 
   const owner = await prisma.user.create({
     data: {
-      username: `owner_rollup_${suffix}`,
+      phone: testPhone(`owner_rollup_${suffix}`),
       email: `owner-rollup-${suffix}@example.com`,
       name: `Owner Rollup ${suffix}`,
-      phone: `989800${suffix.slice(-4).padStart(4, '0')}`,
       passwordHash: await hashPassword('password123'),
       isSuperAdmin: false,
     },
@@ -320,6 +320,25 @@ test('Task B6: transactional rollups on expenses creation and markExpensePaid', 
   assert.equal(summaryAfterPaid?.expensesAmount, 1050);
 });
 
+test('Selected expense paid date controls rollup date and rejects invalid dates', async () => {
+  const env = await setupStoreEnvironment('paid-date');
+  const date = new Date(Date.parse(todayIST()) - 86400000).toISOString().slice(0, 10);
+  const expense = await expenses.createExpense(env.store.id, {
+    title: 'Backdated bill', category: 'SUPPLIES', amount: 300, due: todayIST(),
+    monthly: false, paidToday: false, outletId: env.outlet1.id,
+  });
+  await assert.rejects(expenses.markExpensePaid(env.store.id, expense.id, '2026-02-30'));
+  await assert.rejects(expenses.markExpensePaid(env.store.id, expense.id, '2099-01-01'));
+  const result = await expenses.markExpensePaid(env.store.id, expense.id, date);
+  assert.equal(result.paid, date);
+  const retry = await expenses.markExpensePaid(env.store.id, expense.id, todayIST());
+  assert.equal(retry.paid, date);
+  const summary = await prisma.dailyOutletSummary.findUnique({ where: {
+    storeId_outletId_businessDate: { storeId: env.store.id, outletId: env.outlet1.id, businessDate: parseCalendarDate(date) },
+  } });
+  assert.equal(summary?.expensesAmount, 300);
+});
+
 test('Task B6: retries and idempotent flows do not double count or inflate totals', async () => {
   const env = await setupStoreEnvironment('b6-idempotent');
   const todayStr = todayIST();
@@ -556,4 +575,56 @@ test('Task B6: API endpoints GET /api/v1/dashboard/rollups and POST /api/v1/dash
   const jsonPost = await resPost.json();
   assert.equal(jsonPost.success, true);
   assert.equal(jsonPost.daysReconciled, 1);
+});
+
+test('Expense edits and deletions correct paid totals and enforce store/outlet scope', async () => {
+  const env = await setupStoreEnvironment('expense-corrections');
+  const other = await setupStoreEnvironment('expense-corrections-other');
+  const due = todayIST(), businessDate = parseCalendarDate(due);
+  const bill = await expenses.createExpense(env.store.id, { title: 'Wrong bill', category: 'Supplies', amount: 450, due, monthly: false, paidToday: true, outletId: env.outlet1.id });
+  const input = { title: 'Corrected bill', category: 'Maintenance', amount: 800, due, outletId: env.outlet2.id };
+  await assert.rejects(expenses.updateExpense(other.store.id, bill.id, input));
+  await assert.rejects(expenses.deleteExpense(other.store.id, bill.id));
+  await assert.rejects(expenses.updateExpense(env.store.id, bill.id, { ...input, outletId: other.outlet1.id }));
+  await assert.rejects(expenses.updateExpense(env.store.id, bill.id, { ...input, due: '2026-02-30' }));
+  const updated = await expenses.updateExpense(env.store.id, bill.id, input);
+  assert.equal(updated.paid, due);
+  assert.equal(updated.amount, 800);
+  const summary = (outletId: string) => prisma.dailyOutletSummary.findUniqueOrThrow({ where: { storeId_outletId_businessDate: { storeId: env.store.id, outletId, businessDate } } });
+  assert.equal((await summary(env.outlet1.id)).expensesAmount, 0);
+  assert.equal((await summary(env.outlet2.id)).expensesAmount, 800);
+  // Retrying an edit must not inflate totals.
+  await expenses.updateExpense(env.store.id, bill.id, input);
+  assert.equal((await summary(env.outlet2.id)).expensesAmount, 800);
+  const results = await Promise.allSettled([expenses.deleteExpense(env.store.id, bill.id), expenses.deleteExpense(env.store.id, bill.id)]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal((await summary(env.outlet2.id)).expensesAmount, 0);
+  assert.equal(await prisma.expense.findUnique({ where: { id: bill.id } }), null);
+});
+
+test('Deleting a monthly expense stops regeneration and retains other recorded bills', async () => {
+  const env = await setupStoreEnvironment('expense-series-delete');
+  const due = todayIST();
+  const bill = await expenses.createExpense(env.store.id, { title: 'Mistaken monthly bill', category: 'Supplies', amount: 200, due, monthly: true, outletId: env.outlet1.id });
+  const before = await expenses.listExpenses(env.store.id);
+  assert.ok(before.length >= 2);
+  await assert.rejects(expenses.updateExpense(env.store.id, bill.id, { title: bill.title, category: bill.category, amount: 200, due: '2099-01-01' }));
+  await expenses.deleteExpense(env.store.id, bill.id);
+  await Promise.all([expenses.listExpenses(env.store.id), expenses.listExpenses(env.store.id)]);
+  const after = await expenses.listExpenses(env.store.id);
+  assert.ok(!after.some(expense => expense.id === bill.id));
+  assert.equal(after.length, before.length - 1);
+  assert.equal((await prisma.recurringExpenseSeries.findUniqueOrThrow({ where: { id: bill.seriesId } })).active, false);
+});
+
+test('Correcting legacy paid expenses rebuilds missing summaries without negative totals', async () => {
+  const env = await setupStoreEnvironment('legacy-expense-correction');
+  const due = todayIST(), date = parseCalendarDate(due);
+  const old = await prisma.expense.create({ data: { storeId: env.store.id, outletId: env.outlet1.id, title: 'Legacy bill', category: 'Other', amount: 500, dueDate: date, paidAt: date } });
+  await prisma.expense.create({ data: { storeId: env.store.id, outletId: env.outlet1.id, title: 'Retained legacy bill', category: 'Other', amount: 200, dueDate: date, paidAt: date } });
+  await expenses.updateExpense(env.store.id, old.id, { title: old.title, category: old.category, amount: 600, due, outletId: env.outlet1.id });
+  const summary = () => prisma.dailyOutletSummary.findUniqueOrThrow({ where: { storeId_outletId_businessDate: { storeId: env.store.id, outletId: env.outlet1.id, businessDate: date } } });
+  assert.equal((await summary()).expensesAmount, 800);
+  await expenses.deleteExpense(env.store.id, old.id);
+  assert.equal((await summary()).expensesAmount, 200);
 });

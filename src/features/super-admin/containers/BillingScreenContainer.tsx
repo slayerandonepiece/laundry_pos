@@ -20,6 +20,7 @@ export default function BillingScreenContainer({ stores, collectedThisYear }: { 
         <RecordPaymentDialog
           storeId={payingStore.id}
           storeName={payingStore.name}
+          store={payingStore}
           onSaved={() => { setPayingStore(null); setNotice('Payment recorded'); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
         />
       </Dialog>

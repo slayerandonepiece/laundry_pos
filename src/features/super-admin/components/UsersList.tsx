@@ -37,7 +37,7 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
     if (role !== 'all' && !u.memberships.some(m => m.role === role)) return false;
     if (status === 'active' && !u.active) return false;
     if (status === 'inactive' && u.active) return false;
-    if (search.trim() && !(u.name + ' ' + u.username).toLowerCase().includes(search.trim().toLowerCase())) return false;
+    if (search.trim() && !(u.name + ' ' + u.phone).toLowerCase().includes(search.trim().toLowerCase())) return false;
     return true;
   });
   const hasActiveFilter = role !== 'all' || status !== 'all' || search.trim().length > 0;
@@ -75,7 +75,7 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
       <button type="button" className={'fpill' + (status === 'active' ? ' on' : '')} onClick={() => setStatus(status === 'active' ? 'all' : 'active')} aria-pressed={status === 'active'}>Active</button>
       <button type="button" className={'fpill' + (status === 'inactive' ? ' on' : '')} onClick={() => setStatus(status === 'inactive' ? 'all' : 'inactive')} aria-pressed={status === 'inactive'}>Inactive</button>
       <span className="ftools">
-        <span className="fsearch"><Icon name="search" size="s" /><input aria-label="Search users" value={search} onChange={e => onSearch(e.target.value)} placeholder="Search name or username…" style={{ border: 0, background: 'transparent', padding: 0, height: 'auto', color: 'var(--ink)' }} /></span>
+        <span className="fsearch"><Icon name="search" size="s" /><input aria-label="Search users" value={search} onChange={e => onSearch(e.target.value)} placeholder="Search name or phone…" style={{ border: 0, background: 'transparent', padding: 0, height: 'auto', color: 'var(--ink)' }} /></span>
       </span>
     </div>
 
@@ -89,13 +89,13 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
     ) : (
       <div className="tablecard">
         <table>
-          <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Organizations</th><th>Status</th><th className="right">Actions</th></tr></thead>
+          <thead><tr><th>User</th><th>Phone number</th><th>Role</th><th>Organizations</th><th>Status</th><th className="right">Actions</th></tr></thead>
           <tbody>
             {filtered.map(user => {
               const primaryRole = user.memberships.some(m => m.role === 'OWNER') ? 'OWNER' : user.memberships[0]?.role;
               return <tr key={user.id}>
                 <td><div className="who"><span className="av">{initials(user.name)}</span><strong onClick={() => router.push(`/super-admin/users/${user.id}`)} style={{ cursor: 'pointer' }}>{user.name}</strong></div></td>
-                <td className="num">@{user.username}</td>
+                <td className="num">{user.phone}</td>
                 <td>{primaryRole ? <span className={'badge plain ' + (primaryRole === 'OWNER' ? 'info' : 'gray')}>{primaryRole === 'OWNER' ? 'Owner' : 'Employee'}</span> : '—'}</td>
                 <td><OrgsCell memberships={user.memberships} /></td>
                 <td><span className={'badge ' + (user.active ? 'good' : 'bad')}>{user.active ? 'Active' : 'Inactive'}</span></td>

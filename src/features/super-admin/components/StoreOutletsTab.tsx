@@ -19,11 +19,13 @@ const STATUS_BADGE: Record<OutletStatus, { label: string; cls: string }> = {
 
 export default function StoreOutletsTab({
   storeId,
+  hasActiveAccess,
   outlets,
   initialAddOpen = false,
   onRefresh,
 }: {
   storeId: string;
+  hasActiveAccess: boolean;
   outlets: OutletListItem[];
   initialAddOpen?: boolean;
   onRefresh?: () => void;
@@ -32,9 +34,10 @@ export default function StoreOutletsTab({
   const [open, setOpen] = useState(initialAddOpen);
 
   return <>
+    {!hasActiveAccess && <div className="notice warn" style={{ marginBottom: 16 }}><span><strong>Subscription required</strong><br />Set up a subscription or trial on the Subscription tab before adding outlets.</span></div>}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
       <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 480 }}>Physical branches for this organization. Super Admin assigns each permanent code.</p>
-      <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />Add outlet</button>
+      <button type="button" className="btn" disabled={!hasActiveAccess} onClick={() => setOpen(true)}><Icon name="plus" size="s" />Add outlet</button>
     </div>
 
     {!outlets.length ? (
@@ -44,7 +47,7 @@ export default function StoreOutletsTab({
         </div>
         <h3>No outlets yet</h3>
         <p>Create the first outlet before staff begin outlet-scoped work. The owner cannot take orders until at least one outlet exists.</p>
-        <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />Add outlet</button>
+        <button type="button" className="btn" disabled={!hasActiveAccess} onClick={() => setOpen(true)}><Icon name="plus" size="s" />Add outlet</button>
       </div></div>
     ) : (
       <div className="tablecard">
