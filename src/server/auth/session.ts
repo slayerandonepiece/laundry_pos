@@ -30,6 +30,8 @@ export interface SessionUser {
   name: string;
   phone: string;
   isSuperAdmin: boolean;
+  /** Only populated for bearer-token sessions (mobile API); see requireApiAuth. */
+  mustChangePassword?: boolean;
 }
 
 // A user's identity plus their role in one specific store.
@@ -102,7 +104,7 @@ export async function getSessionFromToken(token: string): Promise<SessionUser | 
       token: true,
       credentialVersion: true,
       expiresAt: true,
-      user: { select: { id: true, name: true, phone: true, isSuperAdmin: true, active: true, credentialVersion: true } },
+      user: { select: { id: true, name: true, phone: true, isSuperAdmin: true, active: true, credentialVersion: true, mustChangePassword: true } },
     },
   });
   if (!session) return null;
@@ -110,7 +112,7 @@ export async function getSessionFromToken(token: string): Promise<SessionUser | 
   if (!session.user.active) return null;
   if (session.credentialVersion !== session.user.credentialVersion) return null;
 
-  return { id: session.user.id, name: session.user.name, phone: session.user.phone, isSuperAdmin: session.user.isSuperAdmin };
+  return { id: session.user.id, name: session.user.name, phone: session.user.phone, isSuperAdmin: session.user.isSuperAdmin, mustChangePassword: session.user.mustChangePassword };
 }
 
 // Returns null for any invalid session (missing cookie, expired, deactivated
@@ -208,10 +210,10 @@ export async function revokeAllSessionsForUser(userId: string): Promise<void> {
 // specific message for (see AdminProvider/AdminScreenContainer). All are
 // "FORBIDDEN" as far as callers checking `instanceof AuthError` are
 // concerned; `reason` is additive.
-export type AccessDeniedReason = 'membership_inactive' | 'store_locked' | 'store_archived' | 'payment_lapsed';
+export type AccessDeniedReason = 'membership_inactive' | 'store_locked' | 'store_archived' | 'payment_lapsed' | 'billing_pending';
 
 export class AuthError extends Error {
-  constructor(public readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN', public readonly reason?: AccessDeniedReason) {
+  constructor(public readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN', public readonly reason?: AccessDeniedReason | 'must_change_password') {
     super(code);
   }
 }

@@ -2,7 +2,7 @@ import { normalizePhone } from '@/lib/contactValidation';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
-import { verifyPassword } from '@/server/auth/password';
+import { verifyPassword, verifyPasswordAgainstDummy } from '@/server/auth/password';
 import { createSessionRow } from '@/server/auth/session';
 import { buildMembershipContext } from '@/server/api/membership-context';
 import { checkLoginThrottle, recordFailedLoginAttempt, clearLoginThrottle } from '@/server/auth/throttle';
@@ -33,13 +33,12 @@ export async function POST(req: NextRequest) {
       where: { phone: normalizePhone(phone) },
     });
 
-    if (!user || !user.active) {
-      recordFailedLoginAttempt(phone, ip);
-      return jsonResponse({ error: 'Invalid phone number or password' }, 401);
-    }
-
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
+    // Always pay for one bcrypt comparison so a missing/inactive account is
+    // indistinguishable from a wrong password by response time.
+    const valid = user?.active
+      ? await verifyPassword(password, user.passwordHash)
+      : await verifyPasswordAgainstDummy(password);
+    if (!user || !user.active || !valid) {
       recordFailedLoginAttempt(phone, ip);
       return jsonResponse({ error: 'Invalid phone number or password' }, 401);
     }

@@ -1,5 +1,5 @@
 import 'server-only';
-import { unstable_cache, revalidateTag } from 'next/cache';
+import { revalidateTag } from 'next/cache';
 import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
@@ -42,11 +42,13 @@ function toDTO(row: MembershipRow): Employee {
   };
 }
 
+// Deliberately uncached: revalidateTag only marks a cache entry stale, so the
+// first reads after a create/edit would still return the old list — the mobile
+// app re-fetches right after saving and showed the pre-save staff. The list is
+// small and owner-only.
 export async function listEmployees(storeId: string): Promise<Employee[]> {
-  return unstable_cache(async () => {
-    const rows = await findAll(storeId);
-    return rows.map(toDTO);
-  }, ['employees', storeId], { tags: ['employees', storeId], revalidate: 60 })();
+  const rows = await findAll(storeId);
+  return rows.map(toDTO);
 }
 
 
@@ -54,11 +56,37 @@ const createEmployeeSchema = z.object({
   idempotencyKey: z.string().trim().min(1).max(64).optional(),
   name: z.string().trim().min(1),
   phone: z.string().transform(normalizePhone).refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
-  password: z.string().min(8),
+  password: z.string().min(8).max(128),
   active: z.boolean(),
   outlets: z.array(z.string()).optional(),
   defaultOutletId: z.string().optional(),
 });
+
+/**
+ * The outlets an owner may hand to an employee are their own organization's
+ * active ones. Checked before anything is written, so a bad id can neither
+ * grant access to another organization's outlet nor leave a half-created
+ * employee behind. Returns the ids de-duplicated.
+ */
+async function assertAssignableOutlets(
+  storeId: string,
+  outlets: string[],
+  defaultOutletId?: string,
+): Promise<string[]> {
+  const unique = [...new Set(outlets)];
+  if (unique.length > 0) {
+    const valid = await prisma.outlet.count({
+      where: { id: { in: unique }, storeId, status: 'ACTIVE' },
+    });
+    if (valid !== unique.length) {
+      throw new ValidationError('Invalid or inactive outlet for this organization.');
+    }
+  }
+  if (defaultOutletId && !unique.includes(defaultOutletId)) {
+    throw new ValidationError('The default outlet must be one of the selected outlets.');
+  }
+  return unique;
+}
 
 async function findExistingEmployee(
   storeId: string,
@@ -99,6 +127,10 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
   const existingByKey = await findExistingEmployee(storeId, data.idempotencyKey);
   if (existingByKey) return existingByKey;
 
+  const outletIds = data.outlets
+    ? await assertAssignableOutlets(storeId, data.outlets, data.defaultOutletId)
+    : undefined;
+
   const existing = await prisma.user.findUnique({ where: { phone: data.phone } });
   if (existing) throw new ValidationError('This phone number is already registered.');
 
@@ -119,9 +151,9 @@ export async function createEmployee(storeId: string, input: unknown): Promise<E
         },
       });
 
-      if (data.outlets && data.outlets.length > 0) {
+      if (outletIds && outletIds.length > 0) {
         await tx.outletMembership.createMany({
-          data: data.outlets.map(outletId => ({
+          data: outletIds.map(outletId => ({
             userId: user.id,
             outletId,
             active: true,
@@ -158,7 +190,7 @@ const updateEmployeeSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1),
   phone: z.string().transform(normalizePhone).refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
-  password: z.union([z.string().min(8), z.literal('')]).optional(),
+  password: z.union([z.string().min(8).max(128), z.literal('')]).optional(),
   active: z.boolean(),
   outlets: z.array(z.string()).optional(),
   defaultOutletId: z.string().optional(),
@@ -172,6 +204,10 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
   });
   if (!membership || membership.role !== 'EMPLOYEE') throw new Error('Employee not found.');
   const current = membership.user;
+
+  const outletIds = data.outlets
+    ? await assertAssignableOutlets(storeId, data.outlets, data.defaultOutletId)
+    : undefined;
 
   const phoneChanged = data.phone !== current.phone;
   if (phoneChanged) {
@@ -216,11 +252,11 @@ export async function updateEmployee(storeId: string, input: unknown): Promise<E
     });
     await tx.storeMembership.update({ where: { userId_storeId: { userId: data.id, storeId } }, data: { active: data.active } });
 
-    if (data.outlets) {
+    if (outletIds) {
       await tx.outletMembership.deleteMany({ where: { userId: data.id, outlet: { storeId } } });
-      if (data.outlets.length > 0) {
+      if (outletIds.length > 0) {
         await tx.outletMembership.createMany({
-          data: data.outlets.map(outletId => ({
+          data: outletIds.map(outletId => ({
             userId: data.id,
             outletId,
             active: true,

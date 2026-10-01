@@ -13,6 +13,7 @@ import {
   type StoreSessionOptions,
 } from '@/server/auth/session';
 import { ValidationError } from '@/server/errors';
+import { isKnownSafeMessage } from '@/server/api/public-errors';
 import type { Role } from '@/generated/prisma/client';
 
 export function jsonResponse(data: unknown, status = 200): Response {
@@ -48,23 +49,7 @@ export function formatApiError(error: unknown): Response {
   }
 
   if (error instanceof Error && error.name === 'Error') {
-    const knownSafeMessages = [
-      'Order not found.',
-      'A selected service is no longer available.',
-      'Enter a whole number of pieces.',
-      'Combine repeated services into one line.',
-      'Payment must be between zero and the order total.',
-      'That payment method is no longer available.',
-      'Invalid outlet.',
-      'Payment must be a positive amount.',
-      'Payment must be no more than the outstanding balance.',
-      'Invalid status.',
-      'Product not found.',
-      'Expense not found.',
-      'Employee not found.',
-      'User not found.',
-    ];
-    if (knownSafeMessages.includes(error.message) || error.message.startsWith('Payment must') || error.message.endsWith('not found.')) {
+    if (isKnownSafeMessage(error.message)) {
       const status = error.message.endsWith('not found.') ? 404 : 400;
       return jsonResponse({ error: error.message }, status);
     }
@@ -100,9 +85,18 @@ export function resolveOutletIdFromRequest(req: Request): string | undefined {
   return undefined;
 }
 
-export async function requireApiAuth(req: Request): Promise<SessionUser> {
+// A mobile (bearer) session whose user must still set a new password may only
+// reach the endpoints that pass allowMustChangePassword (status, set/change
+// password, logout); every other API route refuses it here.
+export async function requireApiAuth(
+  req: Request,
+  options?: { allowMustChangePassword?: boolean },
+): Promise<SessionUser> {
   const session = await getSessionFromRequest(req);
   if (!session) throw new AuthError('UNAUTHENTICATED');
+  if (session.mustChangePassword && !options?.allowMustChangePassword) {
+    throw new AuthError('FORBIDDEN', 'must_change_password');
+  }
   return session;
 }
 

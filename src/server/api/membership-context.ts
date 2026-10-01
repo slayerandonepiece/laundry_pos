@@ -1,5 +1,6 @@
 import { prisma } from '@/server/db';
 import { getStoreAccessStatus, resolveAllowedOutlets } from '@/server/auth/session';
+import { formatCalendarDate, todayIST } from '@/server/dates';
 
 /**
  * The store/outlet context every authenticated client needs.
@@ -13,25 +14,47 @@ import { getStoreAccessStatus, resolveAllowedOutlets } from '@/server/auth/sessi
 export async function buildMembershipContext(userId: string) {
   const memberships = await prisma.storeMembership.findMany({
     where: { userId, active: true },
-    include: { store: { select: { id: true, name: true, status: true, deletedAt: true } } },
+    include: { store: { select: { id: true, name: true, status: true, deletedAt: true, accessGrantedUntil: true } } },
     orderBy: { createdAt: 'asc' },
   });
+
+  const blockTermsNotSet =
+    process.env.MOBILE_BLOCK_TERMS_NOT_SET === 'true' ||
+    process.env.MOBILE_BLOCK_TERMS_NOT_SET === '1';
+  const today = todayIST();
 
   const rows = await Promise.all(
     memberships.map(async m => {
       const access = await getStoreAccessStatus(userId, m.storeId);
       const { allowedOutlets, defaultOutletId } = await resolveAllowedOutlets(userId, m.storeId, m.role);
       const isLocked = access?.blockedReason === 'store_locked' || m.store.status === 'LOCKED';
+      const isArchived = access?.blockedReason === 'store_archived' || Boolean(m.store.deletedAt);
+
+      let blockedReason = access?.blockedReason ?? null;
+      let subscriptionState = access?.subscriptionState ?? 'ACTIVE';
+
+      if (blockTermsNotSet) {
+        const hasTerms = Boolean(access?.trialEndsAt || access?.paidThroughDate);
+        const hasActiveOverride = Boolean(
+          m.store.accessGrantedUntil && formatCalendarDate(m.store.accessGrantedUntil) >= today,
+        );
+
+        if (!isLocked && !isArchived && !hasTerms && !hasActiveOverride) {
+          blockedReason = 'billing_pending';
+          subscriptionState = 'RESTRICTED';
+        }
+      }
+
       return {
         storeId: m.storeId,
         storeName: m.store.name,
         role: m.role,
         status: m.store.status,
         isLocked,
-        blockedReason: access?.blockedReason ?? null,
+        blockedReason,
         paidThroughDate: access?.paidThroughDate ?? null,
         trialEndsAt: access?.trialEndsAt ?? null,
-        subscriptionState: access?.subscriptionState ?? 'ACTIVE',
+        subscriptionState,
         allowedOutlets,
         defaultOutletId,
       };

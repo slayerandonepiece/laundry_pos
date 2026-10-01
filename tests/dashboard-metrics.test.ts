@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dashboardData } from '../src/features/admin/admin.analytics';
+import { dashboardData, granularIntervals } from '../src/features/admin/admin.analytics';
 import { total, today } from '../src/features/admin/admin.data';
 import type { Order, Expense, Product } from '../src/features/admin/admin.types';
 
@@ -106,4 +106,77 @@ test('Dashboard KPI totals equal the sum of per-outlet cards plus org-wide order
   const topIds = sortedRecent.map(o => o.id);
   assert.deepEqual(topIds, ['EL-5', 'EL-4', 'EL-3', 'EL-2']);
   assert.ok(topIds.includes('EL-4'), 'Recent orders includes HSR order EL-4');
+});
+
+test('BE2: dashboard granularity bucketing and clipping', () => {
+  const current = today();
+
+  // 1. 7 days with day granularity = 7 buckets
+  const sevenDayRange = { from: '2026-08-01', to: '2026-08-07' };
+  const dayBuckets = granularIntervals(sevenDayRange, 'day');
+  assert.equal(dayBuckets.length, 7);
+  assert.equal(dayBuckets[0].from, '2026-08-01');
+  assert.equal(dayBuckets[0].to, '2026-08-01');
+  assert.equal(dayBuckets[6].from, '2026-08-07');
+  assert.equal(dayBuckets[6].to, '2026-08-07');
+  // Labels for single day bucket use existing dateLabel
+  assert.ok(!dayBuckets[0].label.includes('–'));
+
+  // 2. 30 days with week granularity = at most 5 buckets with the first and last clipped
+  const thirtyDayRange = { from: '2026-08-01', to: '2026-08-30' };
+  const weekBuckets = granularIntervals(thirtyDayRange, 'week');
+  assert.ok(weekBuckets.length <= 5, `Expected <= 5 buckets, got ${weekBuckets.length}`);
+  assert.equal(weekBuckets.length, 5);
+  // First bucket clipped: 2026-08-01 (Saturday) to 2026-08-02 (Sunday)
+  assert.equal(weekBuckets[0].from, '2026-08-01');
+  assert.equal(weekBuckets[0].to, '2026-08-02');
+  assert.ok(weekBuckets[0].label.includes('–'));
+  // Last bucket clipped: 2026-08-24 (Monday) to 2026-08-30 (Sunday)
+  assert.equal(weekBuckets[4].from, '2026-08-24');
+  assert.equal(weekBuckets[4].to, '2026-08-30');
+
+  // 3. 90 days with month granularity = 3-4 calendar-month buckets
+  const ninetyDayRange1 = { from: '2026-05-01', to: '2026-07-31' };
+  const monthBuckets1 = granularIntervals(ninetyDayRange1, 'month');
+  assert.equal(monthBuckets1.length, 3);
+  assert.equal(monthBuckets1[0].from, '2026-05-01');
+  assert.equal(monthBuckets1[0].to, '2026-05-31');
+  assert.equal(monthBuckets1[1].from, '2026-06-01');
+  assert.equal(monthBuckets1[1].to, '2026-06-30');
+  assert.equal(monthBuckets1[2].from, '2026-07-01');
+  assert.equal(monthBuckets1[2].to, '2026-07-31');
+
+  const ninetyDayRange2 = { from: '2026-05-15', to: '2026-08-15' };
+  const monthBuckets2 = granularIntervals(ninetyDayRange2, 'month');
+  assert.equal(monthBuckets2.length, 4);
+  assert.equal(monthBuckets2[0].from, '2026-05-15');
+  assert.equal(monthBuckets2[0].to, '2026-05-31');
+  assert.equal(monthBuckets2[3].from, '2026-08-01');
+  assert.equal(monthBuckets2[3].to, '2026-08-15');
+
+  // 4. A range ending in the future is clipped to today
+  const futureRange = { from: '2026-08-01', to: '2099-12-31' };
+  const clippedDayBuckets = granularIntervals(futureRange, 'day');
+  assert.ok(clippedDayBuckets.length > 0);
+  assert.equal(clippedDayBuckets.at(-1)?.to, current);
+
+  const clippedWeekBuckets = granularIntervals(futureRange, 'week');
+  assert.equal(clippedWeekBuckets.at(-1)?.to, current);
+
+  const clippedMonthBuckets = granularIntervals(futureRange, 'month');
+  assert.equal(clippedMonthBuckets.at(-1)?.to, current);
+
+  // 5. dashboardData behavior: absent granularity vs present
+  const dummyStore = { orders: [], expenses: [], products: [] };
+  const noGran = dashboardData(dummyStore, thirtyDayRange);
+  assert.equal((noGran as { cashRange?: unknown }).cashRange, undefined);
+  assert.ok(Array.isArray(noGran.bars));
+  assert.ok(Array.isArray(noGran.cash));
+
+  const withGran = dashboardData(dummyStore, thirtyDayRange, 'week');
+  assert.ok(Array.isArray(withGran.cashRange));
+  assert.equal(withGran.cashRange?.length, 5);
+  assert.equal(withGran.bars.length, 5);
+  // cash is still the 5 calendar month intervals
+  assert.equal(withGran.cash.length, 5);
 });

@@ -13,7 +13,7 @@ const setPasswordSchema = z.object({
 
 export async function POST(req: NextRequest) {
   return handleApiRoute(async () => {
-    const session = await requireApiAuth(req);
+    const session = await requireApiAuth(req, { allowMustChangePassword: true });
     const body = await req.json();
     const { newPassword } = setPasswordSchema.parse(body);
 

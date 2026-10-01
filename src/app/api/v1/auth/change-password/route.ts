@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/server/db';
-import { changeUserPassword } from '@/server/services/profile';
+import { changeUserPassword, IncorrectPasswordError } from '@/server/services/profile';
+import {
+  checkPasswordChangeThrottle,
+  recordFailedPasswordChange,
+  clearPasswordChangeThrottle,
+} from '@/server/auth/throttle';
 import { createSessionRow } from '@/server/auth/session';
 import { handleApiRoute, jsonResponse, requireApiAuth } from '@/server/api/handler';
 
@@ -14,11 +19,32 @@ const changePasswordSchema = z.object({
 
 export async function POST(req: NextRequest) {
   return handleApiRoute(async () => {
-    const session = await requireApiAuth(req);
+    const session = await requireApiAuth(req, { allowMustChangePassword: true });
     const body = await req.json();
     const { oldPassword, newPassword } = changePasswordSchema.parse(body);
 
-    await changeUserPassword(session.id, oldPassword, newPassword);
+    const throttle = checkPasswordChangeThrottle(session.id);
+    if (!throttle.allowed) {
+      return new Response(
+        JSON.stringify({ error: `Too many failed attempts. Try again in ${throttle.retryAfterSeconds} seconds.` }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-store',
+            'Retry-After': String(throttle.retryAfterSeconds),
+          },
+        },
+      );
+    }
+
+    try {
+      await changeUserPassword(session.id, oldPassword, newPassword);
+    } catch (err) {
+      if (err instanceof IncorrectPasswordError) recordFailedPasswordChange(session.id);
+      throw err;
+    }
+    clearPasswordChangeThrottle(session.id);
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: session.id } });
     const newSession = await createSessionRow(user.id, user.credentialVersion);

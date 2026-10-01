@@ -1,6 +1,6 @@
 import 'server-only';
 import { prisma } from '@/server/db';
-import { parseCalendarDate, formatCalendarDate } from '@/server/dates';
+import { parseCalendarDate, formatCalendarDate, assertCalendarRange } from '@/server/dates';
 import { ValidationError } from '@/server/errors';
 import type { Prisma } from '@/generated/prisma/client';
 
@@ -22,6 +22,8 @@ export interface DailyOutletServiceSummaryDTO {
   orderCount: number;
   amount: number;
 }
+
+export const MAX_RECONCILE_DAYS = 92;
 
 export interface RollupFilterOptions {
   outletId?: string;
@@ -224,12 +226,8 @@ export async function reconcileDailyOutletRollups(
     throw new ValidationError('Outlet not found for this organization.');
   }
 
-  const start = parseCalendarDate(fromDate);
-  const end = parseCalendarDate(toDate);
-
-  if (start > end) {
-    throw new ValidationError('From date must be on or before To date.');
-  }
+  // Each reconciled day runs its own transaction, so the span must be bounded.
+  const { start, end } = assertCalendarRange(fromDate, toDate, MAX_RECONCILE_DAYS);
 
   // Iterate day-by-day across the date range
   let current = new Date(start);

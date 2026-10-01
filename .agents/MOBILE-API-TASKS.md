@@ -8,6 +8,8 @@ source of truth for this repo's conventions.
 **Do Phase 1 completely before any Flutter work starts.** The app cannot
 be built against Server Actions.
 
+> **Status 2026-10-01:** Phase 1 shipped long ago; the live contract is `.agents/MOBILE-API-CONTRACT.md`. Open API work: expense detail/update/delete and a chosen paid date (`POST /expenses/{id}/pay`), per-tenant idempotency keys, shared login throttle, server-side `billing_pending` enforcement. See `CURRENT-STATE.md` (2026-10-01 section).
+
 ---
 
 ## Why this exists

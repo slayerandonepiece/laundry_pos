@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       const token = authHeader.slice(7).trim();
       await prisma.session.deleteMany({ where: { token } });
     } else {
-      const session = await requireApiAuth(req);
+      const session = await requireApiAuth(req, { allowMustChangePassword: true });
       await prisma.session.deleteMany({ where: { userId: session.id } });
     }
     return jsonResponse({ ok: true });
