@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { invoicePdfResponse } from '@/lib/pdf/response';
-import { getOrCreateOrderInvoice } from '@/server/services/order-invoices';
+import { assertCanReadOrderInvoice, getOrCreateOrderInvoice } from '@/server/services/order-invoices';
 import { OrderInvoicePdf } from '@/features/admin/pdf/OrderInvoicePdf';
 import { handleApiRoute, requireApiStoreSession } from '@/server/api/handler';
 
@@ -11,6 +11,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
     const session = await requireApiStoreSession(req);
     const { orderCode } = await params;
 
+    // Same outlet rule as GET /orders/{code}/invoice: an employee reads only
+    // their own outlets' orders.
+    await assertCanReadOrderInvoice(session, orderCode);
     const invoice = await getOrCreateOrderInvoice(session.storeId, orderCode);
     return invoicePdfResponse(<OrderInvoicePdf invoice={invoice} />, invoice.invoiceSeq, req.nextUrl.searchParams.get('download') === '1');
   });

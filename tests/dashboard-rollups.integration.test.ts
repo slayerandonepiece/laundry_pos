@@ -36,6 +36,7 @@ let rollups: typeof import('../src/server/services/dashboard-rollups');
 let platformMethods: typeof import('../src/server/services/platform-payment-methods');
 let rollupsRoute: typeof import('../src/app/api/v1/dashboard/rollups/route');
 let reconcileRoute: typeof import('../src/app/api/v1/dashboard/reconcile/route');
+let dashboardRoute: typeof import('../src/app/api/v1/dashboard/route');
 
 before(async () => {
   orders = await import('../src/server/services/orders');
@@ -44,6 +45,7 @@ before(async () => {
   platformMethods = await import('../src/server/services/platform-payment-methods');
   rollupsRoute = await import('../src/app/api/v1/dashboard/rollups/route');
   reconcileRoute = await import('../src/app/api/v1/dashboard/reconcile/route');
+  dashboardRoute = await import('../src/app/api/v1/dashboard/route');
 });
 
 after(async () => {
@@ -628,3 +630,69 @@ test('Correcting legacy paid expenses rebuilds missing summaries without negativ
   await expenses.deleteExpense(env.store.id, old.id);
   assert.equal((await summary()).expensesAmount, 200);
 });
+
+test('BE2: GET /api/v1/dashboard granularity parameter and cashRange', async () => {
+  const env = await setupStoreEnvironment('dashboard-granularity');
+  const token = generateSessionToken();
+  await prisma.session.create({
+    data: {
+      id: `session-dashboard-${Date.now()}`,
+      userId: env.owner.id,
+      token,
+      credentialVersion: 1,
+      expiresAt: new Date(Date.now() + 86400000),
+    },
+  });
+
+  // 1. Valid granularity=day
+  const reqDay = new NextRequest(
+    'http://localhost/api/v1/dashboard?granularity=day&from=2026-08-01&to=2026-08-07',
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-store-id': env.store.id,
+      },
+    },
+  );
+  const resDay = await dashboardRoute.GET(reqDay);
+  assert.equal(resDay.status, 200);
+  const bodyDay = await resDay.json();
+  assert.equal(bodyDay.bars.length, 7);
+  assert.ok(Array.isArray(bodyDay.cashRange));
+  assert.equal(bodyDay.cashRange.length, 7);
+  // The month-to-date series has up to 5 buckets; on the 1st of a month it is one day, so one bucket.
+  assert.ok(bodyDay.cash.length >= 1 && bodyDay.cash.length <= 5);
+
+  // 2. Invalid granularity -> 400
+  const reqInvalid = new NextRequest(
+    'http://localhost/api/v1/dashboard?granularity=hourly',
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-store-id': env.store.id,
+      },
+    },
+  );
+  const resInvalid = await dashboardRoute.GET(reqInvalid);
+  assert.equal(resInvalid.status, 400);
+  const bodyInvalid = await resInvalid.json();
+  assert.equal(bodyInvalid.error, 'Invalid granularity. Expected day, week, or month.');
+
+  // 3. Absent granularity -> 200, byte-for-byte unchanged (no cashRange)
+  const reqAbsent = new NextRequest(
+    'http://localhost/api/v1/dashboard?from=2026-08-01&to=2026-08-07',
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-store-id': env.store.id,
+      },
+    },
+  );
+  const resAbsent = await dashboardRoute.GET(reqAbsent);
+  assert.equal(resAbsent.status, 200);
+  const bodyAbsent = await resAbsent.json();
+  assert.equal(bodyAbsent.cashRange, undefined);
+  assert.ok(Array.isArray(bodyAbsent.bars));
+  assert.ok(bodyAbsent.cash.length >= 1 && bodyAbsent.cash.length <= 5);
+});
+

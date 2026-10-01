@@ -11,6 +11,7 @@ import type { Order, WorkStatus } from "@/features/admin/admin.types";
 import type { Prisma } from "@/generated/prisma/client";
 import { resolveActivePaymentMethod } from "@/server/services/platform-payment-methods";
 import { assertStoreWritable } from "@/server/auth/session";
+import { publicErrorMessage } from "@/server/api/public-errors";
 import {
   applyOrderCreationRollup,
   applyPaymentRollup,
@@ -268,7 +269,10 @@ export async function createOrder(
   await assertStoreWritable(storeId);
   const data = createOrderSchema.parse(input);
 
-  const existing = await findExistingOrder(storeId, data);
+  // An explicit outlet (always set for employees) must match the outlet of an
+  // order found by key, so one outlet can't replay another's key to read it.
+  const requestedOutletId = explicitOutletId ?? data.outletId;
+  const existing = await findExistingOrder(storeId, data, requestedOutletId);
   if (existing) return existing;
 
   if (
@@ -414,7 +418,7 @@ export async function createOrder(
     // A concurrent retry with the same idempotencyKey or offlineId passed the
     // lookup above too; its insert won, so return that order instead.
     if (isUniqueViolation(err)) {
-      const winner = await findExistingOrder(storeId, data);
+      const winner = await findExistingOrder(storeId, data, requestedOutletId);
       if (winner) return winner;
     }
     throw err;
@@ -426,13 +430,15 @@ export async function createOrder(
 async function findExistingOrder(
   storeId: string,
   data: { idempotencyKey: string; offlineId?: string },
+  requestedOutletId?: string,
 ): Promise<Order | null> {
   const byKey = await prisma.order.findUnique({
     where: { idempotencyKey: data.idempotencyKey },
     include: includeForDTO,
   });
   if (byKey) {
-    if (byKey.storeId !== storeId) throw new Error("Order not found.");
+    if (byKey.storeId !== storeId || (requestedOutletId && byKey.outletId !== requestedOutletId))
+      throw new Error("Order not found.");
     return toOrderDTO(byKey);
   }
   if (!data.offlineId) return null;
@@ -440,6 +446,8 @@ async function findExistingOrder(
     where: { storeId_offlineId: { storeId, offlineId: data.offlineId } },
     include: includeForDTO,
   });
+  if (byOfflineId && requestedOutletId && byOfflineId.outletId !== requestedOutletId)
+    throw new Error("Order not found.");
   return byOfflineId ? toOrderDTO(byOfflineId) : null;
 }
 
@@ -464,6 +472,10 @@ export async function updateOrderStatus(
   if (!dbStatus) throw new Error("Invalid status.");
 
   const row = await prisma.$transaction(async (tx) => {
+    // Serialize concurrent transitions on the same order (as recordPayment
+    // does) so a second identical request sees the committed status and
+    // cannot re-apply the completed rollup.
+    await tx.$queryRaw`SELECT id FROM orders WHERE "orderNumber" = ${orderNumber} FOR UPDATE`;
     const current = await tx.order.findUnique({ where: { orderNumber } });
     if (!current || current.legacyCancelled || current.storeId !== storeId)
       throw new Error("Order not found.");
@@ -555,8 +567,13 @@ export interface BulkSyncResult {
   error?: string;
 }
 
+// Same whitelist as the single-order routes: raw Prisma/driver messages must
+// never reach the client, only the server log.
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : "Unexpected error.";
+  const message = publicErrorMessage(err);
+  if (message !== null) return message;
+  console.error("Bulk sync action error:", err);
+  return "Unexpected error.";
 }
 
 /**

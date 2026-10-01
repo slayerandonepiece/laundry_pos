@@ -430,5 +430,67 @@ test('employee phone validation rejects invalid create/update and accepts format
   assert.equal(changed.credentialVersion, employee.credentialVersion + 1);
   assert.equal(await sessionMod.getSessionFromToken(session.token), null);
   assert.equal(await prisma.session.count({ where: { userId: employee.id } }), 0);
+});
 
+test('BE1: membership-context terms-not-set blocking and precedence', async () => {
+  const origEnv = process.env.MOBILE_BLOCK_TERMS_NOT_SET;
+  try {
+    // 1. Never-billed organization (no subscription row at all)
+    const neverBilled = await setupOrg('never-billed');
+
+    // Flag off (default): unchanged -> subscriptionState = 'ACTIVE', blockedReason = null
+    process.env.MOBILE_BLOCK_TERMS_NOT_SET = 'false';
+    const ctxFlagOff = await buildMembershipContext(neverBilled.owner.id);
+    assert.equal(ctxFlagOff.stores[0].subscriptionState, 'ACTIVE');
+    assert.equal(ctxFlagOff.stores[0].blockedReason, null);
+    assert.equal(ctxFlagOff.organizations[0].subscriptionState, 'ACTIVE');
+    assert.equal(ctxFlagOff.organizations[0].blockedReason, null);
+
+    // Flag on: blockedReason = 'billing_pending', subscriptionState = 'RESTRICTED'
+    process.env.MOBILE_BLOCK_TERMS_NOT_SET = 'true';
+    const ctxFlagOn = await buildMembershipContext(neverBilled.owner.id);
+    assert.equal(ctxFlagOn.stores[0].subscriptionState, 'RESTRICTED');
+    assert.equal(ctxFlagOn.stores[0].blockedReason, 'billing_pending');
+    assert.equal(ctxFlagOn.organizations[0].subscriptionState, 'RESTRICTED');
+    assert.equal(ctxFlagOn.organizations[0].blockedReason, 'billing_pending');
+
+    // Web getStoreAccessStatus must remain completely unchanged (active, no blockedReason)
+    const webStatus = await sessionMod.getStoreAccessStatus(neverBilled.owner.id, neverBilled.store.id);
+    assert.equal(webStatus?.subscriptionState, 'ACTIVE');
+    assert.equal(webStatus?.blockedReason, undefined);
+
+    // Flag on + trial set: unchanged (trial is respected)
+    const withTrial = await setupOrg('terms-trial', {
+      trialEndsAt: new Date(Date.now() + 14 * 86400000),
+    });
+    const ctxTrial = await buildMembershipContext(withTrial.owner.id);
+    assert.equal(ctxTrial.stores[0].subscriptionState, 'TRIAL');
+    assert.equal(ctxTrial.stores[0].blockedReason, null);
+
+    // Flag on + accessGrantedUntil in the future: unchanged (override is respected)
+    const withOverride = await setupOrg('terms-override');
+    await prisma.store.update({
+      where: { id: withOverride.store.id },
+      data: { accessGrantedUntil: new Date(Date.now() + 7 * 86400000) },
+    });
+    const ctxOverride = await buildMembershipContext(withOverride.owner.id);
+    assert.equal(ctxOverride.stores[0].subscriptionState, 'ACTIVE');
+    assert.equal(ctxOverride.stores[0].blockedReason, null);
+
+    // Flag on + LOCKED still wins
+    const lockedOrg = await setupOrg('terms-locked');
+    await prisma.store.update({
+      where: { id: lockedOrg.store.id },
+      data: { status: 'LOCKED' },
+    });
+    const ctxLocked = await buildMembershipContext(lockedOrg.owner.id);
+    assert.equal(ctxLocked.stores[0].isLocked, true);
+    assert.equal(ctxLocked.stores[0].blockedReason, 'store_locked');
+  } finally {
+    if (origEnv !== undefined) {
+      process.env.MOBILE_BLOCK_TERMS_NOT_SET = origEnv;
+    } else {
+      delete process.env.MOBILE_BLOCK_TERMS_NOT_SET;
+    }
+  }
 });

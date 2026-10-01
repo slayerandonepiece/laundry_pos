@@ -34,8 +34,28 @@ function throttleKey(phone: string, ip?: string): string {
   return `${cleanUser}:${cleanIp}`;
 }
 
-export function checkLoginThrottle(phone: string, ip?: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const key = throttleKey(phone, ip);
+type ThrottleResult = { allowed: boolean; retryAfterSeconds?: number };
+
+export function checkLoginThrottle(phone: string, ip?: string): ThrottleResult {
+  return checkKey(throttleKey(phone, ip));
+}
+
+export function recordFailedLoginAttempt(phone: string, ip?: string): ThrottleResult {
+  return recordFailure(throttleKey(phone, ip));
+}
+
+export function clearLoginThrottle(phone: string, ip?: string): void {
+  attempts.delete(throttleKey(phone, ip));
+}
+
+// Wrong current-password guesses on POST /auth/change-password, keyed by user id
+// (a stolen token must not become an unlimited password oracle).
+const passwordChangeKey = (userId: string) => `password-change:${userId}`;
+export const checkPasswordChangeThrottle = (userId: string) => checkKey(passwordChangeKey(userId));
+export const recordFailedPasswordChange = (userId: string) => recordFailure(passwordChangeKey(userId));
+export const clearPasswordChangeThrottle = (userId: string) => void attempts.delete(passwordChangeKey(userId));
+
+function checkKey(key: string): ThrottleResult {
   const record = attempts.get(key);
   if (!record) return { allowed: true };
 
@@ -53,8 +73,7 @@ export function checkLoginThrottle(phone: string, ip?: string): { allowed: boole
   return { allowed: true };
 }
 
-export function recordFailedLoginAttempt(phone: string, ip?: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const key = throttleKey(phone, ip);
+function recordFailure(key: string): ThrottleResult {
   const now = Date.now();
   const record = attempts.get(key);
 
@@ -71,9 +90,4 @@ export function recordFailedLoginAttempt(phone: string, ip?: string): { allowed:
   }
 
   return { allowed: true };
-}
-
-export function clearLoginThrottle(phone: string, ip?: string): void {
-  const key = throttleKey(phone, ip);
-  attempts.delete(key);
 }

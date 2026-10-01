@@ -51,12 +51,15 @@ export async function saveStoreProfile(storeId: string, input: unknown, ownerId:
 
 const newPasswordSchema = z.string().min(8, 'New password must be at least 8 characters.');
 
+// Thrown on a wrong current password so callers (the API route) can throttle guesses.
+export class IncorrectPasswordError extends ValidationError {}
+
 export async function changeUserPassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error('User not found.');
 
   const valid = await verifyPassword(oldPassword, user.passwordHash);
-  if (!valid) throw new ValidationError('Current password is incorrect.');
+  if (!valid) throw new IncorrectPasswordError('Current password is incorrect.');
 
   const result = newPasswordSchema.safeParse(newPassword);
   if (!result.success) throw new ValidationError(result.error.issues[0].message);

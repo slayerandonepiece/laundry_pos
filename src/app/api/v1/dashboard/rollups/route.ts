@@ -28,7 +28,10 @@ export async function GET(req: NextRequest) {
       if (requestedOutletId && !allowedOutlets.some(o => o.id === requestedOutletId)) {
         throw new AuthError('FORBIDDEN');
       }
-      outletId = requestedOutletId ?? allowedOutlets[0]?.id;
+      // Never fall back to a default/first outlet (or to no outlet, which
+      // means store-wide): an employee must name an outlet they belong to.
+      if (!requestedOutletId || allowedOutlets.length === 0) throw new AuthError('FORBIDDEN');
+      outletId = requestedOutletId;
     } else {
       outletId = resolveOutletIdFromRequest(req) ?? searchParams.get('outletId') ?? undefined;
     }
@@ -47,6 +50,14 @@ export async function GET(req: NextRequest) {
       fromDate,
       toDate,
     });
+    // Expenses are owner-only.
+    if (session.storeRole === 'EMPLOYEE') {
+      return jsonResponse(summaries.map(summary => {
+        const employeeView: Partial<typeof summary> = { ...summary };
+        delete employeeView.expensesAmount;
+        return employeeView;
+      }));
+    }
     return jsonResponse(summaries);
   });
 }

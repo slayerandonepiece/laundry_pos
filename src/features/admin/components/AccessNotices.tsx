@@ -33,6 +33,13 @@ function messageFor(reason: AccessDeniedReason, isOwner: boolean, paidThroughDat
           ? `This store's subscription expired on ${paidThroughDate ?? 'the last billing date'}. Renew your plan to restore access — access resumes automatically as soon as a renewal payment is recorded, no separate unlock step needed.`
           : "This store's plan has expired. Please check with your store owner — access will resume automatically once the plan is renewed.",
       };
+    case 'billing_pending':
+      return {
+        title: 'Billing pending',
+        body: isOwner
+          ? 'Your store account setup is pending billing completion. Contact your platform administrator to complete setup.'
+          : 'This store account setup is pending billing completion. Please check with your store owner.',
+      };
   }
 }
 

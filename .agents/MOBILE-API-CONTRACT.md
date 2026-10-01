@@ -68,8 +68,15 @@ string.
 ```
 
 `reason` is one of `membership_inactive`, `store_locked`,
-`store_archived`, `payment_lapsed` — or absent, which means a plain
-role/outlet denial. Zod failures add an `issues` array.
+`store_archived`, `payment_lapsed`, `must_change_password` — or absent,
+which means a plain role/outlet denial. Zod failures add an `issues` array.
+
+`must_change_password` (403): while `user.mustChangePassword` is true the
+session may only call `POST /auth/set-password`, `POST /auth/change-password`,
+`POST /auth/logout` and `GET /auth/status`; every other authenticated route
+answers 403 with this reason. Login -> `set-password` (returns a fresh
+token) -> normal use is unchanged. A client that reaches this 403 should
+route to the set-password screen, not to a "blocked" screen.
 
 Messages safe to show the user verbatim are whitelisted in
 `formatApiError` (`src/server/api/handler.ts:50`); anything else is
@@ -77,13 +84,22 @@ flattened to "Internal server error". Two you will meet:
 `"That payment method is no longer available."` and
 `"Invalid outlet."`
 
+The same whitelist (`src/server/api/public-errors.ts`) applies to each
+bulk-sync action's `error`: anything not whitelisted is returned as
+`"Unexpected error."` (the original is logged server-side only).
+
 ---
 
 ## 2. Sign-in and outlet context
 
-`POST /api/v1/auth/login` — `{username, password}`. 401 on bad
+`POST /api/v1/auth/login` — `{phone, password}` (the body field is
+`phone`; sending `username` fails validation with 400). 401 on bad
 credentials, **429** with a retry message after 5 failures in 15 minutes
-per IP/username.
+per IP/username. Missing and inactive accounts cost the same time as a wrong
+password. `POST /auth/change-password` is throttled the same way per user:
+after 5 wrong `oldPassword` guesses in 15 minutes it answers **429** with a
+`Retry-After` header (seconds) until the block expires, even for the right
+password; a success clears the counter.
 
 ```jsonc
 {
@@ -108,8 +124,14 @@ per IP/username.
 Both `stores[]` and `organizations[]` include `trialEndsAt` (ISO date string
 or `null`) and `subscriptionState` (one of `ACTIVE`, `TRIAL`, `TRIAL_ENDING`,
 `SUBSCRIPTION_ENDING`, `RESTRICTED`) alongside `paidThroughDate` and
-`blockedReason`, enabling mobile clients to build real trial/renewal banners
+`blockedReason` (`membership_inactive` | `store_locked` | `store_archived` | `payment_lapsed` | `billing_pending` | `null`), enabling mobile clients to build real trial/renewal banners
 directly from `stores[]`.
+
+When an organization has neither `trialEndsAt` nor `paidThroughDate` (created but never billed / terms not set), has no active `accessGrantedUntil` override, and is not locked/archived:
+- Gated behind env flag `MOBILE_BLOCK_TERMS_NOT_SET` (default: `false`).
+- When `MOBILE_BLOCK_TERMS_NOT_SET=true`: returns `blockedReason: 'billing_pending'` and `subscriptionState: 'RESTRICTED'`. Administrative `store_locked` and `store_archived` retain precedence.
+- When the flag is `false` (default): returns `blockedReason: null` and `subscriptionState: 'ACTIVE'` (legacy behaviour).
+- **Billing URL Path**: Currently, no self-serve web billing/checkout route exists for store owners in the web application (owners have no payment URL path to "Complete payment"). Subscriptions and terms are configured by platform Super Admins in the platform super-admin console.
 
 `allowedOutlets[]`:
 
@@ -139,7 +161,7 @@ Source: `resolveAllowedOutlets`, `src/server/auth/session.ts:574`.
 | `GET /api/v1/orders/sync` | optional | **required → 403** |
 | `POST /api/v1/orders/bulk-sync` | optional | **required → 403** |
 | `GET /api/v1/dashboard` | `?outletId=` only | route is OWNER-only |
-| `GET /api/v1/dashboard/rollups` | optional | **required → 403** |
+| `GET /api/v1/dashboard/rollups` | optional | **required → 403** (also 403 with zero outlet grants; `expensesAmount` is omitted from employee rows) |
 | `GET,POST /api/v1/expenses` | optional | route is OWNER-only |
 | `GET/PATCH/POST /api/v1/orders/{code}/**` | ignored | ignored — see §3.2 |
 | everything else | n/a | n/a |
@@ -155,12 +177,26 @@ orders at all.**
 `/api/v1/dashboard` reads `?outletId=` directly
 (`src/app/api/v1/dashboard/route.ts:15`) and **ignores the header**.
 Build it into the URL.
+- **Query parameters**:
+  - `outletId`: optional outlet filter.
+  - `period`: optional (`month` default, `week`, `quarter`, etc.).
+  - `from`, `to`: optional explicit date range (`YYYY-MM-DD`).
+  - `granularity`: optional `day` | `week` | `month`.
+    - `day`: 1 bucket per day over the requested range.
+    - `week`: Monday-start weeks clipped to the range (single-day uses `dateLabel`, multi-day uses `<from>–<to>`).
+    - `month`: calendar months clipped to the range.
+    - When present, `bars` is bucketed with the requested granularity, and an additive key `cashRange` (`{ label, income, expenses }[]`) is returned covering the requested range with the same granularity. `cash` remains untouched (5 buckets across the current calendar month).
+    - If `granularity` is invalid, returns `400 Bad Request`.
+    - When `granularity` is absent, legacy behavior is preserved byte for byte (`cashRange` is omitted, `bars` has up to 12 intervals).
 
 ### 3.2 Per-order routes need no outlet
 
 `/orders/{code}`, `/orders/{code}/payments`, `/orders/{code}/status`,
-`/orders/{code}/invoice` derive the outlet from the order row itself and
-check the employee's membership against *that*. Sending `X-Outlet-Id`
+`/orders/{code}/invoice` and `/orders/{code}/invoice/pdf` derive the outlet
+from the order row itself and check the employee's membership against *that*
+(`assertCanReadOrderInvoice`; the web `/admin/orders/{code}/invoice/pdf`
+route applies the same rule — order codes are sequential, so this was a
+cross-outlet read before 2026-09-30). Sending `X-Outlet-Id`
 changes nothing. An employee reading an order from another outlet gets
 403; so does any employee reading an order with no outlet at all.
 
@@ -204,6 +240,28 @@ is the safe pattern for both roles.
 `GET /api/v1/orders/sync` filters by outlet, so its cursor is only
 meaningful within one scope. Key the cursor by outlet client-side.
 
+#### 3.4a What a mobile client syncs at sign-in, per role (added 2026-09-30)
+
+No new endpoint or field — this fixes the expected client behaviour on
+top of the outlet rules above.
+
+- **OWNER** — after sign-in the app pulls **every** outlet in
+  `allowedOutlets`, one request set per outlet (`X-Outlet-Id` /
+  `?outletId=`): `orders/sync` (own cursor), `dashboard`, `expenses`;
+  plus the combined "all outlets" scope with no outlet sent. Org-wide
+  data (store details, products, payment methods, staff) once. Every
+  outlet is then usable offline and switching is instant; nothing is
+  cleared on a switch.
+- **EMPLOYEE** — the app syncs **only the selected outlet** (sole
+  allowed, remembered, or picked when there are several). Switching
+  outlet clears the previous outlet's cached orders/cursor and syncs the
+  newly selected one. Queued offline actions are never cleared; each
+  keeps its own `payload.outletId` and flushes to that outlet (one
+  `bulk-sync` request per outlet).
+- Server side: an employee naming an outlet they have no membership for
+  still gets 403 / `"Invalid outlet."` — the client must not "pre-sync"
+  outlets the employee is not assigned to.
+
 ### 3.5 Two ids per order: `id` and `offlineId`
 
 - `id` is the server order code (`EL-123`). `offlineId` is a client-generated
@@ -224,6 +282,12 @@ meaningful within one scope. Key the cursor by outlet client-side.
 - A payment `clientActionId` already recorded on a different order is
   rejected (`"That payment was already recorded on another order."`); a
   replay on the same order returns it unchanged.
+- A `create_order` whose `idempotencyKey` / `offlineId` matches an existing
+  order at a *different* outlet than the one the request names (header for
+  `POST /orders`, `payload.outletId` or the request outlet for bulk-sync)
+  fails with `"Order not found."` instead of returning that order. A retry
+  for the same outlet (or an owner naming no outlet) still returns the
+  existing order.
 - Every order response includes `offlineId` (when set), and each payment
   includes the `clientActionId` it was recorded with (when set), so the client
   can match its offline payments exactly.
@@ -366,6 +430,21 @@ Notes:
   expense or failing on a taken username; repeating a key across stores
   returns `400 "Duplicate request key."`
 - To set an employee active/inactive idempotently, use `PUT /employees/{id}` with an explicit `active` (the mobile app will stop using the toggle endpoint).
+- **Employee outlet assignments** (`POST /employees`, `PUT /employees/{id}`):
+  the optional `outlets` (array of outlet ids) and `defaultOutletId` set which
+  outlets the employee may work in. Rules (`assertAssignableOutlets`,
+  `src/server/services/employees.ts`):
+  - every id must be an **ACTIVE outlet of the caller's organization**;
+    otherwise `400 "Invalid or inactive outlet for this organization."` and
+    nothing is written (an owner cannot grant another organization's outlet);
+  - `defaultOutletId` must be one of `outlets`, otherwise `400`;
+  - repeated ids are stored once;
+  - on `PUT`, **omitting `outlets` leaves the employee's assignments exactly
+    as they are** (a name or phone edit never touches them); sending it
+    replaces them for this organization. Mobile therefore sends `outlets`
+    only when the owner changed them.
+  - The DTO returns `outlets: [{ id, name }]` and `defaultOutletId`; an empty
+    `outlets` means the employee can sign in but has nowhere to work.
 - `POST /products` is an upsert by the client-chosen `id`.
 - Payment recording locks the order row before checking the balance, so
   concurrent collection cannot overpay (`B6.4`). A rejected overpayment
@@ -401,3 +480,14 @@ Ordered, and the first three are what unbreaks employee sign-in.
 
 The full client-side plan, including widgets and verification steps, is
 in `../laundry_pos_mobile/docs/OUTLET-PARITY-SPEC.md`.
+
+---
+
+## 7. Input limits added for hardening
+
+- `GET /dashboard?from&to`: both must be real `YYYY-MM-DD` dates, `to >= from`,
+  span at most 366 days — otherwise 400.
+- `POST /dashboard/reconcile`: span at most 92 days — otherwise 400.
+- `POST /expenses`: `X-Outlet-Id` and `body.outletId` must match when both are
+  sent — otherwise 400 `"Conflicting outlet: X-Outlet-Id and body.outletId must match."`
+- Employee `password` (create/update) is at most 128 characters.

@@ -66,3 +66,12 @@ machine-local and do **not** reach cloud sessions — this file does.
 - Super Admin profile supports editing own details and changing own password. Owner UI uses shared spacing, full-dialog mutation overlays and a full-width footer divider.
 - POS/client caches must remain user/organization/outlet scoped; server cache invalidation covers catalogue, profile, organization and subscription changes. Preserve offline draft recovery and credential revocation.
 - See SESSION-HANDOFF-2026-09-27.md and CURRENT-STATE.md for point-in-time verification and limitations. Verify current Git state before selecting a branch; old backend/offline-id notes describe earlier work.
+
+## Facts added 2026-10-01
+
+- Write-testing happens on a disposable local Postgres + local backend (sandbox), never the shared Neon DB; the only Neon branch we have access to is **stage**.
+- `MOBILE_BLOCK_TERMS_NOT_SET` stays `false`: orgs without billing terms keep working; enabling it would lock out owners (no self-serve billing).
+- Lists that the mobile app re-fetches right after a write must not be cached with `unstable_cache`/`revalidateTag` (stale first read) — `listEmployees` is uncached for this reason.
+- Tests on month-so-far series (dashboard `cash`) must tolerate the 1st of a month (1 bucket).
+- `SESSION_SECRET` must exist in production (the app now throws without it); the user manages it.
+
