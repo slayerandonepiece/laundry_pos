@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { invoicePdfResponse } from '@/lib/pdf/response';
 import { requireStoreSession, resolveStoreSelection, AuthError } from '@/server/auth/session';
-import { getOrCreateOrderInvoice } from '@/server/services/order-invoices';
+import { assertCanReadOrderInvoice, getOrCreateOrderInvoice } from '@/server/services/order-invoices';
 import { OrderInvoicePdf } from '@/features/admin/pdf/OrderInvoicePdf';
 
 // @react-pdf/renderer needs a real Node runtime, not the edge runtime —
@@ -19,6 +19,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const storeSelection = await resolveStoreSelection();
     const session = await requireStoreSession(storeSelection?.multiStore ? storeSelection.storeId : undefined);
     storeId = session.storeId;
+    // An employee reads only their own outlets' orders (codes are sequential,
+    // so any other outlet's invoice would otherwise be one guess away).
+    await assertCanReadOrderInvoice(session, orderCode);
   } catch (error) {
     if (error instanceof AuthError) return new Response('Unauthorized', { status: error.code === 'UNAUTHENTICATED' ? 401 : 403 });
     throw error;

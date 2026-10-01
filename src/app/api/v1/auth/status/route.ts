@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
-    const session = await requireApiAuth(req);
+    const session = await requireApiAuth(req, { allowMustChangePassword: true });
     const user = await prisma.user.findUnique({
       where: { id: session.id },
       select: { id: true, name: true, phone: true, isSuperAdmin: true, mustChangePassword: true, active: true },

@@ -19,6 +19,74 @@ export interface Breakdown {
   label: string;
   amount: number;
 }
+export type DashboardGranularity = 'day' | 'week' | 'month';
+
+function addDaysToYMD(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
+  const resY = date.getUTCFullYear();
+  const resM = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const resD = String(date.getUTCDate()).padStart(2, '0');
+  return `${resY}-${resM}-${resD}`;
+}
+
+function getDayOfWeek(ymd: string): number {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  return date.getUTCDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
+}
+
+export function granularIntervals(range: DateRange, granularity: DashboardGranularity) {
+  const to = range.to < today() ? range.to : today();
+  if (range.from > to) return [];
+
+  const buckets: { from: string; to: string; label: string }[] = [];
+
+  if (granularity === 'day') {
+    let curr = range.from;
+    while (curr <= to) {
+      buckets.push({
+        from: curr,
+        to: curr,
+        label: dateLabel(curr),
+      });
+      curr = addDaysToYMD(curr, 1);
+    }
+  } else if (granularity === 'week') {
+    let curr = range.from;
+    while (curr <= to) {
+      const dow = getDayOfWeek(curr);
+      const daysToSunday = dow === 0 ? 0 : 7 - dow;
+      const sunday = addDaysToYMD(curr, daysToSunday);
+      const end = sunday > to ? to : sunday;
+      buckets.push({
+        from: curr,
+        to: end,
+        label: curr === end ? dateLabel(curr) : `${dateLabel(curr)}–${dateLabel(end)}`,
+      });
+      curr = addDaysToYMD(sunday, 1);
+    }
+  } else if (granularity === 'month') {
+    let curr = range.from;
+    while (curr <= to) {
+      const [y, m] = curr.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const end = monthEnd > to ? to : monthEnd;
+      buckets.push({
+        from: curr,
+        to: end,
+        label: curr === end ? dateLabel(curr) : `${dateLabel(curr)}–${dateLabel(end)}`,
+      });
+      const nextY = m === 12 ? y + 1 : y;
+      const nextM = m === 12 ? 1 : m + 1;
+      curr = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
+    }
+  }
+
+  return buckets;
+}
+
 function intervals(range: DateRange, maximum: number) {
   const to = range.to < today() ? range.to : today();
   if (range.from > to) return [];
@@ -41,13 +109,14 @@ function intervals(range: DateRange, maximum: number) {
     };
   });
 }
-export function dashboardData(store: DashboardSource, range: DateRange) {
+export function dashboardData(store: DashboardSource, range: DateRange, granularity?: DashboardGranularity) {
   const current = today(),
     monthRange = rangeFor("month"),
     orders = store.orders.filter((order) => within(order.date, range));
   const active = orders.filter((order) => !order.legacyCancelled),
     payments = store.orders.flatMap((order) => order.payments);
-  const bars: TrendPoint[] = intervals(range, 12).map((interval) => ({
+  const rangeIntervals = granularity ? granularIntervals(range, granularity) : intervals(range, 12);
+  const bars: TrendPoint[] = rangeIntervals.map((interval) => ({
     label: interval.label,
     amount: active
       .filter((order) => within(order.date, interval))
@@ -62,6 +131,17 @@ export function dashboardData(store: DashboardSource, range: DateRange) {
       .filter((expense) => expense.paid && within(expense.paid, interval))
       .reduce((sum, expense) => sum + expense.amount, 0),
   }));
+  const cashRange: CashPoint[] | undefined = granularity
+    ? rangeIntervals.map((interval) => ({
+        label: interval.label,
+        income: payments
+          .filter((payment) => within(payment.date, interval))
+          .reduce((sum, payment) => sum + payment.amount, 0),
+        expenses: store.expenses
+          .filter((expense) => expense.paid && within(expense.paid, interval))
+          .reduce((sum, expense) => sum + expense.amount, 0),
+      }))
+    : undefined;
   const services = new Map(
     store.products.map((product) => [
       product.id,
@@ -127,6 +207,7 @@ export function dashboardData(store: DashboardSource, range: DateRange) {
       .reduce((sum, expense) => sum + expense.amount, 0),
     bars,
     cash,
+    ...(cashRange !== undefined ? { cashRange } : {}),
     serviceMix,
     statuses: (["Pending", "In Progress", "Ready", "Delivered"] as const).map(
       (label) => ({

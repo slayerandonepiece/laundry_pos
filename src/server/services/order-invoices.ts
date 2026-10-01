@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { formatCalendarDate } from '@/server/dates';
 import { ValidationError } from '@/server/errors';
 import { parseOrderCode, toOrderCode } from './orders';
+import { AuthError, requireOutletSession, type StoreSession } from '@/server/auth/session';
 import type { Prisma } from '@/generated/prisma/client';
 
 // The store -> customer invoice for a laundry order. Entirely separate from
@@ -63,6 +64,25 @@ function toInvoiceData(invoice: InvoiceRow): OrderInvoiceData {
     balance: total - paid,
     store: { name: order.store.name, address: order.store.address, phone: order.store.phone },
   };
+}
+
+/**
+ * An employee may only read invoices for orders of an outlet they are
+ * assigned to. Order codes are sequential, so without this any employee could
+ * fetch another outlet's customer names, phones and items by counting up.
+ * Owners see every outlet; an unknown code passes so the caller's own lookup
+ * answers "not found" as before. Throws AuthError('FORBIDDEN').
+ */
+export async function assertCanReadOrderInvoice(session: StoreSession, orderCode: string): Promise<void> {
+  if (session.storeRole !== 'EMPLOYEE') return;
+  // Look the row up directly: getOrder hides legacyCancelled orders, yet
+  // getOrCreateOrderInvoice still serves them, so they need the outlet check too.
+  const orderNumber = parseOrderCode(orderCode);
+  if (orderNumber === null) return;
+  const order = await prisma.order.findUnique({ where: { orderNumber }, select: { storeId: true, outletId: true } });
+  if (!order || order.storeId !== session.storeId) return;
+  if (!order.outletId) throw new AuthError('FORBIDDEN');
+  await requireOutletSession(session.storeId, order.outletId, 'EMPLOYEE', session, { allowRestricted: true });
 }
 
 // Callers are responsible for authorization (requireStoreSession) — this

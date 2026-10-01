@@ -142,6 +142,10 @@ export async function createExpense(
 ): Promise<Expense> {
   await assertStoreWritable(storeId);
   const data = createExpenseSchema.parse(input);
+  // The header outlet would silently win over the body's; fail loudly instead.
+  if (explicitOutletId && data.outletId && explicitOutletId !== data.outletId) {
+    throw new ValidationError('Conflicting outlet: X-Outlet-Id and body.outletId must match.');
+  }
 
   const existing = await findExistingExpense(storeId, data.idempotencyKey);
   if (existing) return existing;

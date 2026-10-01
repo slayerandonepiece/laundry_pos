@@ -3,6 +3,17 @@
 Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
 changes are deployed to production.
 
+## Mobile hardening and stage 1.0.4 prep (2026-10-01 working tree)
+
+- Employee outlet assignment: `assertAssignableOutlets` (services/employees.ts) validates ids are the organization's own ACTIVE outlets and the default is among them, before anything is written; ids are de-duplicated. `listEmployees` is deliberately **uncached** — `revalidateTag` only marks an `unstable_cache` entry stale, so the first read after a create/edit returned the old list to the mobile app.
+- Invoice access: `assertCanReadOrderInvoice` (services/order-invoices.ts) is used by both invoice PDF routes; an employee may read only invoices for orders of an outlet they hold (owners see all; unknown codes fall through to the caller's own not-found; legacy-cancelled orders are checked too).
+- Orders: idempotency lookup checks the outlet; status changes lock the order row, so concurrent updates cannot double-apply.
+- Auth/API: `must_change_password` is enforced in api/handler.ts; public errors go through the whitelist in api/public-errors.ts; production throws if `SESSION_SECRET` is unset; password/session/throttle/token hardening with tests; dashboard rollup reconcile span capped at 92 days; `assertCalendarRange` in dates.ts.
+- Dashboard: `GET /api/v1/dashboard` accepts `from`/`to`/`granularity`; the `cash` series is the month so far in up to 5 buckets (one bucket on the 1st — tests tolerate 1..5).
+- `MOBILE_BLOCK_TERMS_NOT_SET` stays `false` (decided 2026-10-01). No migrations in this batch.
+- Validation: `tsc --noEmit` clean; 118 integration tests on a disposable local Postgres via `scripts/test-subscription-payments.mjs` (needs `LC_ALL=C LANG=C`). Device passes used a local sandbox, never Neon.
+- Open (not done): login throttle is per warm instance; session cookie id is a cuid; `billing_pending` not enforced server-side; idempotency unique keys are global rather than per tenant; expense update/delete and chosen paid date routes do not exist (mobile gaps E1–E3).
+
 ## Workspace notices and Super Admin self profile (2026-09-27 working tree)
 
 - SessionStatusResult exposes server-derived trial dates/state; AdminProvider clears/reconciles this with the session and store context. Shared AdminChrome shows a quiet trial strip on every workspace page after session verification. The old page-level TrialBanner is removed; blocking access and paid-renewal notices are unchanged.

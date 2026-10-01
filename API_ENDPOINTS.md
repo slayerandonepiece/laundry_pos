@@ -65,7 +65,7 @@ All API responses include:
   ```json
   {
     "error": "Forbidden",
-    "reason": "store_locked" // Optional: "membership_inactive" | "store_locked" | "store_archived" | "payment_lapsed"
+    "reason": "store_locked" // Optional: "membership_inactive" | "store_locked" | "store_archived" | "payment_lapsed" | "billing_pending"
   }
   ```
 - **400 Bad Request** (Validation or business rule error):
@@ -812,20 +812,57 @@ Activates or deactivates an employee. Deactivating immediately deletes all activ
 
 ### `GET /api/v1/dashboard`
 
-Returns aggregated business KPIs for the active store (or cross-store aggregate if authorized).
+Returns aggregated business KPIs and chart intervals for the active store (or filtered to a specific outlet via `?outletId=`).
 
-- **Auth**: Bearer token + `X-Store-Id`.
+- **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
+- **Query Parameters**:
+  - `outletId` (string, optional): Scopes metrics to a single physical outlet.
+  - `period` (string, optional, default `"month"`): Standard time period (`"today"` | `"week"` | `"month"` | `"quarter"`).
+  - `from`, `to` (string, optional): Custom date range (`YYYY-MM-DD`).
+  - `granularity` (string, optional): Chart interval bucketing for `bars` and `cashRange` (`"day"` | `"week"` | `"month"`).
+    - `"day"`: 1 bucket per day over the requested range.
+    - `"week"`: Monday-start weeks clipped to the range (labels: `<from>–<to>` or single day).
+    - `"month"`: Calendar months clipped to the range.
+    - When present, returns `bars` bucketed with the requested granularity and adds `cashRange` (`{ label, income, expenses }[]`).
+    - When absent, retains existing behavior byte for byte (`bars` up to 12 intervals, `cashRange` omitted).
+    - Invalid value returns `400 Bad Request` (`{ "error": "Invalid granularity. Expected day, week, or month." }`).
 - **Response `200 OK`**:
   ```json
   {
-    "revenue": 1250000,
-    "pendingOrders": 8,
-    "completedOrders": 42,
-    "activeEmployees": 3,
-    "monthlyExpenses": 450000,
-    "chartData": [
-      { "date": "2026-09-05", "revenue": 150000, "orders": 6 },
-      { "date": "2026-09-06", "revenue": 180000, "orders": 9 }
-    ]
+    "pendingCount": 2,
+    "pendingAmount": 120100,
+    "completedAmount": 50000,
+    "commitments": [],
+    "dueToday": 1,
+    "overdue": 0,
+    "todaySales": 176100,
+    "todayCount": 4,
+    "todo": 2,
+    "completed": 1,
+    "periodSales": 176100,
+    "periodOrders": 4,
+    "outstanding": 90100,
+    "income": 86000,
+    "expenses": 0,
+    "bars": [
+      { "label": "1 Aug 2026", "amount": 50000 }
+    ],
+    "cash": [
+      { "label": "1 Sep 2026–7 Sep 2026", "income": 86000, "expenses": 0 }
+    ],
+    "cashRange": [
+      { "label": "1 Aug 2026", "income": 50000, "expenses": 0 }
+    ],
+    "serviceMix": [
+      { "label": "Wash & Fold", "amount": 176100 }
+    ],
+    "statuses": [
+      { "label": "Pending", "amount": 1 },
+      { "label": "In Progress", "amount": 1 },
+      { "label": "Ready", "amount": 0 },
+      { "label": "Delivered", "amount": 2 }
+    ],
+    "attention": [],
+    "month": "September 2026"
   }
   ```
