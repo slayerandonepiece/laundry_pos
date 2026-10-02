@@ -388,6 +388,7 @@ Every route under `/api/v1`. "Outlet" = does it read `X-Outlet-Id`.
 | `/payment-methods` | GET / POST | any / **410** | no |
 | `/payment-methods/{id}` | PATCH | OWNER | no |
 | `/expenses` | GET / POST | OWNER | optional |
+| `/expenses/{id}` | PUT / DELETE | OWNER | body outletId only for PUT |
 | `/expenses/{id}/pay` | POST | OWNER | no |
 | `/employees` | GET / POST | OWNER | no |
 | `/employees/{id}` | PUT | OWNER | no |
@@ -427,8 +428,18 @@ Notes:
   `StoreMembership`, `src/server/services/expenses.ts:92`,
   `src/server/services/employees.ts:55`): repeating the same key in the
   same store returns the existing DTO (`201`) without creating a second
-  expense or failing on a taken username; repeating a key across stores
-  returns `400 "Duplicate request key."`
+  expense or failing on a taken phone number. The key is unique within its
+  store; the same key in another store creates an independent row.
+- `PUT /expenses/{id}` takes title, category, integer amount in paise,
+  due (`YYYY-MM-DD`), and optional body `outletId`. Omitting it or sending
+  null makes the expense organization-wide; `X-Outlet-Id` does not override
+  it. A recurring occurrence cannot move to another month (400:
+  "Keep a monthly bill in its original month."). `DELETE /expenses/{id}`
+  returns an empty 204; deleting a recurring occurrence stops its series.
+  Both routes are OWNER-only.
+- `POST /expenses/{id}/pay` accepts no body, `{}`, or an optional
+  `{ "paidDate": "YYYY-MM-DD" }`. Omission uses today in IST; future
+  dates are rejected. A paid expense retains its original date on retry.
 - To set an employee active/inactive idempotently, use `PUT /employees/{id}` with an explicit `active` (the mobile app will stop using the toggle endpoint).
 - **Employee outlet assignments** (`POST /employees`, `PUT /employees/{id}`):
   the optional `outlets` (array of outlet ids) and `defaultOutletId` set which

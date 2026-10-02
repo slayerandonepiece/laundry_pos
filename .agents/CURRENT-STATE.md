@@ -3,6 +3,22 @@
 Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
 changes are deployed to production.
 
+## Expense routes and auth/tenant hardening 2 (2026-10-01 working tree)
+
+- OWNER-only `PUT/DELETE /api/v1/expenses/{id}` edit or delete expenses;
+  `POST /api/v1/expenses/{id}/pay` accepts an optional paid date. The
+  existing service handles recurring-month limits, series deactivation,
+  paid-date rollups, and write restrictions.
+- Login and password-change throttles use an atomic Postgres upsert in
+  `auth_throttle`, shared across instances. Database errors are logged and
+  fail open. Web `el_session` cookies carry random session tokens; legacy
+  id cookies require a web re-login. Mobile bearer tokens are unchanged.
+- Order, expense, and employee idempotency keys are unique per store.
+  `MOBILE_BLOCK_TERMS_NOT_SET` remains default-off; when enabled, missing
+  billing terms block writes with `billing_pending` while restricted reads
+  remain available. The migration is prepared and tested only on disposable
+  local PostgreSQL; it has not been applied to shared Neon.
+
 ## Mobile hardening and stage 1.0.4 prep (2026-10-01 working tree)
 
 - Employee outlet assignment: `assertAssignableOutlets` (services/employees.ts) validates ids are the organization's own ACTIVE outlets and the default is among them, before anything is written; ids are de-duplicated. `listEmployees` is deliberately **uncached** — `revalidateTag` only marks an `unstable_cache` entry stale, so the first read after a create/edit returned the old list to the mobile app.
@@ -12,7 +28,6 @@ changes are deployed to production.
 - Dashboard: `GET /api/v1/dashboard` accepts `from`/`to`/`granularity`; the `cash` series is the month so far in up to 5 buckets (one bucket on the 1st — tests tolerate 1..5).
 - `MOBILE_BLOCK_TERMS_NOT_SET` stays `false` (decided 2026-10-01). No migrations in this batch.
 - Validation: `tsc --noEmit` clean; 118 integration tests on a disposable local Postgres via `scripts/test-subscription-payments.mjs` (needs `LC_ALL=C LANG=C`). Device passes used a local sandbox, never Neon.
-- Open (not done): login throttle is per warm instance; session cookie id is a cuid; `billing_pending` not enforced server-side; idempotency unique keys are global rather than per tenant; expense update/delete and chosen paid date routes do not exist (mobile gaps E1–E3).
 
 ## Workspace notices and Super Admin self profile (2026-09-27 working tree)
 

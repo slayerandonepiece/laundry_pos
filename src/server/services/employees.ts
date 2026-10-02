@@ -94,7 +94,7 @@ async function findExistingEmployee(
 ): Promise<Employee | null> {
   if (!idempotencyKey) return null;
   const byKey = await prisma.storeMembership.findUnique({
-    where: { idempotencyKey },
+    where: { storeId_idempotencyKey: { storeId, idempotencyKey } },
     include: {
       user: {
         include: {
@@ -106,9 +106,6 @@ async function findExistingEmployee(
     },
   });
   if (!byKey) return null;
-  if (byKey.storeId !== storeId || byKey.role !== 'EMPLOYEE') {
-    throw new ValidationError('Duplicate request key.');
-  }
   return toDTO(byKey);
 }
 

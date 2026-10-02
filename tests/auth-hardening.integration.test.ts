@@ -140,6 +140,36 @@ test('M2: a successful change resets the failure counter', async () => {
   for (let i = 0; i < 4; i++) assert.equal((await attempt('wrong-guess', 'new-password-456', fresh)).status, 400);
 });
 
+test('shared login throttle counts concurrent failures atomically and clears persisted state', async () => {
+  const throttle = await import('../src/server/auth/throttle');
+  const phone = testPhone('shared_throttle');
+  const ip = '10.10.10.10';
+  const key = `${phone}:${ip}`;
+  await throttle.clearLoginThrottle(phone, ip);
+  await Promise.all(Array.from({ length: 5 }, () => throttle.recordFailedLoginAttempt(phone, ip)));
+  const row = await prisma.authThrottle.findUniqueOrThrow({ where: { key } });
+  assert.equal(row.count, 5);
+  assert.ok(row.blockedUntil);
+  assert.equal((await throttle.checkLoginThrottle(phone, ip)).allowed, false);
+  await throttle.clearLoginThrottle(phone, ip);
+  assert.equal(await prisma.authThrottle.findUnique({ where: { key } }), null);
+  assert.equal((await throttle.checkLoginThrottle(phone, ip)).allowed, true);
+});
+
+test('request cookies accept session tokens and reject legacy session IDs', async () => {
+  const session = await import('../src/server/auth/session');
+  const user = await makeEmployee('cookie-token');
+  const created = await session.createSessionRow(user.id, user.credentialVersion);
+  const byToken = await session.getSessionFromRequest(new Request('http://localhost/api/v1/auth/status', {
+    headers: { cookie: `el_session=${created.token}` },
+  }));
+  assert.equal(byToken?.id, user.id);
+  const byId = await session.getSessionFromRequest(new Request('http://localhost/api/v1/auth/status', {
+    headers: { cookie: `el_session=${created.id}` },
+  }));
+  assert.equal(byId, null);
+});
+
 test('M1: login always runs a bcrypt comparison, even for unknown or inactive users', async () => {
   const inactive = await makeEmployee('inactive-user', { active: false });
   const compare = mock.method(bcrypt, 'compare');

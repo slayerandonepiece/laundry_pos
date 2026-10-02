@@ -119,7 +119,7 @@ from both actions and Server Components). No `/api/*` routes were needed.
   Client-submitted line amounts are never trusted.
 - [x] Orders, line snapshots, initial payment and first status event saved
   transactionally (`prisma.order.create` with nested writes). Idempotency via
-  a client-generated key (`Order.idempotencyKey`, unique) — verified two
+  a client-generated key (`Order.idempotencyKey`, unique per store) — verified two
   identical submissions return the same order, one row in the database.
   Order numbering is a Postgres `autoincrement`, inherently concurrency-safe.
 - [x] Payment recording: `SELECT ... FOR UPDATE` locks the order row inside a

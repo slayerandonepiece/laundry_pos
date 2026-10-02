@@ -285,10 +285,10 @@ test('phone login normalizes formatting, returns phone in auth status, and rejec
   assert.equal((await loginRoute.POST(request({ username: phone, password }))).status, 400);
   assert.equal((await loginRoute.POST(request({ phone, password: 'wrong-password' }))).status, 401);
   const throttle = await import('../src/server/auth/throttle');
-  throttle.clearLoginThrottle(phone, 'phone-regression');
-  for (let i = 0; i < 5; i++) throttle.recordFailedLoginAttempt(`+${phone}`, 'phone-regression');
-  assert.equal(throttle.checkLoginThrottle(phone, 'phone-regression').allowed, false);
-  throttle.clearLoginThrottle(phone, 'phone-regression');
+  await throttle.clearLoginThrottle(phone, 'phone-regression');
+  for (let i = 0; i < 5; i++) await throttle.recordFailedLoginAttempt(`+${phone}`, 'phone-regression');
+  assert.equal((await throttle.checkLoginThrottle(phone, 'phone-regression')).allowed, false);
+  await throttle.clearLoginThrottle(phone, 'phone-regression');
 });
 
 test('platform phone changes revoke sessions; formatting-only updates preserve credentials', async () => {
