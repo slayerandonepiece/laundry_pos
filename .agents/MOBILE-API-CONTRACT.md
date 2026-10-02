@@ -502,3 +502,16 @@ in `../laundry_pos_mobile/docs/OUTLET-PARITY-SPEC.md`.
 - `POST /expenses`: `X-Outlet-Id` and `body.outletId` must match when both are
   sent — otherwise 400 `"Conflicting outlet: X-Outlet-Id and body.outletId must match."`
 - Employee `password` (create/update) is at most 128 characters.
+
+## Subscription invoices (owner billing history)
+
+Read-only, OWNER only, available while the store is locked or lapsed
+(`allowRestricted` + `allowLockedReadOnly`) so an owner can always fetch receipts.
+
+- `GET /api/v1/subscription/invoices` → `{ invoices: [{ invoiceSeq, number,
+  type: 'DEPOSIT' | 'RENEWAL', amount (paise), method | null, paidAt (yyyy-MM-dd),
+  coversFrom | null, coversTo | null }] }`, newest first. No internal fields
+  (recorder, free-text reference).
+- `GET /api/v1/subscription/invoices/{invoiceSeq}/pdf[?download=1]` → the same
+  PDF Super Admin renders. Another store's invoice, or an unknown number, is a
+  plain 404. Employees get 403.
