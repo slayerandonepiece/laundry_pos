@@ -1,5 +1,5 @@
 import { prisma } from '@/server/db';
-import { getStoreAccessStatus, resolveAllowedOutlets } from '@/server/auth/session';
+import { getStoreAccessStatus, isBillingPending, resolveAllowedOutlets } from '@/server/auth/session';
 import { formatCalendarDate, todayIST } from '@/server/dates';
 
 /**
@@ -18,9 +18,6 @@ export async function buildMembershipContext(userId: string) {
     orderBy: { createdAt: 'asc' },
   });
 
-  const blockTermsNotSet =
-    process.env.MOBILE_BLOCK_TERMS_NOT_SET === 'true' ||
-    process.env.MOBILE_BLOCK_TERMS_NOT_SET === '1';
   const today = todayIST();
 
   const rows = await Promise.all(
@@ -28,21 +25,18 @@ export async function buildMembershipContext(userId: string) {
       const access = await getStoreAccessStatus(userId, m.storeId);
       const { allowedOutlets, defaultOutletId } = await resolveAllowedOutlets(userId, m.storeId, m.role);
       const isLocked = access?.blockedReason === 'store_locked' || m.store.status === 'LOCKED';
-      const isArchived = access?.blockedReason === 'store_archived' || Boolean(m.store.deletedAt);
 
       let blockedReason = access?.blockedReason ?? null;
       let subscriptionState = access?.subscriptionState ?? 'ACTIVE';
 
-      if (blockTermsNotSet) {
-        const hasTerms = Boolean(access?.trialEndsAt || access?.paidThroughDate);
-        const hasActiveOverride = Boolean(
-          m.store.accessGrantedUntil && formatCalendarDate(m.store.accessGrantedUntil) >= today,
-        );
-
-        if (!isLocked && !isArchived && !hasTerms && !hasActiveOverride) {
-          blockedReason = 'billing_pending';
-          subscriptionState = 'RESTRICTED';
-        }
+      if (isBillingPending({
+        status: m.store.status, deletedAt: m.store.deletedAt,
+        trialEndsAt: access?.trialEndsAt, paidThroughDate: access?.paidThroughDate,
+        accessGrantedUntil: m.store.accessGrantedUntil ? formatCalendarDate(m.store.accessGrantedUntil) : undefined,
+        today,
+      })) {
+        blockedReason = 'billing_pending';
+        subscriptionState = 'RESTRICTED';
       }
 
       return {

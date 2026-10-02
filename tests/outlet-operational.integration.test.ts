@@ -191,7 +191,7 @@ test('B3.1: Order creation records outletId, initial payment and status event re
 
   // Verify order in database
   const dbOrder = await prisma.order.findUnique({
-    where: { idempotencyKey: 'idemp-b3-1' },
+    where: { storeId_idempotencyKey: { storeId: ctx.store.id, idempotencyKey: 'idemp-b3-1' } },
     include: { payments: true, statusEvents: true },
   });
   assert.ok(dbOrder);

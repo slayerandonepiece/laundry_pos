@@ -919,7 +919,7 @@ test("Task D: POST /api/v1/expenses is idempotent by idempotencyKey", async () =
     1,
   );
 
-  // 3. Same key from a different store -> rejected (400 Duplicate request key.)
+  // 3. The same key in a different store creates its own expense.
   const crossStoreRes = await expensesRoute.POST(
     createReq("http://localhost/api/v1/expenses", {
       token: storeB.token,
@@ -927,8 +927,8 @@ test("Task D: POST /api/v1/expenses is idempotent by idempotencyKey", async () =
       body: oneOffBody,
     }),
   );
-  assert.equal(crossStoreRes.status, 400);
-  assert.equal((await crossStoreRes.json()).error, "Duplicate request key.");
+  assert.equal(crossStoreRes.status, 201);
+  assert.notEqual((await crossStoreRes.json()).id, exp1.id);
 
   // 4. No key -> behaviour unchanged (two calls create two distinct rows)
   const noKeyBody = {
@@ -1039,7 +1039,7 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
     1,
   );
 
-  // 3. Same key from a different store -> rejected (400 Duplicate request key.)
+  // 3. The same key in a different store creates its own employee.
   const crossRes = await employeesRoute.POST(
     createReq("http://localhost/api/v1/employees", {
       token: storeB.token,
@@ -1050,8 +1050,8 @@ test("Task E: POST /api/v1/employees is idempotent by idempotencyKey", async () 
       },
     }),
   );
-  assert.equal(crossRes.status, 400);
-  assert.equal((await crossRes.json()).error, "Duplicate request key.");
+  assert.equal(crossRes.status, 201);
+  assert.notEqual((await crossRes.json()).id, emp1.id);
 
   // 4. No key -> behaviour unchanged (second call with same phone fails with 400 phone in use)
   const noKeyBody = {

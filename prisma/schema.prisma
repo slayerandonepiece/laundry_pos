@@ -108,6 +108,17 @@ model Session {
   @@map("sessions")
 }
 
+model AuthThrottle {
+  key             String   @id
+  count           Int
+  windowStartedAt DateTime
+  blockedUntil    DateTime?
+  updatedAt       DateTime @updatedAt
+
+  @@index([updatedAt])
+  @@map("auth_throttle")
+}
+
 // Temporary code/database name serving as the organization-level tenant during
 // the outlet rollout. Outlets are schema-only in this batch and are not yet used
 // for authorization, records, reports, or UI.
@@ -163,10 +174,11 @@ model StoreMembership {
   // credentials. Defaults true so existing rows (migrated before this
   // column existed) come in active.
   active         Boolean  @default(true)
-  idempotencyKey String?  @unique
+  idempotencyKey String?
   createdAt      DateTime @default(now())
 
   @@unique([userId, storeId])
+  @@unique([storeId, idempotencyKey])
   @@index([storeId])
   @@map("store_memberships")
 }
@@ -281,7 +293,7 @@ model Order {
   storeId         String
   store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   orderNumber     Int        @unique @default(autoincrement())
-  idempotencyKey  String?    @unique
+  idempotencyKey  String?
   // Client-generated id for orders created in the mobile app (offline-first).
   // Null for orders created on the web.
   offlineId       String?
@@ -312,6 +324,7 @@ model Order {
   @@index([outletId, status])
   @@index([outletId, dueDate])
   @@unique([storeId, offlineId])
+  @@unique([storeId, idempotencyKey])
   @@index([orderDate])
   @@index([updatedAt])
   @@index([storeId, phone, orderDate])
@@ -440,7 +453,7 @@ model Expense {
   id             String                  @id @default(cuid())
   storeId        String
   store          Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  idempotencyKey String?                 @unique
+  idempotencyKey String?
   title          String
   category       String
   amount         Int // paise
@@ -458,6 +471,7 @@ model Expense {
   outlet         Outlet?                 @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   @@unique([seriesId, periodMonth])
+  @@unique([storeId, idempotencyKey])
   @@index([storeId])
   @@index([dueDate])
   @@index([storeId, outletId, dueDate])

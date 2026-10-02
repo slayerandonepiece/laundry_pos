@@ -433,11 +433,11 @@ async function findExistingOrder(
   requestedOutletId?: string,
 ): Promise<Order | null> {
   const byKey = await prisma.order.findUnique({
-    where: { idempotencyKey: data.idempotencyKey },
+    where: { storeId_idempotencyKey: { storeId, idempotencyKey: data.idempotencyKey } },
     include: includeForDTO,
   });
   if (byKey) {
-    if (byKey.storeId !== storeId || (requestedOutletId && byKey.outletId !== requestedOutletId))
+    if (requestedOutletId && byKey.outletId !== requestedOutletId)
       throw new Error("Order not found.");
     return toOrderDTO(byKey);
   }

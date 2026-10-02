@@ -3,7 +3,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { prisma } from '@/server/db';
 import { formatCalendarDate, todayIST, addDays } from '@/server/dates';
-import type { Role, OutletStatus } from '@/generated/prisma/client';
+import type { Role, OutletStatus, StoreStatus } from '@/generated/prisma/client';
 import { generateSessionToken, isValidSessionToken } from './token';
 
 const COOKIE_NAME = 'el_session';
@@ -81,7 +81,7 @@ export async function createSession(userId: string, credentialVersion: number): 
 
   try {
     const cookieStore = await cookies();
-    cookieStore.set(COOKIE_NAME, session.id, {
+    cookieStore.set(COOKIE_NAME, session.token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -118,17 +118,17 @@ export async function getSessionFromToken(token: string): Promise<SessionUser | 
 // Returns null for any invalid session (missing cookie, expired, deactivated
 // user, or stale credentialVersion after a password change/deactivation).
 export async function getSession(): Promise<SessionUser | null> {
-  let sessionId: string | undefined;
+  let token: string | undefined;
   try {
     const cookieStore = await cookies();
-    sessionId = cookieStore.get(COOKIE_NAME)?.value;
+    token = cookieStore.get(COOKIE_NAME)?.value;
   } catch {
     return null;
   }
-  if (!sessionId) return null;
+  if (!token || !isValidSessionToken(token)) return null;
 
   const session = await prisma.session.findUnique({
-    where: { id: sessionId },
+    where: { token },
     select: {
       id: true,
       token: true,
@@ -155,25 +155,9 @@ export async function getSessionFromRequest(req: Request): Promise<SessionUser |
   const cookieHeader = req.headers.get('cookie') ?? req.headers.get('Cookie');
   if (cookieHeader) {
     const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
-    const sessionId = match ? decodeURIComponent(match[1]) : null;
-    if (sessionId) {
-      const session = await prisma.session.findUnique({
-        where: { id: sessionId },
-        select: {
-          id: true,
-          token: true,
-          credentialVersion: true,
-          expiresAt: true,
-          user: { select: { id: true, name: true, phone: true, isSuperAdmin: true, active: true, credentialVersion: true } },
-        },
-      });
-      if (!session) return null;
-      if (session.expiresAt < new Date()) return null;
-      if (!session.user.active) return null;
-      if (session.credentialVersion !== session.user.credentialVersion) return null;
-
-      return { id: session.user.id, name: session.user.name, phone: session.user.phone, isSuperAdmin: session.user.isSuperAdmin };
-    }
+    let token: string | null = null;
+    try { token = match ? decodeURIComponent(match[1]) : null; } catch { return null; }
+    if (token) return getSessionFromToken(token);
   }
 
   return getSession();
@@ -182,9 +166,9 @@ export async function getSessionFromRequest(req: Request): Promise<SessionUser |
 export async function destroySession(): Promise<void> {
   try {
     const cookieStore = await cookies();
-    const sessionId = cookieStore.get(COOKIE_NAME)?.value;
-    if (sessionId) {
-      await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (token && isValidSessionToken(token)) {
+      await prisma.session.delete({ where: { token } }).catch(() => undefined);
     }
     cookieStore.delete(COOKIE_NAME);
   } catch {
@@ -211,6 +195,20 @@ export async function revokeAllSessionsForUser(userId: string): Promise<void> {
 // "FORBIDDEN" as far as callers checking `instanceof AuthError` are
 // concerned; `reason` is additive.
 export type AccessDeniedReason = 'membership_inactive' | 'store_locked' | 'store_archived' | 'payment_lapsed' | 'billing_pending';
+
+export function isBillingPending(input: {
+  status: StoreStatus;
+  deletedAt: Date | null;
+  trialEndsAt?: string;
+  paidThroughDate?: string;
+  accessGrantedUntil?: string;
+  today: string;
+}): boolean {
+  const flagOn = process.env.MOBILE_BLOCK_TERMS_NOT_SET === 'true' || process.env.MOBILE_BLOCK_TERMS_NOT_SET === '1';
+  return flagOn && input.status !== 'LOCKED' && !input.deletedAt
+    && !input.trialEndsAt && !input.paidThroughDate
+    && (!input.accessGrantedUntil || input.accessGrantedUntil < input.today);
+}
 
 export class AuthError extends Error {
   constructor(public readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN', public readonly reason?: AccessDeniedReason | 'must_change_password') {
@@ -279,6 +277,9 @@ export async function assertStoreWritable(storeId: string): Promise<void> {
   if (isLapsed) {
     throw new AuthError('FORBIDDEN', 'payment_lapsed');
   }
+  if (isBillingPending({ status: store.status, deletedAt: store.deletedAt, trialEndsAt, paidThroughDate, accessGrantedUntil: overrideUntil, today })) {
+    throw new AuthError('FORBIDDEN', 'billing_pending');
+  }
 }
 
 export async function requireStoreSession(
@@ -325,6 +326,10 @@ export async function requireStoreSession(
 
   if (isLapsed && !options?.allowRestricted && !(store.status === 'LOCKED' && options?.allowLockedReadOnly)) {
     throw new AuthError('FORBIDDEN', 'payment_lapsed');
+  }
+  if (!options?.allowRestricted && !(store.status === 'LOCKED' && options?.allowLockedReadOnly)
+    && isBillingPending({ status: store.status, deletedAt: store.deletedAt, trialEndsAt, paidThroughDate, accessGrantedUntil: overrideUntil, today })) {
+    throw new AuthError('FORBIDDEN', 'billing_pending');
   }
 
   return { ...session, storeId: membership.storeId, storeName: store.name, storeRole: membership.role };

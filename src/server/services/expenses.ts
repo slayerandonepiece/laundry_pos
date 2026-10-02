@@ -118,12 +118,9 @@ async function findExistingExpense(
 ): Promise<Expense | null> {
   if (!idempotencyKey) return null;
   const byKey = await prisma.expense.findUnique({
-    where: { idempotencyKey },
+    where: { storeId_idempotencyKey: { storeId, idempotencyKey } },
   });
   if (!byKey) return null;
-  if (byKey.storeId !== storeId) {
-    throw new ValidationError('Duplicate request key.');
-  }
   return toDTO(byKey);
 }
 
@@ -287,7 +284,7 @@ async function refreshExpenseTotal(tx: Prisma.TransactionClient, storeId: string
   });
 }
 
-const updateExpenseSchema = createExpenseSchema.pick({ title: true, category: true, amount: true, due: true, outletId: true });
+const updateExpenseSchema = createExpenseSchema.pick({ title: true, category: true, amount: true, due: true, outletId: true }).extend({ outletId: z.string().trim().nullable().optional() });
 export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
 
 export async function updateExpense(storeId: string, id: string, input: UpdateExpenseInput): Promise<Expense> {

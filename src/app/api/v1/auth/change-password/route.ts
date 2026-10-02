@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { oldPassword, newPassword } = changePasswordSchema.parse(body);
 
-    const throttle = checkPasswordChangeThrottle(session.id);
+    const throttle = await checkPasswordChangeThrottle(session.id);
     if (!throttle.allowed) {
       return new Response(
         JSON.stringify({ error: `Too many failed attempts. Try again in ${throttle.retryAfterSeconds} seconds.` }),
@@ -41,10 +41,10 @@ export async function POST(req: NextRequest) {
     try {
       await changeUserPassword(session.id, oldPassword, newPassword);
     } catch (err) {
-      if (err instanceof IncorrectPasswordError) recordFailedPasswordChange(session.id);
+      if (err instanceof IncorrectPasswordError) await recordFailedPasswordChange(session.id);
       throw err;
     }
-    clearPasswordChangeThrottle(session.id);
+    await clearPasswordChangeThrottle(session.id);
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: session.id } });
     const newSession = await createSessionRow(user.id, user.credentialVersion);
