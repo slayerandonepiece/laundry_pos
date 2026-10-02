@@ -13,14 +13,12 @@ export default async function InvoiceView({ params }: { params: Promise<{ token:
   if (!invoice) notFound();
   const title = `Invoice ${formatInvoiceNumber(invoice.invoiceSeq)}`;
   const pdfUrl = `/i/${token}`;
-  return <main className={`ad-root ${styles.invoice}`} style={{ minHeight: '100vh', background: '#e5e7eb', padding: '16px' }}>
-    <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', maxWidth: '900px', margin: '0 auto 16px' }}>
-      <h1 style={{ fontSize: '20px', margin: 0 }}>{title}</h1>
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <InvoicePrintButton />
-        <a className="ad-button" href={`${pdfUrl}?download=1`} download>Download PDF</a>
-      </div>
-    </header>
-    <div style={{ maxWidth: '900px', margin: '0 auto' }}><PdfPreview src={pdfUrl} title={title} /></div>
+  // The invoice comes first and fills the width; the actions sit below it.
+  return <main className={`ad-root ${styles.invoice}`}>
+    <div className={styles.page}><PdfPreview src={pdfUrl} title={title} /></div>
+    <div className={styles.actions}>
+      <InvoicePrintButton />
+      <a className="ad-button" href={`${pdfUrl}?download=1`} download>Download PDF</a>
+    </div>
   </main>;
 }

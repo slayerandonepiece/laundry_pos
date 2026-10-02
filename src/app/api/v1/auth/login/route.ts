@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { phone, password } = loginSchema.parse(body);
 
-    const throttle = checkLoginThrottle(phone, ip);
+    const throttle = await checkLoginThrottle(phone, ip);
     if (!throttle.allowed) {
       return jsonResponse(
         { error: `Too many failed attempts. Try again in ${throttle.retryAfterSeconds} seconds.` },
@@ -39,11 +39,11 @@ export async function POST(req: NextRequest) {
       ? await verifyPassword(password, user.passwordHash)
       : await verifyPasswordAgainstDummy(password);
     if (!user || !user.active || !valid) {
-      recordFailedLoginAttempt(phone, ip);
+      await recordFailedLoginAttempt(phone, ip);
       return jsonResponse({ error: 'Invalid phone number or password' }, 401);
     }
 
-    clearLoginThrottle(phone, ip);
+    await clearLoginThrottle(phone, ip);
 
     const session = await createSessionRow(user.id, user.credentialVersion);
 

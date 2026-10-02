@@ -728,8 +728,25 @@ Records a store expense. **Restricted to `OWNER`**.
 Marks an existing expense as paid. **Restricted to `OWNER`**.
 
 - **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
-- **Request Body**: None (or `{ "paidDate": "2026-09-11" }`).
+- **Request Body**: Optional `{ "paidDate": "2026-09-11" }`; omitted or `{}` uses today in IST. Future dates are rejected.
 - **Response `200 OK`**: Returns updated expense.
+
+---
+
+### `PUT /api/v1/expenses/[id]`
+
+Edits an expense. **Restricted to `OWNER`**.
+
+- **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
+- **Request Body**: `{ "title": "Shop Rent", "category": "Rent", "amount": 1500000, "due": "2026-09-30", "outletId": "optional-outlet-id" }`. Amount is integer paise. Omit `outletId` or pass `null` to make the expense organization-wide. `X-Outlet-Id` does not override the body.
+- **Response `200 OK`**: Returns updated expense DTO. A recurring occurrence cannot move to another month: "Keep a monthly bill in its original month."
+
+### `DELETE /api/v1/expenses/[id]`
+
+Deletes an expense. **Restricted to `OWNER`**. Deleting a recurring occurrence stops the whole series.
+
+- **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
+- **Response `204 No Content`**: Empty body.
 
 ---
 
