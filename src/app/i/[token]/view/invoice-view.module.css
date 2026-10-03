@@ -1,0 +1,54 @@
+.invoice {
+  min-height: 100vh;
+  background: #e5e7eb;
+  padding: 8px;
+}
+
+.page { max-width: 900px; margin: 0 auto; }
+
+/* The invoice spans the full width of the screen; no gutters around the sheet. */
+.invoice :global(.pdf-preview) { min-height: 0; height: auto; overflow: visible; }
+.invoice :global(.pdf-preview-pages) { padding: 0; gap: 8px; }
+
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  max-width: 900px;
+  margin: 12px auto 4px;
+}
+
+.actions :global(.ad-button) {
+  font-size: 12px !important;
+  padding: 5px 12px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  line-height: 1.3 !important;
+}
+
+@media print {
+  @page { size: A4; margin: 0; }
+
+  .invoice {
+    padding: 0 !important;
+    min-height: 0 !important;
+    background: white !important;
+  }
+
+  .invoice > div { max-width: none !important; margin: 0 !important; }
+  .invoice > .actions { display: none !important; }
+  .invoice :global(.pdf-preview-pages) { padding: 0 !important; gap: 0 !important; }
+  .invoice :global(canvas) {
+    display: block;
+    width: 210mm !important;
+    height: 297mm !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    break-after: page;
+  }
+  .invoice :global(canvas:last-child) { break-after: auto; }
+  .invoice :global(.ad-pdf-loading),
+  .invoice :global(.pdf-preview-error) { display: none !important; }
+}

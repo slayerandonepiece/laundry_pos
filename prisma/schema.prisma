@@ -1,0 +1,644 @@
+// Prisma schema for the Express Laundry backend.
+// Money is stored as integer paise. Timestamps are stored in UTC; the app
+// layer interprets dates in Asia/Kolkata to match existing UI semantics.
+//
+// Multi-tenant: every store-scoped table carries a storeId. A User's role is
+// per-store (StoreMembership), not global — the same person can be OWNER of
+// one store and EMPLOYEE of another. Super Admin is a platform-level flag on
+// User, unscoped to any store.
+//
+// Note: `Store` is a temporary code and database name serving as the
+// organization-level tenant during the outlet rollout. Outlets are currently
+// schema-only foundation in this batch and are not yet used for authorization,
+// records, reports, or UI.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  EMPLOYEE
+}
+
+enum ProductType {
+  ITEM
+  WEIGHT
+}
+
+enum WorkStatus {
+  PENDING
+  IN_PROGRESS
+  READY
+  DELIVERED
+}
+
+enum StoreStatus {
+  ACTIVE
+  LOCKED
+}
+
+enum SubscriptionPaymentType {
+  DEPOSIT
+  RENEWAL
+}
+
+// Platform subscription billing only. Customer order payments snapshot the
+// owning store's free-text StorePaymentMethod.name into Payment.method.
+enum PaymentMethod {
+  CASH
+  UPI
+}
+
+enum BillingCycle {
+  ANNUAL
+  HALF_YEARLY
+  QUARTERLY
+  MONTHLY
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  name               String
+  passwordHash       String
+  active             Boolean  @default(true)
+  // Platform-level access, unscoped to any store. Not the same thing as
+  // owning a store — see StoreMembership for per-store roles.
+  isSuperAdmin       Boolean  @default(false)
+  credentialVersion  Int      @default(1)
+  mustChangePassword Boolean  @default(false)
+  // Global to the person (not a store's own contact info — see Store.email/
+  // Store.phone, which represent the store, not the owner). Phone is the
+  // normalized, required login identifier; email remains optional.
+  email              String?
+  phone              String   @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  sessions          Session[]
+  statusEvents      StatusEvent[]
+  memberships       StoreMembership[]
+  onboardedStores   Store[]               @relation("StoreOnboardedBy")
+  recordedPayments  SubscriptionPayment[] @relation("SubscriptionPaymentRecordedBy")
+  outletMemberships OutletMembership[]
+  createdOutlets    Outlet[]              @relation("OutletCreatedBy")
+  auditLogs         AuditLog[]
+
+  @@index([active])
+  @@index([isSuperAdmin])
+  @@map("users")
+}
+
+model Session {
+  id                String   @id @default(cuid())
+  token             String   @unique
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialVersion Int
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model AuthThrottle {
+  key             String   @id
+  count           Int
+  windowStartedAt DateTime
+  blockedUntil    DateTime?
+  updatedAt       DateTime @updatedAt
+
+  @@index([updatedAt])
+  @@map("auth_throttle")
+}
+
+// Temporary code/database name serving as the organization-level tenant during
+// the outlet rollout. Outlets are schema-only in this batch and are not yet used
+// for authorization, records, reports, or UI.
+model Store {
+  id            String      @id @default(cuid())
+  name          String
+  address       String      @default("")
+  phone         String      @default("")
+  email         String      @default("")
+  status        StoreStatus @default(ACTIVE)
+  onboardedAt   DateTime    @default(now())
+  onboardedById String?
+  onboardedBy   User?       @relation("StoreOnboardedBy", fields: [onboardedById], references: [id], onDelete: SetNull)
+  // Soft delete — a store is archived, never hard-deleted, so its order and
+  // payment history survives. Null means active/not archived.
+  deletedAt     DateTime?
+  accessGrantedUntil DateTime? @db.Date
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  memberships                StoreMembership[]
+  subscription               Subscription?
+  payments                   SubscriptionPayment[]
+  products                   Product[]
+  orders                     Order[]
+  orderInvoices              OrderInvoice[]
+  paymentMethods             StorePaymentMethod[]
+  expenses                   Expense[]
+  recurringExpenseSeries     RecurringExpenseSeries[]
+  outlets                    Outlet[]
+  organizationPaymentMethods OrganizationPaymentMethod[]
+  auditLogs                  AuditLog[]
+  orderPayments              Payment[]                   @relation("StoreOrderPayments")
+  storeStatusEvents          StatusEvent[]               @relation("StoreStatusEvents")
+  dailyOutletSummaries        DailyOutletSummary[]
+  dailyOutletServiceSummaries DailyOutletServiceSummary[]
+
+  @@index([deletedAt])
+  @@map("stores")
+}
+
+model StoreMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  role      Role
+  // Per-store access flag — an employee can be deactivated at one store
+  // without affecting a membership they still hold at another (see
+  // .agents/2026-09-brainstorm-plan.md Item 1). Deliberately independent of
+  // User.active/credentialVersion: moving between stores never touches
+  // credentials. Defaults true so existing rows (migrated before this
+  // column existed) come in active.
+  active         Boolean  @default(true)
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, storeId])
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId])
+  @@map("store_memberships")
+}
+
+model SubscriptionPlan {
+  id                     String       @id @default(cuid())
+  name                   String
+  depositAmount          Int // paise
+  annualFeeAmount        Int // paise
+  billingCycle           BillingCycle @default(ANNUAL)
+  // When true, organizations on this plan skip the deposit.
+  depositWaivedByDefault Boolean      @default(false)
+  defaultTrialDays Int?
+  notes                  String       @default("")
+  // Archived, never hard-deleted — plans can be in use by active
+  // subscriptions (see archivePlan()'s reassign-or-detach flow).
+  archivedAt             DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id      String            @id @default(cuid())
+  storeId String            @unique
+  store   Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  // Nullable — a subscription can be fully custom/negotiated with no plan
+  // attached (e.g. a waived deposit), not every store needs a library plan.
+  planId  String?
+  plan    SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  depositAmount   Int // paise
+  depositPaidAt   DateTime? @db.Date
+  annualFeeAmount Int // paise
+  // Manual per-store discount, independent of any plan's list price.
+  discountAmount  Int       @default(0) // paise
+  // Null until a first payment is recorded. Only an explicit, past date locks
+  // the store — a never-set subscription is never auto-locked.
+  paidThroughDate DateTime? @db.Date
+  trialStartsAt   DateTime? @db.Date
+  trialEndsAt     DateTime? @db.Date
+  notes           String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([paidThroughDate])
+  @@map("subscriptions")
+}
+
+model SubscriptionPayment {
+  id           String                  @id @default(cuid())
+  storeId      String
+  store        Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  invoiceSeq   Int                     @unique @default(autoincrement())
+  type         SubscriptionPaymentType
+  amount       Int // paise
+  // Nullable — payments recorded before this column existed have no known
+  // method on file.
+  method       PaymentMethod?
+  paidAt       DateTime                @db.Date
+  coversFrom   DateTime?               @db.Date
+  coversTo     DateTime?               @db.Date
+  notes        String                  @default("")
+  // Free-text payment reference (e.g. a UPI transaction ID), optional.
+  reference    String                  @default("")
+  // Which Super Admin was logged in when this payment was recorded. Nullable
+  // since payments recorded before this column existed have no known actor.
+  recordedById String?
+  recordedBy   User?                   @relation("SubscriptionPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime                @default(now())
+
+  @@index([storeId])
+  @@map("subscription_payments")
+}
+
+model Product {
+  id        String        @id @default(cuid())
+  storeId   String
+  store     Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  category  String
+  type      ProductType
+  active    Boolean       @default(true)
+  price     Int? // paise; set when type = ITEM
+  extra     Int? // paise per extra unit beyond slabs; set when type = WEIGHT
+  slabs     ProductSlab[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  orderLines OrderLine[]
+
+  @@index([storeId])
+  @@map("products")
+}
+
+model ProductSlab {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  limit     Decimal @db.Decimal(10, 3) // weight limit, e.g. kg
+  price     Int // paise at this slab
+
+  @@index([productId])
+  @@map("product_slabs")
+}
+
+model Order {
+  id              String     @id @default(cuid())
+  storeId         String
+  store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderNumber     Int        @unique @default(autoincrement())
+  idempotencyKey  String?
+  // Client-generated id for orders created in the mobile app (offline-first).
+  // Null for orders created on the web.
+  offlineId       String?
+  customerName    String
+  phone           String
+  // Calendar dates (Asia/Kolkata), not instants — stored without a time
+  // component so no server timezone conversion can shift the day.
+  orderDate       DateTime   @default(now()) @db.Date
+  dueDate         DateTime   @db.Date
+  completedAt     DateTime?  @db.Date
+  status          WorkStatus @default(PENDING)
+  notes           String     @default("")
+  legacyCancelled Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  outletId        String?
+  outlet          Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  lines        OrderLine[]
+  payments     Payment[]
+  statusEvents StatusEvent[]
+  invoice      OrderInvoice?
+
+  @@index([storeId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([storeId, outletId, orderDate])
+  @@index([outletId, status])
+  @@index([outletId, dueDate])
+  @@unique([storeId, offlineId])
+  @@unique([storeId, idempotencyKey])
+  @@index([orderDate])
+  @@index([updatedAt])
+  @@index([storeId, phone, orderDate])
+  @@map("orders")
+}
+
+// A store's customer-facing invoice for a laundry order — entirely separate
+// from SubscriptionPayment.invoiceSeq (platform -> store owner billing).
+// Deliberately thin: no snapshotted line items/amounts of its own — it just
+// pins a stable, never-reassigned invoice number to an order and always
+// reads the order's own (already-immutable) lines/payments for content, so
+// there's nothing here to drift out of sync with the order it documents.
+// Created lazily — get-or-create on first view/download/print/share, not at
+// order-creation time — so no invoice (and no consumed number) exists for an
+// order nobody ever asked to see the invoice for.
+model OrderInvoice {
+  id          String   @id @default(cuid())
+  invoiceSeq  Int      @unique @default(autoincrement())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  accessToken String   @unique
+  generatedAt DateTime @default(now())
+  outletId    String?
+  outlet      Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([storeId, outletId])
+  @@map("order_invoices")
+}
+
+// Payment choices configured independently by each store owner. Payment rows
+// copy `name` as an immutable snapshot, so rename/deactivation never rewrites
+// historical order receipts.
+model StorePaymentMethod {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, name])
+  @@index([storeId, active])
+  @@map("store_payment_methods")
+}
+
+model OrderLine {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name      String // product name snapshot at time of sale
+  quantity  Decimal  @db.Decimal(10, 3)
+  unit      String
+  amount    Int // paise, snapshot line total
+
+  @@index([orderId])
+  @@map("order_lines")
+}
+
+model Payment {
+  id                      String                 @id @default(cuid())
+  orderId                 String
+  order                   Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount                  Int // paise
+  method                  String
+  paidAt                  DateTime               @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
+  clientActionId          String?                @unique
+  storeId                 String?
+  store                   Store?                 @relation("StoreOrderPayments", fields: [storeId], references: [id], onDelete: Cascade)
+  outletId                String?
+  outlet                  Outlet?                @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  platformPaymentMethodId String?
+  platformPaymentMethod   PlatformPaymentMethod? @relation(fields: [platformPaymentMethodId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([storeId, outletId, paidAt])
+  @@index([outletId])
+  @@index([platformPaymentMethodId])
+  @@map("payments")
+}
+
+model StatusEvent {
+  id       String     @id @default(cuid())
+  orderId  String
+  order    Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status   WorkStatus
+  at       DateTime   @default(now())
+  byUserId String?
+  byUser   User?      @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+  storeId  String?
+  store    Store?     @relation("StoreStatusEvents", fields: [storeId], references: [id], onDelete: Cascade)
+  outletId String?
+  outlet   Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([storeId, outletId, at])
+  @@index([outletId])
+  @@map("status_events")
+}
+
+model RecurringExpenseSeries {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  title     String
+  category  String
+  amount    Int // paise
+  dueDay    Int
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  outletId  String?
+  outlet    Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  occurrences Expense[]
+
+  @@index([storeId])
+  @@index([storeId, outletId])
+  @@map("recurring_expense_series")
+}
+
+model Expense {
+  id             String                  @id @default(cuid())
+  storeId        String
+  store          Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  idempotencyKey String?
+  title          String
+  category       String
+  amount         Int // paise
+  dueDate        DateTime                @db.Date
+  paidAt         DateTime?               @db.Date
+  seriesId       String?
+  series         RecurringExpenseSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  // 'YYYY-MM', set only on series-generated occurrences. With seriesId this
+  // gives a retry-safe unique key so generating occurrences twice (e.g. two
+  // concurrent listExpenses calls) can't create duplicate months.
+  periodMonth    String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  outletId       String?
+  outlet         Outlet?                 @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@unique([seriesId, periodMonth])
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId])
+  @@index([dueDate])
+  @@index([storeId, outletId, dueDate])
+  @@index([outletId])
+  @@map("expenses")
+}
+
+enum OutletStatus {
+  ACTIVE
+  CLOSED
+  RELOCATED
+}
+
+// Schema-only foundation for future organization -> outlet rollout.
+// Not yet used for authorization, records, reports, or UI.
+model Outlet {
+  id          String       @id @default(cuid())
+  outletCode  String       @unique
+  storeId     String
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  displayName String
+  address     String       @default("")
+  phone       String       @default("")
+  status      OutletStatus @default(ACTIVE)
+  createdById String?
+  createdBy   User?        @relation("OutletCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  openedAt    DateTime     @default(now())
+  closedAt    DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  memberships            OutletMembership[]
+  auditLogs              AuditLog[]
+  orders                 Order[]
+  payments               Payment[]
+  expenses               Expense[]
+  recurringExpenseSeries RecurringExpenseSeries[]
+  orderInvoices          OrderInvoice[]
+  statusEvents           StatusEvent[]
+  dailySummaries        DailyOutletSummary[]
+  dailyServiceSummaries DailyOutletServiceSummary[]
+
+  @@index([storeId])
+  @@map("outlets")
+}
+
+model OutletMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outletId  String
+  outlet    Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  active    Boolean  @default(true)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, outletId])
+  @@index([outletId])
+  @@index([userId])
+  @@map("outlet_memberships")
+}
+
+model PlatformPaymentMethod {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationPaymentMethods OrganizationPaymentMethod[]
+  payments                   Payment[]
+
+  @@map("platform_payment_methods")
+}
+
+model OrganizationPaymentMethod {
+  id                      String                @id @default(cuid())
+  storeId                 String
+  store                   Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platformPaymentMethodId String
+  platformPaymentMethod   PlatformPaymentMethod @relation(fields: [platformPaymentMethodId], references: [id], onDelete: Restrict)
+  enabled                 Boolean               @default(true)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  @@unique([storeId, platformPaymentMethodId])
+  @@index([storeId])
+  @@map("organization_payment_methods")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  storeId    String?
+  store      Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  outletId   String?
+  outlet     Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  beforeJson Json?
+  afterJson  Json?
+  createdAt  DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([outletId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+}
+
+model DailyOutletSummary {
+  id                      String   @id @default(cuid())
+  storeId                 String
+  store                   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  outletId                String
+  outlet                  Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  businessDate            DateTime @db.Date
+  ordersCreatedCount      Int      @default(0)
+  ordersCompletedCount    Int      @default(0)
+  grossOrderAmount        Int      @default(0)
+  paymentsCollectedAmount Int      @default(0)
+  expensesAmount          Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([storeId, outletId, businessDate])
+  @@index([storeId, businessDate])
+  @@index([outletId, businessDate])
+  @@map("daily_outlet_summaries")
+}
+
+model DailyOutletServiceSummary {
+  id           String   @id @default(cuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  serviceName  String
+  businessDate DateTime @db.Date
+  piecesCount  Int      @default(0)
+  orderCount   Int      @default(0)
+  amount       Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([storeId, outletId, serviceName, businessDate])
+  @@index([storeId, businessDate])
+  @@index([outletId, businessDate])
+  @@map("daily_outlet_service_summaries")
+}
+
+// Platform-managed information/maintenance notices; empty storeIds means all organizations.
+model WorkspaceAnnouncement {
+  id          String   @id @default(cuid())
+  message     String   @db.VarChar(500)
+  audience    String   @default("store") @db.VarChar(16)
+  tone        String   @default("info") @db.VarChar(16)
+  storeIds    String[] @default([])
+  actionLabel String?  @db.VarChar(60)
+  actionHref  String?  @db.VarChar(500)
+  published   Boolean  @default(false)
+  revision    Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([published, createdAt])
+  @@map("workspace_announcements")
+}

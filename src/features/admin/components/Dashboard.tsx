@@ -1,52 +1,136 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { Order } from '../admin.types';
-import type { dashboardData } from '../admin.analytics';
-import { money } from '../admin.data';
-import { Metric } from './Primitives';
-import { SalesChart, CashChart, StatusChart, ServiceChart } from './DashboardCharts';
-import OrderTable from './OrderTable';
+import type { dashboardData, TrendPoint } from '../admin.analytics';
+import { money, total } from '../admin.data';
+import { SalesChart, EarningsDonut } from './DashboardCharts';
+import { Card, CardHeading, StatTile, Badge, EmptyState, statusTone } from './ui';
 
 export type DashboardData = ReturnType<typeof dashboardData>;
-export default function Dashboard({ data: d, onSelect }: { data: DashboardData; onSelect: (order: Order) => void }) {
-  return <>
-    <div className="ad-section-label"><span>Today and open orders</span><span>Order counts</span></div>
-    <div className="ad-metrics">
-      <Metric primary label="Orders today" value={String(d.todayCount)} detail={money(d.todaySales) + ' · new orders today'}/>
-      <Metric label="Waiting to start" value={String(d.pendingCount)} detail={money(d.pendingAmount) + ' · Pending, all dates'}/>
-      <Metric label="Completed today" value={String(d.completed)} detail={money(d.completedAmount) + ' · marked completed today'}/>
-      <Metric label="Due today" value={String(d.dueToday)} detail={d.overdue + ' more orders are late · not completed'}/>
+export interface DashboardOutlet {
+  id: string;
+  outletCode: string;
+  displayName: string;
+  status: string;
+}
+export interface DashboardOutletSummary {
+  outletId: string;
+  businessDate: string;
+  ordersCreatedCount: number;
+  grossOrderAmount: number;
+  expensesAmount: number;
+}
+
+export default function Dashboard({ data: d, summaries = [], allOutletsSelected, outlets = [], outletName,
+  recentOrders, previousPoints, businessDate, yesterday, trendTitle = 'Sales trend — last 14 days', trendControl,
+  onSelect,
+}: {
+  data: DashboardData;
+  summaries?: DashboardOutletSummary[];
+  allOutletsSelected?: boolean;
+  outlets?: DashboardOutlet[];
+  outletName?: string;
+  recentOrders: Order[];
+  previousPoints: TrendPoint[];
+  businessDate: string;
+  yesterday: string;
+  trendTitle?: string;
+  trendControl?: ReactNode;
+  onSelect: (order: Order) => void;
+}) {
+  const isAllOutlets = Boolean(allOutletsSelected && outlets.length > 1);
+  const todaySummaries = summaries.filter(s => s.businessDate === businessDate);
+  const yesterdaySummaries = summaries.filter(s => s.businessDate === yesterday);
+  const maxSales = Math.max(...todaySummaries.map(s => s.grossOrderAmount), 0);
+  const attention = <Card className="dashboard-attention">
+    <CardHeading title="Needs attention" subtitle="Overdue & unpaid" />
+    <div className="dashboard-attention-rows">
+      {d.overdue > 0 && (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <span>{d.overdue} order{d.overdue === 1 ? '' : 's'} overdue</span>
+          <Link href="/admin/sales?attention=1" className="badge warn" style={{ textDecoration: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', minHeight: '32px', padding: '4px 10px' }}>
+            Action &rarr;
+          </Link>
+        </div>
+      )}
+      {d.dueToday > 0 && (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <span>{d.dueToday} order{d.dueToday === 1 ? '' : 's'} due today</span>
+          <Link href="/admin/sales?attention=1" className="badge warn" style={{ textDecoration: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', minHeight: '32px', padding: '4px 10px' }}>
+            Action &rarr;
+          </Link>
+        </div>
+      )}
+      {d.overdue === 0 && d.dueToday === 0 && <p className="dashboard-muted">All caught up!</p>}
     </div>
-    {(d.dueToday > 0 || d.overdue > 0) && <div className="ad-delivery-reminder">
-      <p><strong>{d.dueToday} due today · {d.overdue} late</strong><span>These orders still need to be completed.</span></p>
-      <Link className="ad-text-link" href="/admin/sales?attention=1">View these orders ↗</Link>
-    </div>}
-    <div className="ad-dashboard-grid ad-analytics-primary">
-      <section className="ad-card">
-        <div className="ad-card-heading"><div><h2>Sales by date</h2><p>Total order prices · selected dates above</p></div><span className="ad-chart-key"><i/>Sales</span></div>
-        <div className="ad-chart-total"><strong>{money(d.periodSales)}</strong><span>{d.periodOrders} orders</span></div>
-        <SalesChart points={d.bars}/>
-      </section>
-      <section className="ad-card">
-        <div className="ad-card-heading"><div><h2>Money in & expenses</h2><p>{d.month} · this month only</p></div></div>
-        <div className="ad-chart-total"><strong>{money(d.income - d.expenses)}</strong><span>Received minus spent</span></div>
-        <div className="ad-cash-legend"><span><i/>{money(d.income)} received</span><span><i/>{money(d.expenses)} spent</span></div>
-        <CashChart points={d.cash}/><p className="ad-chart-note">Payments received minus bills paid. Not profit or bank balance.</p>
-      </section>
+  </Card>;
+  const recent = <Card className="dashboard-recent">
+    <CardHeading title={isAllOutlets ? 'Recent orders — all outlets' : 'Recent orders'}
+      subtitle={isAllOutlets ? 'Newest first, every outlet combined' : 'Latest activity at this outlet'}
+      action={<Link href="/admin/sales" className="btn btn-secondary">View all →</Link>} />
+    {recentOrders.length ? <div className="dashboard-table-scroll" tabIndex={0} role="region" aria-label="Recent orders">
+      <table className="grid"><thead><tr><th scope="col">Order</th><th scope="col">Customer</th>{isAllOutlets && <th scope="col">Outlet</th>}<th scope="col">Status</th><th scope="col" className="num">Amount</th></tr></thead>
+        <tbody>{recentOrders.slice(0, isAllOutlets ? 3 : 4).map(order => <tr key={order.id}>
+          <td className="mono"><button type="button" className="dashboard-order-link" onClick={() => onSelect(order)} aria-label={`Open order ${order.id}`}>{order.id}</button></td>
+          <td>{order.name || 'Walk-in customer'}</td>
+          {isAllOutlets && <td>{outlets.find(outlet => outlet.id === order.outletId)?.displayName ?? 'Unassigned'}</td>}
+          <td><Badge tone={statusTone(order.status)}>{order.status}</Badge></td>
+          <td className="num mono">{money(total(order))}</td>
+        </tr>)}</tbody>
+      </table>
+    </div> : <EmptyState firstUseTitle="No orders yet" firstUseDescription={isAllOutlets ? 'New orders from your outlets will appear here.' : 'New orders at this outlet will appear here.'}
+      firstUseAction={<Link href="/admin/sales" className="btn btn-primary">Create an order</Link>} />}
+  </Card>;
+
+  return <div className="dashboard" data-view={isAllOutlets ? 'all-outlets' : 'single-outlet'}>
+    <div className="dashboard-heading"><h1>Dashboard</h1><p>{isAllOutlets
+      ? `Aggregated across ${outlets.length} outlets. Switch to one outlet above to see its own numbers only.`
+      : `Today's overview${outletName ? ` — ${outletName}` : ''}.${outlets.length === 1 ? " One outlet on this account, so there's no switcher." : ''}`}</p></div>
+    <div className="stats-row">
+      <StatTile label="Today's sales" value={money(d.todaySales)} />
+      <StatTile label="Orders today" value={String(d.todayCount)} />
+      <StatTile label="Open orders" value={String(d.todo)} />
+      <StatTile label="Expenses this month" value={money(d.expenses)} />
     </div>
-    <div className="ad-dashboard-grid ad-analytics-secondary">
-      <section className="ad-card">
-        <div className="ad-card-heading"><div><h2>How orders are moving</h2><p>Orders created in the selected dates</p></div></div>
-        <StatusChart entries={d.statuses}/>
-        <p className="ad-chart-note">Pending = not started · In Progress = being worked on · Completed = finished.</p>
+    <Card className="dashboard-trend"><CardHeading title={trendTitle} subtitle={isAllOutlets ? 'All outlets combined' : 'This outlet'} action={trendControl} />
+      <SalesChart points={d.bars} previousPoints={previousPoints} />
+    </Card>
+    {isAllOutlets && <>
+      <section className="dashboard-outlets" aria-label="Per-outlet summary">
+        <div style={{ marginBottom: '14px' }}>
+          <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>Per-outlet summary</h2>
+          <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--muted)' }}>Today&apos;s performance · share of best-performing outlet</p>
+        </div>
+        <div className="dashboard-outlet-grid">{outlets.map((outlet, index) => {
+          const current = todaySummaries.find(s => s.outletId === outlet.id);
+          const sales = current?.grossOrderAmount ?? 0;
+          const ydaySales = yesterdaySummaries.find(s => s.outletId === outlet.id)?.grossOrderAmount ?? 0;
+          const pct = maxSales > 0 ? sales / maxSales * 100 : 0;
+          const growth = ydaySales > 0 ? (sales - ydaySales) / ydaySales * 100 : null;
+          const openOrders = d.commitments.filter(order => order.outletId === outlet.id).length;
+          return <Card key={outlet.id} className="dashboard-outlet">
+            <CardHeading title={<h2>{outlet.displayName}</h2>} subtitle={<span className="mono">{outlet.outletCode}</span>}
+              action={<Badge tone={outlet.status === 'ACTIVE' ? 'on' : 'off'}>{outlet.status === 'ACTIVE' ? 'Active' : 'Inactive'}</Badge>} />
+            <div className="dashboard-outlet-metrics">
+              <div className="row"><span>Sales today</span><strong className="mono">{money(sales)}</strong></div>
+              <div className="row"><span>Orders</span><strong className="mono">{current?.ordersCreatedCount ?? 0}</strong></div>
+              <div className="row"><span>Open orders</span><strong className="mono">{openOrders}</strong></div>
+            </div>
+            <div><div className="dashboard-share" role="meter" aria-label={`${outlet.displayName}: share of best outlet sales`} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+              <div style={{ width: `${pct}%`, background: ['var(--brand)', '#4d86e0', '#a8c7f8'][index % 3] }} />
+            </div><div className="row dashboard-comparison"><span>{pct === 100 ? 'Best outlet today' : `${Math.round(pct)}% of best outlet`}</span>
+              {growth !== null && <Badge tone={growth >= 0 ? 'on' : 'warn'}>{growth >= 0 ? '↑' : '↓'} {Math.round(Math.abs(growth))}% vs yesterday</Badge>}
+            </div></div>
+            <Link href={`/admin/outlets/${outlet.id}`} className="btn btn-secondary">View detail</Link>
+          </Card>;
+        })}</div>
       </section>
-      <section className="ad-card">
-        <div className="ad-card-heading"><div><h2>Sales by service</h2><p>Total order prices for each service · selected dates</p></div></div>
-        <ServiceChart entries={d.serviceMix}/>
-      </section>
-    </div>
-    <section className="ad-card ad-table-card">
-      <div className="ad-card-heading"><div><h2>Orders to finish</h2><p>All unfinished orders, oldest delivery date first</p></div><Link className="ad-text-link" href="/admin/sales?attention=1">Due today & late ↗</Link></div>
-      <OrderTable orders={d.commitments} onSelect={onSelect} compact/>
-    </section>
-  </>;
+      <Card className="dashboard-earnings"><CardHeading title="Collected vs expenses — this month" subtitle={isAllOutlets ? 'All outlets combined · payments collected this month' : 'This outlet · payments collected this month'}
+        action={<Badge tone={d.income >= d.expenses ? 'on' : 'warn'}>Net {money(d.income - d.expenses)}</Badge>} />
+        <EarningsDonut income={d.income} expenses={d.expenses} />
+      </Card>
+      {attention}{recent}
+    </>}
+    {!isAllOutlets && <div className="dashboard-bottom-grid">{recent}{attention}</div>}
+  </div>;
 }
