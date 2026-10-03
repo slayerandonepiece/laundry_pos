@@ -41,6 +41,7 @@ export default function SuperAdminLoginForm() {
           <button className="ad-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in to StoreOps ↗'}</button>
         </form>
         <div className="ad-demo-help"><strong>Looking for the organization workspace?</strong><p>Owners and employees sign in at <Link href="/login">the regular login</Link>.</p></div>
+        <p style={{ fontSize: 12 }}><Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></p>
       </div>
     </section>
   </main>;
