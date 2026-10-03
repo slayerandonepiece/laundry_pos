@@ -113,7 +113,7 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
       <main className="ad-main">
         {children}
       </main>
-      <footer className="ad-bottom"><span className="ad-footer-brand">{brandName}</span><span>IST · INR ₹</span></footer>
+      <footer className="ad-bottom"><span className="ad-footer-brand">{brandName}</span><span><Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link> · IST · INR ₹</span></footer>
     </div>
     {confirmation && <ConfirmationDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation.onConfirm; setConfirmation(null); action(); }}/>}
   </div>;
