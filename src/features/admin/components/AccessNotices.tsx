@@ -1,4 +1,5 @@
 import type { AccessDeniedReason } from '@/server/auth/session';
+import RestoreDeletionButton from './RestoreDeletionButton';
 
 // Reuses the same "server withholds data, client explains why" pattern the
 // explicit-admin-lock check already used (see AdminScreenContainer's former
@@ -40,6 +41,13 @@ function messageFor(reason: AccessDeniedReason, isOwner: boolean, paidThroughDat
           ? 'Your store account setup is pending billing completion. Contact your platform administrator to complete setup.'
           : 'This store account setup is pending billing completion. Please check with your store owner.',
       };
+    case 'deletion_pending':
+      return {
+        title: 'Deletion scheduled',
+        body: isOwner
+          ? 'This organization is scheduled for permanent deletion. Restore it to keep your data and resume work; otherwise everything is deleted when the grace period ends.'
+          : 'This account or its organization is scheduled for deletion. If this is your own request you can cancel it below; otherwise please check with your store owner.',
+      };
   }
 }
 
@@ -52,6 +60,7 @@ export function AccessBlockedScreen({ reason, isOwner, paidThroughDate }: { reas
     <div className="ad-error" role="alert" style={{ padding: '32px 24px', textAlign: 'center', maxWidth: 520, margin: '48px auto' }}>
       <h2 style={{ marginTop: 0 }}>{title}</h2>
       <p style={{ marginBottom: 0 }}>{body}</p>
+      {reason === 'deletion_pending' && <RestoreDeletionButton label={isOwner ? 'Restore organization' : 'Cancel my deletion request'} />}
     </div>
   );
 }

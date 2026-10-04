@@ -68,7 +68,8 @@ string.
 ```
 
 `reason` is one of `membership_inactive`, `store_locked`,
-`store_archived`, `payment_lapsed`, `must_change_password` — or absent,
+`store_archived`, `payment_lapsed`, `must_change_password`,
+`deletion_pending` (see "Account deletion" below) — or absent,
 which means a plain role/outlet denial. Zod failures add an `issues` array.
 
 `must_change_password` (403): while `user.mustChangePassword` is true the
@@ -104,7 +105,8 @@ password; a success clears the counter.
 ```jsonc
 {
   "token": "…",
-  "user": { "id", "name", "username", "isSuperAdmin", "mustChangePassword" },
+  "user": { "id", "name", "username", "isSuperAdmin", "mustChangePassword",
+            "deletionScheduledFor"? /* ISO; present only while a deletion request is PENDING */ },
   "stores": [ { "storeId", "storeName", "role", "status", "isLocked",
                 "blockedReason", "paidThroughDate", "trialEndsAt",
                 "subscriptionState",
@@ -124,7 +126,7 @@ password; a success clears the counter.
 Both `stores[]` and `organizations[]` include `trialEndsAt` (ISO date string
 or `null`) and `subscriptionState` (one of `ACTIVE`, `TRIAL`, `TRIAL_ENDING`,
 `SUBSCRIPTION_ENDING`, `RESTRICTED`) alongside `paidThroughDate` and
-`blockedReason` (`membership_inactive` | `store_locked` | `store_archived` | `payment_lapsed` | `billing_pending` | `null`), enabling mobile clients to build real trial/renewal banners
+`blockedReason` (`membership_inactive` | `store_locked` | `store_archived` | `payment_lapsed` | `billing_pending` | `deletion_pending` | `null`), enabling mobile clients to build real trial/renewal banners
 directly from `stores[]`.
 
 When an organization has neither `trialEndsAt` nor `paidThroughDate` (created but never billed / terms not set), has no active `accessGrantedUntil` override, and is not locked/archived:
@@ -374,6 +376,8 @@ Every route under `/api/v1`. "Outlet" = does it read `X-Outlet-Id`.
 | `/auth/status` | GET | any | — |
 | `/auth/change-password` | POST | any | — |
 | `/auth/set-password` | POST | any (`mustChangePassword`) | — |
+| `/account/deletion` | POST | any (works while deletion is pending) | — |
+| `/account/deletion/restore` | POST | any (works while deletion is pending) | — |
 | `/memberships` | GET | any | — |
 | `/products` | GET / POST | any / OWNER | no |
 | `/orders` | GET / POST | any | **yes** (§3.1) |
@@ -515,3 +519,62 @@ Read-only, OWNER only, available while the store is locked or lapsed
 - `GET /api/v1/subscription/invoices/{invoiceSeq}/pdf[?download=1]` → the same
   PDF Super Admin renders. Another store's invoice, or an unknown number, is a
   plain 404. Employees get 403.
+
+## Account deletion (added 2026-10-04)
+
+Source: `src/server/services/account-deletion.ts`; routes under
+`src/app/api/v1/account/deletion/`; wipe job `src/app/api/cron/account-deletion`.
+Errors are the usual `{ "error": "..." }`.
+
+### Request
+
+`POST /api/v1/account/deletion` — body `{ "storeId": "<id>" }`, auth required.
+
+- Caller is an **OWNER** of `storeId` → scope `ORGANIZATION` (the whole
+  organization and its data). Anyone else → scope `SELF` (that login only).
+- A `SELF` request from a user who owns *any* organization is **409**
+  (`"Delete your store first."`). A caller with no active membership in
+  `storeId` gets 403.
+- Creates one `PENDING` request with `scheduledFor = now + DELETION_GRACE_DAYS`
+  (default 90). Idempotent per (user, organization): a repeat returns the
+  existing request.
+- Every session of the caller is revoked immediately (the token that made the
+  call stops working; they can sign in again). `ORGANIZATION` also locks the
+  organization for every member (`blockedReason: "deletion_pending"`).
+- `200 { "status": "PENDING", "scope": "ORGANIZATION"|"SELF", "requestedAt": ISO, "scheduledFor": ISO }`
+
+### Restore
+
+`POST /api/v1/account/deletion/restore` — no body, auth required.
+`200 { "status": "RESTORED" }`; the organization is unlocked. **409** when
+nothing is pending for the caller.
+
+### While a request is pending
+
+- `POST /auth/login` still succeeds. `user.deletionScheduledFor` (ISO) is
+  included on login and on `GET /auth/status` only while the caller has a
+  `PENDING` request; otherwise the field is absent.
+- Every other `/api/v1` endpoint returns **403** `{ "error": "Forbidden",
+  "reason": "deletion_pending" }`. Only `/auth/*` and `/account/deletion/*`
+  work. Employees of an organization with a pending `ORGANIZATION` request have
+  no request of their own: they see the same 403 and
+  `blockedReason: "deletion_pending"` on their `stores[]`/`organizations[]`
+  entry, and cannot restore (the owner or support must).
+- After the permanent wipe, login behaves exactly like an unknown phone number
+  (`401 "Invalid phone number or password"`). Nothing reveals the account existed.
+
+### Wipe (daily cron, `CRON_SECRET`)
+
+Pending requests with `scheduledFor <= now` are wiped one transaction each.
+`ORGANIZATION`: the organization and all its orders, payments, invoices,
+services, expenses, outlets, memberships and settings, plus every user left with
+no other membership. `SELF`: that user only; their orders stay with the
+organization (status-event actor becomes null, shown as former staff). Review
+demo organizations (`isReviewDemo`) are never wiped; their pending requests are
+auto-restored after 24 hours.
+
+Retained after a wipe: the `AccountDeletionRequest` row (opaque `userId`,
+`organizationId`, role, scope, status, dates, channel — no phone, name, email or
+organization name) and, for an `ORGANIZATION` wipe, `BillingRecordArchive` rows
+(opaque organization id, invoice number, type, amount, method, paid date and
+covered period — no reference, notes, recorder or names).

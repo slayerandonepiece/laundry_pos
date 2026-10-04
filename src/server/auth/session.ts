@@ -5,6 +5,7 @@ import { prisma } from '@/server/db';
 import { formatCalendarDate, todayIST, addDays } from '@/server/dates';
 import type { Role, OutletStatus, StoreStatus } from '@/generated/prisma/client';
 import { generateSessionToken, isValidSessionToken } from './token';
+import { getPendingDeletion, hasPendingSelfDeletion, isOrganizationDeletionLocked } from '@/server/services/account-deletion';
 
 const COOKIE_NAME = 'el_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -194,7 +195,7 @@ export async function revokeAllSessionsForUser(userId: string): Promise<void> {
 // specific message for (see AdminProvider/AdminScreenContainer). All are
 // "FORBIDDEN" as far as callers checking `instanceof AuthError` are
 // concerned; `reason` is additive.
-export type AccessDeniedReason = 'membership_inactive' | 'store_locked' | 'store_archived' | 'payment_lapsed' | 'billing_pending';
+export type AccessDeniedReason = 'membership_inactive' | 'store_locked' | 'store_archived' | 'payment_lapsed' | 'billing_pending' | 'deletion_pending';
 
 export function isBillingPending(input: {
   status: StoreStatus;
@@ -253,15 +254,19 @@ export async function assertStoreWritable(storeId: string): Promise<void> {
   const store = await prisma.store.findUnique({
     where: { id: storeId },
     select: {
+      id: true,
       status: true,
       deletedAt: true,
       accessGrantedUntil: true,
+      deletionScheduledFor: true,
+      isReviewDemo: true,
       subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
     },
   });
   if (!store) throw new AuthError('FORBIDDEN');
   if (store.status === 'LOCKED') throw new AuthError('FORBIDDEN', 'store_locked');
   if (store.deletedAt) throw new AuthError('FORBIDDEN', 'store_archived');
+  if (await isOrganizationDeletionLocked(store)) throw new AuthError('FORBIDDEN', 'deletion_pending');
 
   const paidThroughDate = store.subscription?.paidThroughDate
     ? formatCalendarDate(store.subscription.paidThroughDate)
@@ -298,20 +303,28 @@ export async function requireStoreSession(
   if (!membership) throw new AuthError('FORBIDDEN');
   if (role && membership.role !== role) throw new AuthError('FORBIDDEN');
   if (!membership.active) throw new AuthError('FORBIDDEN', 'membership_inactive');
+  // API callers already passed this check in requireApiAuth (they pass a session override).
+  if (!sessionOverride && await getPendingDeletion(session.id)) throw new AuthError('FORBIDDEN', 'deletion_pending');
 
   const store = await prisma.store.findUnique({
     where: { id: membership.storeId },
     select: {
+      id: true,
       name: true,
       status: true,
       deletedAt: true,
       accessGrantedUntil: true,
+      deletionScheduledFor: true,
+      isReviewDemo: true,
       subscription: { select: { paidThroughDate: true, trialEndsAt: true } },
     },
   });
   if (!store) throw new AuthError('FORBIDDEN');
   if (store.status === 'LOCKED' && !options?.allowLockedReadOnly) throw new AuthError('FORBIDDEN', 'store_locked');
   if (store.deletedAt) throw new AuthError('FORBIDDEN', 'store_archived');
+  // Deliberately not bypassed by allowRestricted/allowLockedReadOnly: nothing
+  // is readable or writable while an organization deletion is pending.
+  if (await isOrganizationDeletionLocked(store)) throw new AuthError('FORBIDDEN', 'deletion_pending');
 
   const paidThroughDate = store.subscription?.paidThroughDate
     ? formatCalendarDate(store.subscription.paidThroughDate)
@@ -555,7 +568,7 @@ export async function getStoreAccessStatus(userId: string, storeId?: string): Pr
 
   const store = await prisma.store.findUnique({
     where: { id: membership.storeId },
-    select: { status: true, deletedAt: true, accessGrantedUntil: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true } } },
+    select: { id: true, status: true, deletedAt: true, accessGrantedUntil: true, deletionScheduledFor: true, isReviewDemo: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true } } },
   });
   if (!store) return null;
 
@@ -593,6 +606,7 @@ export async function getStoreAccessStatus(userId: string, storeId?: string): Pr
   let blockedReason: AccessDeniedReason | undefined;
   if (store.status === 'LOCKED') blockedReason = 'store_locked';
   else if (store.deletedAt) blockedReason = 'store_archived';
+  else if (await isOrganizationDeletionLocked(store) || await hasPendingSelfDeletion(userId)) blockedReason = 'deletion_pending';
   else if (subscriptionState === 'RESTRICTED') blockedReason = 'payment_lapsed';
   else if (isSubscriptionLapsed(today, paidThroughDate, trialEndsAt, overrideUntil)) blockedReason = 'payment_lapsed';
 

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
-import { grantTemporaryAccess, setStoreTrial, archiveStore, lookupOwnerByPhone, onboardStore, recordSubscriptionPayment, setStoreStatus, updateStore } from '@/server/services/stores';
+import { grantTemporaryAccess, setStoreTrial, archiveStore, lookupOwnerByPhone, onboardStore, recordSubscriptionPayment, setStoreStatus, setStoreReviewDemo, updateStore } from '@/server/services/stores';
 import { ValidationError } from '@/server/errors';
 import { createOutlet, type OutletDTO } from '@/server/services/outlets';
 import { recordStoreActivity } from '@/server/services/activity';
@@ -68,6 +68,21 @@ async function setStoreStatusAction(storeId: string, status: 'ACTIVE' | 'LOCKED'
     revalidatePath('/super-admin');
     revalidatePath('/super-admin/stores');
     revalidatePath(`/super-admin/stores/${storeId}`);
+    return { ok: true, store };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
+export async function setReviewDemoAction(storeId: string, isReviewDemo: boolean): Promise<SetStoreStatusResult> {
+  const session = await requireSuperAdmin();
+  try {
+    const store = await setStoreReviewDemo(storeId, isReviewDemo);
+    await recordStoreActivity({ storeId, actorId: session.id, action: 'SET_REVIEW_DEMO', entityType: 'Store', entityId: storeId, after: { isReviewDemo } });
+    revalidatePath('/super-admin/stores');
+    revalidatePath(`/super-admin/stores/${storeId}`);
+    revalidatePath(`/super-admin/stores/${storeId}/edit`);
     return { ok: true, store };
   } catch (error) {
     if (error instanceof ValidationError) return { ok: false, error: error.message };

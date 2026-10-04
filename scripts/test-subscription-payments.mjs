@@ -45,6 +45,7 @@ try {
     'tests/multi-outlet-lifecycle.integration.test.ts',
     'tests/super-admin-profile.integration.test.ts',
     'tests/workspace-announcements.integration.test.ts',
+    'tests/account-deletion.integration.test.ts',
   ], {
     cwd: root,
     stdio: 'inherit',

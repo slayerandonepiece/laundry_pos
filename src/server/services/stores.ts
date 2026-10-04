@@ -102,6 +102,7 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     lastInvoiceSeq: lastInvoice?.invoiceSeq,
     lastInvoiceAt: lastInvoice ? formatCalendarDate(lastInvoice.paidAt) : undefined,
     outletCount: row._count.outlets,
+    isReviewDemo: row.isReviewDemo,
   };
 }
 
@@ -185,6 +186,16 @@ export async function setStoreStatus(storeId: string, status: 'ACTIVE' | 'LOCKED
   const existing = await prisma.store.findUnique({ where: { id: storeId } });
   if (!existing) throw new ValidationError('Store not found.');
   await prisma.store.update({ where: { id: storeId }, data: { status } });
+  revalidateTag('stores', { expire: 0 });
+  const store = await getStore(storeId);
+  if (!store) throw new Error('Store not found after update.');
+  return store;
+}
+
+export async function setStoreReviewDemo(storeId: string, isReviewDemo: boolean): Promise<StoreDetail> {
+  const existing = await prisma.store.findUnique({ where: { id: storeId } });
+  if (!existing) throw new ValidationError('Store not found.');
+  await prisma.store.update({ where: { id: storeId }, data: { isReviewDemo } });
   revalidateTag('stores', { expire: 0 });
   const store = await getStore(storeId);
   if (!store) throw new Error('Store not found after update.');
