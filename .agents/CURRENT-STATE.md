@@ -3,6 +3,24 @@
 Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
 changes are deployed to production.
 
+## Account deletion (2026-10-04 working tree)
+
+- Additive migration `20261004100000_account_deletion` (applied to dev and stage Neon; prod pending):
+  `AccountDeletionRequest` (no FKs, opaque ids and dates only),
+  `BillingRecordArchive`, `Store.isReviewDemo`, `Store.deletionScheduledFor`.
+- Mobile contract: `POST /api/v1/account/deletion` (+ `/restore`), `deletionScheduledFor`
+  on login/status, 403 `deletion_pending` everywhere else; see MOBILE-API-CONTRACT.md.
+  Web: owner Profile "Delete organization" and a Restore button on the blocked screen.
+  Employee self-deletion has no web UI (mobile only).
+- `GET /api/cron/account-deletion` (Bearer `CRON_SECRET`, daily in `vercel.json`) wipes
+  due requests and auto-restores stale demo requests. `DELETION_GRACE_DAYS` defaults to 90.
+- Super Admin: Organizations edit screen toggles `isReviewDemo`; "Deletion requests"
+  page (filters, Restore, Delete now, pending badge in the nav).
+- No demo data is seeded by any script. `Store.isReviewDemo` (toggle on the Organizations edit
+  screen) still protects a flagged organization from the wipe job and auto-restores its requests.
+- Privacy page retention/rights text updated; deletion-log line marked for legal review.
+- Tests: `tests/account-deletion.integration.test.ts` (in the disposable-Postgres runner).
+
 ## Expense routes and auth/tenant hardening 2 (2026-10-01 working tree)
 
 - OWNER-only `PUT/DELETE /api/v1/expenses/{id}` edit or delete expenses;

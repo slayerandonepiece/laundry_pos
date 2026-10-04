@@ -17,10 +17,11 @@ const links: [string, IconName, string][] = [
   ['/super-admin/payment-methods', 'card', 'Payment methods'],
   ['/super-admin/announcements', 'bell', 'Announcements'],
   ['/super-admin/activity', 'history', 'Activity'],
+  ['/super-admin/deletion-requests', 'trash', 'Deletion requests'],
   ['/super-admin/profile', 'users', 'Profile'],
 ];
 
-function Nav({ pathname, name, onNavigate }: { pathname: string; name: string; onNavigate?: () => void }) {
+function Nav({ pathname, name, pendingDeletions = 0, onNavigate }: { pathname: string; name: string; pendingDeletions?: number; onNavigate?: () => void }) {
   return <>
     <div className="brand">
       <span className="brand-mark"><Icon name="logo" size="l" /></span>
@@ -41,6 +42,7 @@ function Nav({ pathname, name, onNavigate }: { pathname: string; name: string; o
         }
         return <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={active ? 'on' : ''} onClick={onNavigate}>
           <Icon name={icon} />{label}
+          {href === '/super-admin/deletion-requests' && pendingDeletions > 0 && <span className="badge warm plain" style={{ marginLeft: 'auto' }} aria-label={`${pendingDeletions} pending`}>{pendingDeletions}</span>}
         </Link>;
       })}
     </nav>
@@ -55,7 +57,7 @@ function Nav({ pathname, name, onNavigate }: { pathname: string; name: string; o
 // free (showModal()), and — critically — is only mounted while open, so its
 // links never sit in the tab order behind a CSS-hidden drawer. Mirrors the
 // store workspace's MobileNavigation in features/admin/components/AdminChrome.tsx.
-function MobileNav({ pathname, name, onClose }: { pathname: string; name: string; onClose: () => void }) {
+function MobileNav({ pathname, name, pendingDeletions, onClose }: { pathname: string; name: string; pendingDeletions: number; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current!, previous = document.activeElement as HTMLElement;
@@ -72,7 +74,7 @@ function MobileNav({ pathname, name, onClose }: { pathname: string; name: string
   return <dialog ref={ref} className="side-dialog" aria-label="Navigation" onCancel={e => { e.preventDefault(); onClose(); }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div className="side">
       <button className="icon-btn side-close" aria-label="Close navigation" onClick={onClose}><Icon name="close" /></button>
-      <Nav pathname={pathname} name={name} onNavigate={onClose} />
+      <Nav pathname={pathname} name={name} pendingDeletions={pendingDeletions} onNavigate={onClose} />
     </div>
   </dialog>;
 }
@@ -82,7 +84,7 @@ function MobileNav({ pathname, name, onClose }: { pathname: string; name: string
 // navigations — each page's own title/subtitle/action heading now renders
 // as part of its own content instead, inside {children}, alongside the
 // per-route loading.tsx fallback.
-export default function SuperAdminChrome({ name, children }: { name: string; children: ReactNode }) {
+export default function SuperAdminChrome({ name, pendingDeletions = 0, children }: { name: string; pendingDeletions?: number; children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState(false);
@@ -100,9 +102,9 @@ export default function SuperAdminChrome({ name, children }: { name: string; chi
 
   return <div className="app">
     <aside className="side">
-      <Nav pathname={pathname} name={name} />
+      <Nav pathname={pathname} name={name} pendingDeletions={pendingDeletions} />
     </aside>
-    {menu && <MobileNav pathname={pathname} name={name} onClose={() => setMenu(false)} />}
+    {menu && <MobileNav pathname={pathname} name={name} pendingDeletions={pendingDeletions} onClose={() => setMenu(false)} />}
     <div className="workspace">
       <header className="top">
         <button className="menu-toggle icon-btn" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="hamburger" /></button>

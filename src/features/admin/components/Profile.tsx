@@ -34,6 +34,7 @@ export default function Profile({
   onSave,
   onPassword,
   onLogout,
+  onRequestDeletion,
   error
 }: {
   readOnly?: boolean;
@@ -47,6 +48,7 @@ export default function Profile({
   onSave: (p: ProfileType) => void;
   onPassword: (old: string, next: string, confirm: string) => Promise<boolean>;
   onLogout: () => void;
+  onRequestDeletion?: () => void;
   error: string;
 }) {
   const [showEdit, setShowEdit] = useState(false);
@@ -141,6 +143,13 @@ export default function Profile({
               </div>
             </Card>
           </>
+        )}
+
+        {role !== 'employee' && onRequestDeletion && (
+          <Card>
+            <CardHeading title="Delete organization" subtitle="Permanently delete this organization and all of its data after a grace period (90 days by default). Signing in and restoring before then cancels it." />
+            <Button secondary disabled={readOnly} onClick={onRequestDeletion}>Request deletion</Button>
+          </Card>
         )}
 
         <Card className="ad-account-card">

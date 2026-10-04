@@ -12,7 +12,8 @@ import {
   type SessionUser,
   type StoreSessionOptions,
 } from '@/server/auth/session';
-import { ValidationError } from '@/server/errors';
+import { ConflictError, ValidationError } from '@/server/errors';
+import { getPendingDeletion } from '@/server/services/account-deletion';
 import { isKnownSafeMessage } from '@/server/api/public-errors';
 import type { Role } from '@/generated/prisma/client';
 
@@ -33,6 +34,10 @@ export function formatApiError(error: unknown): Response {
     if (error.code === 'FORBIDDEN') {
       return jsonResponse({ error: 'Forbidden', reason: error.reason }, 403);
     }
+  }
+
+  if (error instanceof ConflictError) {
+    return jsonResponse({ error: error.message }, 409);
   }
 
   if (error instanceof ValidationError) {
@@ -88,14 +93,21 @@ export function resolveOutletIdFromRequest(req: Request): string | undefined {
 // A mobile (bearer) session whose user must still set a new password may only
 // reach the endpoints that pass allowMustChangePassword (status, set/change
 // password, logout); every other API route refuses it here.
+//
+// A user with a PENDING account-deletion request may only reach the endpoints
+// that pass allowDeletionPending (/auth/*, /account/deletion/*); everything
+// else answers 403 'deletion_pending' until they restore.
 export async function requireApiAuth(
   req: Request,
-  options?: { allowMustChangePassword?: boolean },
+  options?: { allowMustChangePassword?: boolean; allowDeletionPending?: boolean },
 ): Promise<SessionUser> {
   const session = await getSessionFromRequest(req);
   if (!session) throw new AuthError('UNAUTHENTICATED');
   if (session.mustChangePassword && !options?.allowMustChangePassword) {
     throw new AuthError('FORBIDDEN', 'must_change_password');
+  }
+  if (!options?.allowDeletionPending && await getPendingDeletion(session.id)) {
+    throw new AuthError('FORBIDDEN', 'deletion_pending');
   }
   return session;
 }
