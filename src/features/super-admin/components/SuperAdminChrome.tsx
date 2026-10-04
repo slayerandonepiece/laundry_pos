@@ -16,6 +16,7 @@ const links: [string, IconName, string][] = [
   ['/super-admin/billing', 'card', 'Billing'],
   ['/super-admin/payment-methods', 'card', 'Payment methods'],
   ['/super-admin/announcements', 'bell', 'Announcements'],
+  ['/super-admin/app-updates', 'bell', 'App updates'],
   ['/super-admin/activity', 'history', 'Activity'],
   ['/super-admin/deletion-requests', 'trash', 'Deletion requests'],
   ['/super-admin/profile', 'users', 'Profile'],
