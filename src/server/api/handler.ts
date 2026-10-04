@@ -12,6 +12,9 @@ import {
   type SessionUser,
   type StoreSessionOptions,
 } from '@/server/auth/session';
+import { headers as nextHeaders } from 'next/headers';
+import { after } from 'next/server';
+import { getUpdateAdvice, needsUpdateConfigRefresh, refreshUpdateConfig } from '@/server/services/app-update-settings';
 import { ConflictError, ValidationError } from '@/server/errors';
 import { getPendingDeletion } from '@/server/services/account-deletion';
 import { isKnownSafeMessage } from '@/server/api/public-errors';
@@ -141,7 +144,7 @@ export async function requireApiOutletSession(
   return requireOutletSession(storeId, outletId, role, session, options);
 }
 
-export async function handleApiRoute(
+async function runApiRoute(
   handler: () => Promise<Response>,
   options?: { request: Request; cacheTtlSeconds: number },
 ): Promise<Response> {
@@ -168,4 +171,62 @@ export async function handleApiRoute(
   } catch (error) {
     return formatApiError(error);
   }
+}
+
+// Advisory only: tells the mobile app whether a newer build is wanted. It must
+// never change a response's status or body, delay it, or throw — any failure
+// means no header. Every /api/v1 route goes through handleApiRoute, so this is the
+// single place the header is added (success, error, 304 and 204 alike).
+// The level comes from an in-memory snapshot; a stale snapshot is refreshed
+// after the response is sent, so no request ever waits on the database.
+function refreshUpdateConfigAfterResponse(): void {
+  try {
+    if (!needsUpdateConfigRefresh()) return;
+    try {
+      after(() => refreshUpdateConfig());
+    } catch {
+      // Outside a request scope (scripts, tests): refresh in the background.
+      void refreshUpdateConfig();
+    }
+  } catch {
+    // Advisory only: a scheduling failure must never reach the caller.
+  }
+}
+
+function setUpdateHeaders(res: Response, advice: { level: string; minVersion: string | null }): void {
+  res.headers.set('X-Update-Level', advice.level);
+  if (advice.minVersion) res.headers.set('X-Update-Min-Version', advice.minVersion);
+}
+
+async function withUpdateLevel(res: Response, request?: Request): Promise<Response> {
+  let advice: ReturnType<typeof getUpdateAdvice> = null;
+  try {
+    const h = request?.headers ?? (await nextHeaders());
+    advice = getUpdateAdvice(h.get('x-app-platform'), h.get('x-app-version'));
+  } catch {
+    advice = null;
+  }
+  refreshUpdateConfigAfterResponse();
+  // No snapshot yet (cold instance) or any failure: send nothing. The app reads
+  // a missing header as "no information" and keeps what it already knows.
+  if (!advice) return res;
+  try {
+    setUpdateHeaders(res, advice);
+    return res;
+  } catch {
+    try {
+      const copy = new Response(res.body, res);
+      setUpdateHeaders(copy, advice);
+      return copy;
+    } catch {
+      return res;
+    }
+  }
+}
+
+export async function handleApiRoute(
+  handler: () => Promise<Response>,
+  options?: { request: Request; cacheTtlSeconds: number },
+): Promise<Response> {
+  return withUpdateLevel(await runApiRoute(handler, options), options?.request);
 }
