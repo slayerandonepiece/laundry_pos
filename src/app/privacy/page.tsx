@@ -43,16 +43,17 @@ const sections: LegalSection[] = [
     <ul>
       <li><strong>Active subscription:</strong> data is kept while the account is active.</li>
       <li><strong>Subscription not renewed:</strong> the account is placed on hold. Data is retained so the store can resume exactly where it left off once it subscribes again.</li>
-      <li><strong>Store chooses to stop using KlenPOS:</strong> all of the store’s data is permanently deleted within <strong>3 months</strong> of that decision. During this period the store may ask us to restore the account. After it, deletion is final.</li>
+      <li><strong>Account deletion requested:</strong> store owners and employees can request deletion inside the app. Your data is then kept for a grace period (90 days) and <strong>permanently deleted after it ends</strong>. If you sign in and choose to restore your account before then, the deletion is cancelled and nothing is lost.</li>
     </ul>
-    <p>Copies in provider backups are removed as those backups expire. We may keep limited records where the law requires, for example billing records.</p>
+    <p>Copies in provider backups are removed as those backups expire. We may keep limited records where the law requires, for example billing records (amounts, dates and invoice numbers, without names or contact details).</p>
+    <p><strong>Deletion log.</strong> To show that we honoured each request, we keep a minimal deletion log: an opaque internal ID, the role (owner or employee), and the request and completion dates. It contains no name, phone number or email address. {/* LEGAL REVIEW: confirm this retained deletion log and the billing-record retention above are acceptable under DPDP Act, 2023 and applicable tax law. */}</p>
   </> },
   { id: 'rights', heading: 'Your rights and account deletion', body: <>
     <p>Under the Digital Personal Data Protection Act, 2023, you may ask to access, correct or delete your personal data, withdraw consent, and nominate someone to act for you.</p>
     <ul>
       <li><strong>Store owners and staff:</strong> email <a href={`mailto:${LEGAL.supportEmail}`}>{LEGAL.supportEmail}</a> from your registered contact and we will act on the request within 30 days.</li>
       <li><strong>A store’s customers:</strong> your data is held by the store you used. Please ask the store; we will help the store fulfil the request.</li>
-      <li><strong>Delete my account or data:</strong> email us with the subject “Delete account”. Deletion follows the retention rules above.</li>
+      <li><strong>Delete my account or data:</strong> request deletion in the app (owners delete the whole store and its data; employees delete their own login), or email us with the subject “Delete account”. Deletion follows the retention rules above.</li>
     </ul>
     <p>Grievance contact: {LEGAL.operatorName}, <a href={`mailto:${LEGAL.supportEmail}`}>{LEGAL.supportEmail}</a>.</p>
   </> },

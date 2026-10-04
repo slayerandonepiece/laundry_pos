@@ -23,6 +23,7 @@ export interface StoreListItem {
   lastInvoiceSeq?: number;
   lastInvoiceAt?: string;
   outletCount: number;
+  isReviewDemo: boolean;
 }
 
 // "Collected this year" — financial-year (Apr 1 - Mar 31) revenue aggregate

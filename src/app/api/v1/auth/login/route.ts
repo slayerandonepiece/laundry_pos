@@ -6,6 +6,7 @@ import { verifyPassword, verifyPasswordAgainstDummy } from '@/server/auth/passwo
 import { createSessionRow } from '@/server/auth/session';
 import { buildMembershipContext } from '@/server/api/membership-context';
 import { checkLoginThrottle, recordFailedLoginAttempt, clearLoginThrottle } from '@/server/auth/throttle';
+import { getPendingDeletion } from '@/server/services/account-deletion';
 import { handleApiRoute, jsonResponse } from '@/server/api/handler';
 
 export const runtime = 'nodejs';
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
     const session = await createSessionRow(user.id, user.credentialVersion);
 
     const { stores, organizations } = await buildMembershipContext(user.id);
+    const pending = await getPendingDeletion(user.id);
 
     return jsonResponse({
       token: session.token,
@@ -57,6 +59,7 @@ export async function POST(req: NextRequest) {
         phone: user.phone,
         isSuperAdmin: user.isSuperAdmin,
         mustChangePassword: user.mustChangePassword,
+        ...(pending ? { deletionScheduledFor: pending.scheduledFor } : {}),
       },
       stores,
       organizations,

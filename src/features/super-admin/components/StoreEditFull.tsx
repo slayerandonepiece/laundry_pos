@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/features/admin/components/Primitives';
-import { updateStoreAction } from '../actions/stores.actions';
+import { updateStoreAction, setReviewDemoAction } from '../actions/stores.actions';
 import Icon from './Icon';
 import LockStoreDialog from './LockStoreDialog';
 import DeleteStoreDialog from './DeleteStoreDialog';
@@ -25,6 +25,21 @@ export default function StoreEditFull({ store, lifecycle, eligibility }: {
   const [notice, setNotice] = useState('');
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+
+  function toggleReviewDemo() {
+    setDemoBusy(true);
+    setError('');
+    setReviewDemoAction(store.id, !store.isReviewDemo)
+      .then(result => {
+        setDemoBusy(false);
+        if (!result.ok) { setError(result.error || 'Could not update this setting. Try again.'); return; }
+        setNotice(store.isReviewDemo ? 'Review demo turned off' : 'Review demo turned on');
+        router.refresh();
+        setTimeout(() => setNotice(''), 4000);
+      })
+      .catch(() => { setDemoBusy(false); setError('Could not update this setting. Try again.'); });
+  }
 
   function submit() {
     if (!name.trim()) return setError('Enter an organization name.');
@@ -67,6 +82,21 @@ export default function StoreEditFull({ store, lifecycle, eligibility }: {
           )}
         </div>
       </div>
+
+      {!archived && (
+        <div className="card">
+          <div className="card-head"><h2><Icon name="lock" />App-store review demo</h2></div>
+          <div className="card-body">
+            <div className="switch-row" style={{ alignItems: 'flex-start' }}>
+              <div>
+                <b>{store.isReviewDemo ? 'This is a protected review demo organization' : 'Mark as review demo organization'}</b>
+                <small>A review demo is never wiped by the deletion job, never blocked by subscription expiry, and its pending deletion requests restore themselves after 24 hours.</small>
+              </div>
+              <Button secondary type="button" onClick={toggleReviewDemo} disabled={demoBusy} style={{ flexShrink: 0 }}>{store.isReviewDemo ? 'Turn off' : 'Turn on'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!archived && (
         <div className="card" style={{ borderColor: '#f0cfcd' }}>

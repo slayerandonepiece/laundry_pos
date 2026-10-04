@@ -136,6 +136,12 @@ model Store {
   // payment history survives. Null means active/not archived.
   deletedAt     DateTime?
   accessGrantedUntil DateTime? @db.Date
+  // Protected app-store review organization: never wiped by the deletion job,
+  // never subscription-locked, and pending deletion requests auto-restore.
+  isReviewDemo  Boolean     @default(false)
+  // Set while an ORGANIZATION-scope AccountDeletionRequest is PENDING; locks
+  // the organization for everyone with blockedReason 'deletion_pending'.
+  deletionScheduledFor DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -641,4 +647,60 @@ model WorkspaceAnnouncement {
 
   @@index([published, createdAt])
   @@map("workspace_announcements")
+}
+
+enum DeletionScope {
+  ORGANIZATION
+  SELF
+}
+
+enum DeletionStatus {
+  PENDING
+  RESTORED
+  COMPLETED
+}
+
+enum DeletionChannel {
+  MOBILE
+  WEB
+  SUPPORT
+}
+
+// Proof that a deletion request was honoured. Deliberately NO foreign keys and
+// NO personal fields (no phone, name, email, organization name — not even
+// hashed): opaque ids, role and dates only, so rows survive the permanent wipe.
+model AccountDeletionRequest {
+  id             String          @id @default(cuid())
+  userId         String
+  organizationId String?
+  role           Role
+  scope          DeletionScope
+  status         DeletionStatus  @default(PENDING)
+  requestedAt    DateTime        @default(now())
+  scheduledFor   DateTime
+  restoredAt     DateTime?
+  completedAt    DateTime?
+  requestedVia   DeletionChannel
+
+  @@index([status, scheduledFor])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("account_deletion_requests")
+}
+
+// Billing facts retained after an organization is wiped, for tax/accounting
+// retention only. No FKs; no name, phone, email, reference, notes or recorder.
+model BillingRecordArchive {
+  id             String                  @id @default(cuid())
+  organizationId String
+  invoiceSeq     Int                     @unique
+  type           SubscriptionPaymentType
+  amount         Int // paise
+  method         PaymentMethod?
+  paidAt         DateTime                @db.Date
+  coversFrom     DateTime?               @db.Date
+  coversTo       DateTime?               @db.Date
+  archivedAt     DateTime                @default(now())
+
+  @@map("billing_record_archive")
 }
