@@ -117,12 +117,12 @@ test('sync status: owner-only fields are null for an employee and populated for 
   await prisma.subscriptionPayment.create({ data: { storeId: org.store.id, type: 'RENEWAL', amount: 100, paidAt: new Date('2026-10-01') } });
   const owner = await getSync(org.owner.token);
   const employee = await getSync(org.employee.token);
-  const keys = ['productsUpdatedAt', 'ordersUpdatedAt', 'paymentMethodsUpdatedAt', 'messageTemplatesUpdatedAt', 'profileUpdatedAt', 'expensesUpdatedAt', 'employeesUpdatedAt', 'invoicesUpdatedAt'];
+  const keys = ['productsUpdatedAt', 'ordersUpdatedAt', 'paymentMethodsUpdatedAt', 'messageTemplatesUpdatedAt', 'profileUpdatedAt', 'expensesUpdatedAt', 'employeesUpdatedAt', 'invoicesUpdatedAt', 'planUpdatedAt'];
   assert.deepEqual(Object.keys(owner).sort(), [...keys].sort());
-  for (const key of ['paymentMethodsUpdatedAt', 'messageTemplatesUpdatedAt', 'profileUpdatedAt', 'expensesUpdatedAt', 'employeesUpdatedAt', 'invoicesUpdatedAt']) {
+  for (const key of ['paymentMethodsUpdatedAt', 'messageTemplatesUpdatedAt', 'profileUpdatedAt', 'expensesUpdatedAt', 'employeesUpdatedAt', 'invoicesUpdatedAt', 'planUpdatedAt']) {
     assert.ok(owner[key] && !Number.isNaN(Date.parse(owner[key]!)), `owner ${key}`);
   }
-  for (const key of ['expensesUpdatedAt', 'employeesUpdatedAt', 'invoicesUpdatedAt']) assert.equal(employee[key], null, `employee ${key}`);
+  for (const key of ['expensesUpdatedAt', 'employeesUpdatedAt', 'invoicesUpdatedAt', 'planUpdatedAt']) assert.equal(employee[key], null, `employee ${key}`);
   for (const key of ['paymentMethodsUpdatedAt', 'messageTemplatesUpdatedAt', 'profileUpdatedAt']) assert.equal(employee[key], owner[key]);
 });
 

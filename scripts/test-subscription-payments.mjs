@@ -54,6 +54,7 @@ try {
     'tests/sales-search.integration.test.ts',
     'tests/subscription-terms.integration.test.ts',
     'tests/sync-status-templates.integration.test.ts',
+    'tests/subscription-plan-mobile.integration.test.ts',
   ], {
     cwd: root,
     stdio: 'inherit',

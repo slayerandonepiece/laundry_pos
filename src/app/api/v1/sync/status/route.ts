@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const storeId = session.storeId;
     const owner = session.storeRole === 'OWNER';
     const none = Promise.resolve(null);
-    const [product, order, platformMethod, orgMethod, platformTemplate, orgTemplate, store, expense, employee, invoice] = await Promise.all([
+    const [product, order, platformMethod, orgMethod, platformTemplate, orgTemplate, store, expense, employee, invoice, subscription] = await Promise.all([
       prisma.product.findFirst({ where: { storeId }, orderBy: newest, select: pick }),
       prisma.order.findFirst({ where: { storeId }, orderBy: newest, select: pick }),
       // Not filtered to active: deactivating a method must move the value.
@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
       owner ? prisma.user.findFirst({ where: { memberships: { some: { storeId, role: 'EMPLOYEE' } } }, orderBy: newest, select: pick }) : none,
       // SubscriptionPayment has no updatedAt; rows are never edited, so createdAt is the change time.
       owner ? prisma.subscriptionPayment.findFirst({ where: { storeId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }) : none,
+      // The terms an owner sees come from the plan row unless the subscription overrides them, so
+      // an edit to either one moves this.
+      owner ? prisma.subscription.findUnique({ where: { storeId }, select: { updatedAt: true, plan: { select: { updatedAt: true } } } }) : none,
     ]);
     return jsonResponse({
       productsUpdatedAt: product?.updatedAt.toISOString() ?? null,
@@ -44,6 +47,7 @@ export async function GET(req: NextRequest) {
       expensesUpdatedAt: expense?.updatedAt.toISOString() ?? null,
       employeesUpdatedAt: employee?.updatedAt.toISOString() ?? null,
       invoicesUpdatedAt: invoice?.createdAt.toISOString() ?? null,
+      planUpdatedAt: subscription ? latest(subscription, subscription.plan) : null,
     });
   });
 }

@@ -544,6 +544,15 @@ Read-only, OWNER only, available while the store is locked or lapsed
   type: 'DEPOSIT' | 'RENEWAL', amount (paise), method | null, paidAt (yyyy-MM-dd),
   coversFrom | null, coversTo | null }] }`, newest first. No internal fields
   (recorder, free-text reference).
+- The same response carries a top-level `plan` (added 2026-10-07, additive):
+  `{ planName: string | null, annualFeeAmount: number, depositAmount: number }`. Amounts are
+  **paise** (same unit as `invoices[].amount`; the web divides by 100). They are the organization's
+  *effective* terms read live (`getStore` / `effectiveSubscriptionTerms`): the plan's current price
+  unless the organization has its own, so a Super Admin plan or fee edit shows with no other write.
+  `planName` is `null` on custom terms (the client shows "Custom terms"). `depositAmount` is `0`
+  when none or waived (never null). Same access as the invoices: OWNER only, `allowRestricted` +
+  `allowLockedReadOnly`; employees get 403. No separate `/subscription` route was added: the
+  mobile app already calls this one when billing opens.
 - `GET /api/v1/subscription/invoices/{invoiceSeq}/pdf[?download=1]` → the same
   PDF Super Admin renders. Another store's invoice, or an unknown number, is a
   plain 404. Employees get 403.
@@ -628,6 +637,7 @@ organization template reset to default) can leave the value equal or move it bac
 | `expensesUpdatedAt` | newest expense `updatedAt` | `null` |
 | `employeesUpdatedAt` | newest `User.updatedAt` among the store's employee members | `null` |
 | `invoicesUpdatedAt` | newest `SubscriptionPayment.createdAt` (that table has no `updatedAt`; rows are not edited) | `null` |
+| `planUpdatedAt` | max of the organization's `Subscription.updatedAt` and its plan's `SubscriptionPlan.updatedAt`; moves on a plan edit, a plan change or an override, and also on renewals/deposit payments (over-triggers harmlessly: refetch `GET /subscription/invoices`) | `null` |
 
 Every value is an ISO string, or `null` when there are no rows (or the caller is an employee for the
 owner-only fields). Known blind spots (no usable `updatedAt`, no migration added): employee
