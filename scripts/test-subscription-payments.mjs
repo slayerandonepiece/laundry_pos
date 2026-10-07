@@ -46,6 +46,7 @@ try {
     'tests/super-admin-profile.integration.test.ts',
     'tests/workspace-announcements.integration.test.ts',
     'tests/account-deletion.integration.test.ts',
+    'tests/app-update.integration.test.ts',
     'tests/document-numbering.integration.test.ts',
     'tests/org-settings.integration.test.ts',
     'tests/order-flow.integration.test.ts',

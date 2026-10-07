@@ -3,6 +3,16 @@
 Last reviewed: 2026-10-06. Describes the working tree; it does not assert these
 changes are deployed to production.
 
+## App-update advisory (2026-10-04)
+
+- `X-Update-Level` (and, for soft/urgent, `X-Update-Min-Version`) on every `/api/v1` response via
+  `handleApiRoute`; an instance that has not loaded its settings yet sends neither header.
+  Thresholds live in the new `app_update_settings` table (migration
+  `20261004120000_app_update_settings`, additive; **applied to dev Neon, pending on stage and prod**),
+  editable at `/super-admin/app-updates`. Levels are served from an in-memory snapshot refreshed after
+  the response (at most every 15 s). See MOBILE-API-CONTRACT.md.
+- Tests: `tests/app-update.integration.test.ts` (in the disposable-Postgres runner).
+
 ## Mobile sync status and message templates (2026-10-07 working tree, uncommitted)
 
 - New `GET /api/v1/message-templates` (any member, read-only, `allowRestricted: true`): all four statuses in order, built from `listOrganizationMessageTemplates`; inherited rows read the platform template live and report its `updatedAt` (new `defaultUpdatedAt` on the DTO). No migration.

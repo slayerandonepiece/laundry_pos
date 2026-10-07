@@ -20,6 +20,7 @@ const links: [string, IconName, string, string][] = [
   ['/super-admin/tools/import', 'export', 'Import history', 'Import'],
   ['/super-admin/tools/corrections', 'edit', 'Order corrections', 'Fixes'],
   ['/super-admin/announcements', 'bell', 'Announcements', 'News'],
+  ['/super-admin/app-updates', 'bell', 'App updates', 'Updates'],
   ['/super-admin/activity', 'history', 'Activity', 'Activity'],
   ['/super-admin/deletion-requests', 'trash', 'Deletion requests', 'Deletes'],
   ['/super-admin/profile', 'users', 'Profile', 'Profile'],

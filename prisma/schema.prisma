@@ -814,3 +814,16 @@ model ImportBatch {
   @@index([outletId])
   @@map("import_batches")
 }
+
+// Per-platform app-update advisory thresholds (X-Update-Level header on
+// /api/v1). One row per platform ("ios" | "android"); a null column means
+// unset, which always yields level "none". Editable by Super Admin.
+model AppUpdateSetting {
+  platform          String   @id
+  softMinVersion    String?
+  urgentMinVersion  String?
+  updatedAt         DateTime @updatedAt
+  updatedById       String?
+
+  @@map("app_update_settings")
+}

@@ -58,6 +58,41 @@ Base: `<origin>/api/v1`. Every response carries
 for an owner it means "the whole organization". Never send an empty
 string.
 
+### App-update advisory (added 2026-10-04)
+
+Request headers the app sends on every call: `X-App-Platform` (`ios` |
+`android`), `X-App-Version` (semver name, e.g. `1.0.0`), `X-App-Build`
+(integer; ignored by the server). Builds 1.0.0+1 and 1.0.0+2 send none.
+
+Every `/api/v1` response — success, 304/204 and errors (401/403/429/500…)
+— carries `X-Update-Level: none | soft | urgent`, except from an instance that
+has not loaded its settings yet (a cold start or an unreachable database),
+which sends **no update headers at all**: a missing header means "no
+information", never "none", and the app keeps what it already knows. When the
+level is `soft` or `urgent` the response also carries `X-Update-Min-Version`,
+the minimum version behind that level, so the app can double-check against its
+own installed version and ignore the level if it is already at or above it.
+Per platform:
+version < `urgentMinVersion` -> `urgent`; else version < `softMinVersion` ->
+`soft`; else `none`. Only the version name is compared (numerically, so
+1.10.0 > 1.9.0; equal to the minimum is *not* below it; `1`/`1.2` mean
+`1.0.0`/`1.2.0`). Missing or unparsable headers (including `1.0.0+2` or
+pre-release suffixes), an unknown platform, or unset config give `none` (with no
+`X-Update-Min-Version`).
+
+It is advisory only: it never changes a status code or body, never rejects a
+request, and any failure computing it means no headers. Implemented once in
+`handleApiRoute` (`src/server/api/handler.ts`); pure logic in
+`src/server/app-update.ts`. A route that bypasses `handleApiRoute` would miss
+the header — there are none today, and unmatched `/api/v1/*` paths (Next.js
+404) do not carry it. Thresholds live in the `app_update_settings` table
+(one row per platform, both columns nullable = unset), edited by Super Admin
+at `/super-admin/app-updates`; each server instance answers from an in-memory
+snapshot and refreshes it after a response is sent (at most every 15 s, one
+shared lookup, last good value kept on failure; a brand-new instance reports
+`none` until its first refresh). A change applies within about 15 s without a
+redeploy; the instance that handled the save sees it immediately.
+
 ### Errors
 
 ```jsonc
