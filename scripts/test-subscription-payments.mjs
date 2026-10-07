@@ -46,6 +46,14 @@ try {
     'tests/super-admin-profile.integration.test.ts',
     'tests/workspace-announcements.integration.test.ts',
     'tests/account-deletion.integration.test.ts',
+    'tests/document-numbering.integration.test.ts',
+    'tests/org-settings.integration.test.ts',
+    'tests/order-flow.integration.test.ts',
+    'tests/order-import.integration.test.ts',
+    'tests/order-corrections.integration.test.ts',
+    'tests/sales-search.integration.test.ts',
+    'tests/subscription-terms.integration.test.ts',
+    'tests/sync-status-templates.integration.test.ts',
   ], {
     cwd: root,
     stdio: 'inherit',
@@ -53,6 +61,14 @@ try {
   });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
+  // @react-pdf/renderer does not load under tsx or the react-server condition above, but
+  // Next bundles it fine. Bundle the database-free PDF test the same way and run it.
+  run('npx', ['esbuild', 'tests/order-pdf.test.mts', '--bundle', '--platform=node', '--format=esm', '--jsx=automatic', '--alias:@=./src',
+    '--external:pdfjs-dist', '--external:pdfkit', '--outfile=node_modules/.cache/pdf-test/order-pdf.test.mjs',
+    '--banner:js=import { createRequire as __cr } from "module"; const require = __cr(import.meta.url);']);
+  const pdf = spawnSync(process.execPath, ['--test', join(root, 'node_modules/.cache/pdf-test/order-pdf.test.mjs')], { cwd: root, stdio: 'inherit' });
+  if (pdf.error) throw pdf.error;
+  if (pdf.status) process.exitCode = pdf.status;
 } catch (error) {
   console.error('Local subscription integration test failed:', error.message);
   if (error.stderr) console.error(String(error.stderr));

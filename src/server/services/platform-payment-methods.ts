@@ -4,11 +4,15 @@ import { unstable_cache, revalidateTag } from 'next/cache';
 import { prisma } from '@/server/db';
 import { ValidationError } from '@/server/errors';
 
+export type PaymentStage = 'PRE_ORDER' | 'POST_ORDER' | 'BOTH';
+
 export interface PlatformPaymentMethodDTO {
   id: string;
   code: string;
   name: string;
   active: boolean;
+  enabledByDefault: boolean;
+  defaultStage: PaymentStage;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,6 +22,41 @@ export interface OrganizationPaymentMethodDTO {
   code: string;
   name: string;
   enabled: boolean;
+  // Where the method appears: when the order is placed, after it, or both.
+  // Always the catalogue stage (PlatformPaymentMethod.defaultStage), never stored per organization.
+  stage: PaymentStage;
+}
+
+const stageSchema = z.enum(['PRE_ORDER', 'POST_ORDER', 'BOTH']);
+
+/** Cash on delivery is a promise to pay, never money received, so it only exists at order placement. */
+export const CASH_ON_DELIVERY_CODE = 'COD';
+
+export function isCashOnDeliveryCode(code: string | undefined | null): boolean {
+  return code === CASH_ON_DELIVERY_CODE;
+}
+
+/** Validates a stage for a method code. COD may only be PRE_ORDER. */
+export function validatePaymentStage(code: string, stageInput: string): PaymentStage {
+  const stage = stageSchema.parse(stageInput);
+  if (isCashOnDeliveryCode(code) && stage !== 'PRE_ORDER') {
+    throw new ValidationError('Cash on delivery can only appear when the order is placed.');
+  }
+  return stage;
+}
+
+/**
+ * The one place a method's stage is read. The platform catalogue owns it
+ * (`defaultStage` is the authoritative stage, not a seed value); organizations
+ * only store whether a method is enabled.
+ */
+export function effectiveStage(platformMethod: { defaultStage: PaymentStage }): PaymentStage {
+  return platformMethod.defaultStage;
+}
+
+/** True when a stage lets the method be used in the given phase of an order. */
+export function stageAllows(stage: PaymentStage, phase: 'PRE_ORDER' | 'POST_ORDER'): boolean {
+  return stage === 'BOTH' || stage === phase;
 }
 
 const codeSchema = z
@@ -44,10 +83,13 @@ export function normalizePlatformPaymentCode(code: string): string {
 export async function createPlatformPaymentMethod(input: {
   code: string;
   name: string;
+  enabledByDefault?: boolean;
+  defaultStage?: PaymentStage;
 }): Promise<PlatformPaymentMethodDTO> {
   const code = normalizePlatformPaymentCode(input.code);
   codeSchema.parse(code);
   const name = nameSchema.parse(input.name);
+  const defaultStage = validatePaymentStage(code, input.defaultStage ?? (isCashOnDeliveryCode(code) ? 'PRE_ORDER' : 'BOTH'));
 
   const existing = await prisma.platformPaymentMethod.findUnique({
     where: { code },
@@ -61,6 +103,8 @@ export async function createPlatformPaymentMethod(input: {
       code,
       name,
       active: true,
+      enabledByDefault: input.enabledByDefault ?? false,
+      defaultStage,
     },
   });
   revalidateTag('platform-payment-methods', { expire: 0 });
@@ -77,7 +121,7 @@ export const listPlatformPaymentMethods = unstable_cache(
       orderBy: [{ active: 'desc' }, { name: 'asc' }],
     });
   },
-  ['platform-payment-methods'],
+  ['platform-payment-methods', 'v2-stage-defaults'],
   { revalidate: 60, tags: ['platform-payment-methods'] },
 );
 
@@ -87,14 +131,20 @@ export const listPlatformPaymentMethods = unstable_cache(
  */
 export async function updatePlatformPaymentMethod(
   id: string,
-  input: { name?: string; active?: boolean },
+  input: { name?: string; active?: boolean; enabledByDefault?: boolean; defaultStage?: PaymentStage },
 ): Promise<PlatformPaymentMethodDTO> {
   const existing = await prisma.platformPaymentMethod.findUnique({ where: { id } });
   if (!existing) {
     throw new ValidationError('Platform payment method not found.');
   }
 
-  const data: { name?: string; active?: boolean } = {};
+  const data: { name?: string; active?: boolean; enabledByDefault?: boolean; defaultStage?: PaymentStage } = {};
+  if (input.enabledByDefault !== undefined) {
+    data.enabledByDefault = input.enabledByDefault;
+  }
+  if (input.defaultStage !== undefined) {
+    data.defaultStage = validatePaymentStage(existing.code, input.defaultStage);
+  }
   if (input.name !== undefined) {
     data.name = nameSchema.parse(input.name);
   }
@@ -135,6 +185,7 @@ export async function listOrganizationPaymentMethods(
       code: pm.code,
       name: pm.name,
       enabled: orgConfig?.enabled ?? false,
+      stage: effectiveStage(pm),
     };
   });
 }
@@ -177,8 +228,65 @@ export async function setOrganizationPaymentMethodEnabled(
       code: platformMethod.code,
       name: platformMethod.name,
       enabled: orgConfig.enabled,
+      stage: effectiveStage(platformMethod),
     };
   });
+}
+
+export interface OrganizationPaymentConfigInput {
+  platformPaymentMethodId: string;
+  enabled: boolean;
+}
+
+/**
+ * Super Admin: saves which payment methods an organization has enabled.
+ * Validated as a set so a half-saved state can never leave the organization
+ * unable to collect payment at delivery: at least one method must be enabled,
+ * and at least one enabled method must appear after the order is placed
+ * (judged from the catalogue stages, which an organization cannot override).
+ */
+export async function saveOrganizationPaymentConfig(
+  storeId: string,
+  items: OrganizationPaymentConfigInput[],
+): Promise<OrganizationPaymentMethodDTO[]> {
+  const store = await prisma.store.findUnique({ where: { id: storeId }, select: { id: true } });
+  if (!store) throw new ValidationError('Organization not found.');
+  if (new Set(items.map(item => item.platformPaymentMethodId)).size !== items.length) {
+    throw new ValidationError('A payment method appears more than once.');
+  }
+  const platformMethods = await prisma.platformPaymentMethod.findMany({
+    where: { id: { in: items.map(item => item.platformPaymentMethodId) } },
+  });
+  const byId = new Map(platformMethods.map(method => [method.id, method]));
+  const existing = await prisma.organizationPaymentMethod.findMany({ where: { storeId }, include: { platformPaymentMethod: true } });
+  const existingById = new Map(existing.map(row => [row.platformPaymentMethodId, row]));
+
+  const resolved = items.map(item => {
+    const method = byId.get(item.platformPaymentMethodId);
+    if (!method) throw new ValidationError('Payment method not found.');
+    if (item.enabled && !method.active && !existingById.get(method.id)?.enabled) {
+      throw new ValidationError(`${method.name} is inactive in the platform catalogue and cannot be enabled.`);
+    }
+    return { method, enabled: item.enabled };
+  });
+
+  // Methods the organization already has but the request omits keep their current state.
+  const omitted = existing.filter(row => !byId.has(row.platformPaymentMethodId));
+  const finalEnabled = [
+    ...resolved.filter(row => row.enabled).map(row => effectiveStage(row.method)),
+    ...omitted.filter(row => row.enabled).map(row => effectiveStage(row.platformPaymentMethod)),
+  ];
+  if (!finalEnabled.length) throw new ValidationError('Enable at least one payment method.');
+  if (!finalEnabled.some(stage => stage !== 'PRE_ORDER')) {
+    throw new ValidationError('Enable at least one method that appears after the order, so payment can be collected at delivery.');
+  }
+
+  await prisma.$transaction(resolved.map(row => prisma.organizationPaymentMethod.upsert({
+    where: { storeId_platformPaymentMethodId: { storeId, platformPaymentMethodId: row.method.id } },
+    create: { storeId, platformPaymentMethodId: row.method.id, enabled: row.enabled },
+    update: { enabled: row.enabled },
+  })));
+  return listOrganizationPaymentMethods(storeId);
 }
 
 export type PaymentMethodResolution =
@@ -195,13 +303,12 @@ export type PaymentMethodResolution =
 
 /**
  * Resolves and validates a payment method at order creation or payment recording.
- * New outlet-owned payments must use an explicitly enabled platform method.
- * Legacy methods remain available only for historical, pre-outlet orders.
+ * Every payment must use a platform method this organization has enabled.
  */
 export async function resolveActivePaymentMethod(
   storeId: string,
   methodInput: string,
-  options: { allowLegacy?: boolean } = {},
+  options: { phase?: 'PRE_ORDER' | 'POST_ORDER'; allowCashOnDelivery?: boolean } = {},
 ): Promise<PaymentMethodResolution> {
   const clean = methodInput.trim();
 
@@ -225,12 +332,25 @@ export async function resolveActivePaymentMethod(
   // Names are display labels and are not globally unique, and this lookup is
   // not tenant-scoped, so a candidate may belong to another organization
   // entirely. Only one this organization explicitly enabled counts; when none
-  // does, fall through to the legacy lookup rather than letting another
+  // does, report it as unavailable rather than letting another
   // tenant's naming choice block this organization's checkout.
   const platformMethod = platformMethods.find(
     candidate => candidate.organizationPaymentMethods[0]?.enabled === true,
   );
   if (platformMethod) {
+    // Cash on delivery is a promise to pay, so it can never be recorded as a payment.
+    if (isCashOnDeliveryCode(platformMethod.code) && !options.allowCashOnDelivery) {
+      return { valid: false, error: "Cash on delivery can't be recorded as a payment. Pick the method the customer actually used." };
+    }
+    const stage = effectiveStage(platformMethod);
+    if (options.phase && !stageAllows(stage, options.phase)) {
+      return {
+        valid: false,
+        error: options.phase === 'POST_ORDER'
+          ? "That payment method can't be used after the order is placed."
+          : "That payment method can't be used when placing the order.",
+      };
+    }
     return {
       valid: true,
       name: platformMethod.name,
@@ -239,26 +359,5 @@ export async function resolveActivePaymentMethod(
     };
   }
 
-  // Legacy methods cannot create new outlet-owned payments. They only keep
-  // older, pre-outlet orders operable while historical data is retired.
-  if (!options.allowLegacy) {
-    return { valid: false, error: 'That payment method is no longer available.' };
-  }
-
-  // 2. Fallback to legacy StorePaymentMethod for pre-outlet orders only.
-  const legacy = await prisma.storePaymentMethod.findFirst({
-    where: { storeId, name: clean, active: true },
-  });
-  if (legacy) {
-    return {
-      valid: true,
-      name: legacy.name,
-      platformPaymentMethodId: null,
-    };
-  }
-
-  return {
-    valid: false,
-    error: 'That payment method is no longer available.',
-  };
+  return { valid: false, error: 'That payment method is no longer available.' };
 }

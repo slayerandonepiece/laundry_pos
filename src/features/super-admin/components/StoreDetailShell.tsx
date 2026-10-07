@@ -16,7 +16,7 @@ interface LifecycleBadge {
   badgeClass: 'good' | 'warm' | 'bad' | 'info' | 'gray';
 }
 
-type TabKey = 'overview' | 'outlets' | 'users' | 'subscription' | 'activity';
+type TabKey = 'overview' | 'outlets' | 'users' | 'subscription' | 'payments' | 'messages' | 'activity';
 
 export default function StoreDetailShell({
   store,
@@ -52,6 +52,8 @@ export default function StoreDetailShell({
     ['outlets', '/outlets', 'Outlets', displayStore.outletCount],
     ['users', '/users', 'People', memberCount],
     ['subscription', '/subscription', 'Subscription', undefined],
+    ['payments', '/payments', 'Payments', undefined],
+    ['messages', '/messages', 'Messages', undefined],
     ['activity', '/activity', 'Activity', undefined],
   ];
 
@@ -131,7 +133,7 @@ export default function StoreDetailShell({
           setOverrideBadge(updated.status === 'LOCKED'
             ? { label: 'Locked', badgeClass: 'bad' }
             : updated.paymentState === 'unset'
-              ? { label: 'Terms not set', badgeClass: 'warm' }
+              ? { label: 'Awaiting payment', badgeClass: 'warm' }
               : updated.paymentState === 'expiring'
                 ? { label: 'Renewal due soon', badgeClass: 'warm' }
                 : updated.paymentState === 'locked'

@@ -1107,3 +1107,6 @@ table.grid th.num {
   max-width: 220px;
 }
 
+/* Order numbers are 10 digits; the global overflow-wrap:anywhere rule must not split them across lines. */
+.dashboard-order-link,
+td.mono { white-space: nowrap; overflow-wrap: normal; word-break: normal; }

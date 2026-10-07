@@ -1,19 +1,22 @@
 import { useState } from 'react';
-import type { Order, StorePaymentMethod } from '../admin.types';
+import type { Order, PaymentMethodOption } from '../admin.types';
 import { dateLabel, money, paid, total, paymentStatus, paymentMethodLabel } from '../admin.data';
 import { Badge, Button } from './Primitives';
+import { methodAllowsPhase } from '@/lib/paymentStage';
 
 function RecordPaymentForm({
   balance,
-  paymentMethods,
+  paymentMethods: allPaymentMethods,
   onPayment,
 }: {
   balance: number;
-  paymentMethods: StorePaymentMethod[];
+  paymentMethods: PaymentMethodOption[];
   onPayment: (amount: number, method: string) => void;
 }) {
   const [amount, setAmount] = useState('');
   const maxAmount = (balance / 100).toFixed(2);
+  // Only methods set to appear after the order is placed can record a payment.
+  const paymentMethods = allPaymentMethods.filter(method => methodAllowsPhase(method, 'POST_ORDER'));
 
   return (
     <form
@@ -45,24 +48,26 @@ function RecordPaymentForm({
           </Button>
         </div>
       </label>
-      <label>
-        Method
-        <select name="method">
-          {paymentMethods.map(method => (
-            <option key={method.id} value={method.name}>
-              {method.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <Button type="submit" disabled={!paymentMethods.length}>
-        Record payment
-      </Button>
+      <div className="ad-record-payment-method">
+        <label>
+          Method
+          <select name="method">
+            {paymentMethods.map(method => (
+              <option key={method.id} value={method.name}>
+                {method.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button type="submit" disabled={!paymentMethods.length}>
+          Record payment
+        </Button>
+      </div>
     </form>
   );
 }
 
-export default function OrderPaymentSummary({ order, paymentMethods, canRecordPayment, onPayment }: { order: Order; paymentMethods: StorePaymentMethod[]; canRecordPayment: boolean; onPayment: (amount: number, method: string) => void }) {
+export default function OrderPaymentSummary({ order, paymentMethods, canRecordPayment, onPayment }: { order: Order; paymentMethods: PaymentMethodOption[]; canRecordPayment: boolean; onPayment: (amount: number, method: string) => void }) {
   const balance = order.legacyCancelled ? 0 : total(order) - paid(order);
   const isInvoice = balance <= 0 && order.status === 'Delivered';
   return <section className="ad-detail-section ad-order-bill">

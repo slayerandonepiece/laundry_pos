@@ -7,6 +7,8 @@ import StoreOutletsTab from './StoreOutletsTab';
 import StoreUsersTab from './StoreUsersTab';
 import StoreSubscriptionTab from './StoreSubscriptionTab';
 import StoreActivityTab from './StoreActivityTab';
+import StorePaymentsTab from './StorePaymentsTab';
+import StoreMessagesTab from './StoreMessagesTab';
 import { TableSkeleton, TimelineSkeleton, TabContentSkeleton } from './Shimmer';
 import {
   fetchStoreOverviewDataAction,
@@ -14,21 +16,27 @@ import {
   fetchStorePeopleDataAction,
   fetchStoreSubscriptionDataAction,
   fetchStoreActivityDataAction,
+  fetchStorePaymentsDataAction,
+  fetchStoreMessagesDataAction,
   type OverviewTabData,
   type OutletsTabData,
   type PeopleTabData,
   type SubscriptionTabData,
   type ActivityTabData,
+  type PaymentsTabData,
+  type MessagesTabData,
 } from '../actions/store-tabs.actions';
 import type { StoreDetail } from '../types';
 
-export type OrgTabKey = 'overview' | 'outlets' | 'users' | 'subscription' | 'activity';
+export type OrgTabKey = 'overview' | 'outlets' | 'users' | 'subscription' | 'payments' | 'messages' | 'activity';
 
 interface TabCache {
   overview?: OverviewTabData;
   outlets?: OutletsTabData;
   users?: PeopleTabData;
   subscription?: SubscriptionTabData;
+  payments?: PaymentsTabData;
+  messages?: MessagesTabData;
   activity?: ActivityTabData;
 }
 
@@ -37,6 +45,8 @@ const TAB_URL_SUFFIX: Record<OrgTabKey, string> = {
   outlets: '/outlets',
   users: '/users',
   subscription: '/subscription',
+  payments: '/payments',
+  messages: '/messages',
   activity: '/activity',
 };
 
@@ -44,6 +54,8 @@ function getTabKeyFromPath(pathname: string): OrgTabKey {
   if (pathname.endsWith('/outlets')) return 'outlets';
   if (pathname.endsWith('/users')) return 'users';
   if (pathname.endsWith('/subscription')) return 'subscription';
+  if (pathname.endsWith('/payments')) return 'payments';
+  if (pathname.endsWith('/messages')) return 'messages';
   if (pathname.endsWith('/activity')) return 'activity';
   return 'overview';
 }
@@ -57,6 +69,8 @@ export default function StoreDetailHub({
   initialOutlets,
   initialPeople,
   initialSubscription,
+  initialPayments,
+  initialMessages,
   initialActivity,
 }: {
   store: StoreDetail;
@@ -67,6 +81,8 @@ export default function StoreDetailHub({
   initialOutlets?: OutletsTabData;
   initialPeople?: PeopleTabData;
   initialSubscription?: SubscriptionTabData;
+  initialPayments?: PaymentsTabData;
+  initialMessages?: MessagesTabData;
   initialActivity?: ActivityTabData;
 }) {
   const [activeTab, setActiveTab] = useState<OrgTabKey>(initialTab);
@@ -79,6 +95,8 @@ export default function StoreDetailHub({
     if (initialOutlets) init.outlets = initialOutlets;
     if (initialPeople) init.users = initialPeople;
     if (initialSubscription) init.subscription = initialSubscription;
+    if (initialPayments) init.payments = initialPayments;
+    if (initialMessages) init.messages = initialMessages;
     if (initialActivity) init.activity = initialActivity;
     if (typeof window !== 'undefined') {
       try {
@@ -128,6 +146,18 @@ export default function StoreDetailHub({
     if (initialSubscription) setTabCache(c => ({ ...c, subscription: initialSubscription }));
   }
 
+  const [prevPayments, setPrevPayments] = useState(initialPayments);
+  if (initialPayments !== prevPayments) {
+    setPrevPayments(initialPayments);
+    if (initialPayments) setTabCache(c => ({ ...c, payments: initialPayments }));
+  }
+
+  const [prevMessages, setPrevMessages] = useState(initialMessages);
+  if (initialMessages !== prevMessages) {
+    setPrevMessages(initialMessages);
+    if (initialMessages) setTabCache(c => ({ ...c, messages: initialMessages }));
+  }
+
   const [prevActivity, setPrevActivity] = useState(initialActivity);
   if (initialActivity !== prevActivity) {
     setPrevActivity(initialActivity);
@@ -170,6 +200,16 @@ export default function StoreDetailHub({
           updateCache(c => ({ ...c, subscription: data }));
           break;
         }
+        case 'payments': {
+          const data = await fetchStorePaymentsDataAction(store.id);
+          updateCache(c => ({ ...c, payments: data }));
+          break;
+        }
+        case 'messages': {
+          const data = await fetchStoreMessagesDataAction(store.id);
+          updateCache(c => ({ ...c, messages: data }));
+          break;
+        }
         case 'activity': {
           const data = await fetchStoreActivityDataAction(store.id);
           updateCache(c => ({ ...c, activity: data }));
@@ -207,6 +247,16 @@ export default function StoreDetailHub({
           updateCache(c => ({ ...c, subscription: data }));
           break;
         }
+        case 'payments': {
+          const data = await fetchStorePaymentsDataAction(store.id);
+          updateCache(c => ({ ...c, payments: data }));
+          break;
+        }
+        case 'messages': {
+          const data = await fetchStoreMessagesDataAction(store.id);
+          updateCache(c => ({ ...c, messages: data }));
+          break;
+        }
         case 'activity': {
           const data = await fetchStoreActivityDataAction(store.id);
           updateCache(c => ({ ...c, activity: data }));
@@ -217,6 +267,22 @@ export default function StoreDetailHub({
       console.error(`Failed to refresh tab ${tab}:`, e);
     } finally {
       setLoadingTab(null);
+    }
+  }, [store.id, updateCache]);
+
+  // Re-reads a tab's data after the tab itself saved a change. It must not raise the loading
+  // state: that swaps the tab for a skeleton, which would wipe the "Saved" confirmation.
+  const refreshQuiet = useCallback(async (tab: 'payments' | 'messages') => {
+    try {
+      if (tab === 'payments') {
+        const data = await fetchStorePaymentsDataAction(store.id);
+        updateCache(c => ({ ...c, payments: data }));
+      } else {
+        const data = await fetchStoreMessagesDataAction(store.id);
+        updateCache(c => ({ ...c, messages: data }));
+      }
+    } catch (e) {
+      console.error(`Failed to refresh tab ${tab}:`, e);
     }
   }, [store.id, updateCache]);
 
@@ -289,6 +355,21 @@ export default function StoreDetailHub({
               plans={tabCache.subscription.plans}
               hasSubscription={tabCache.subscription.hasSubscription}
               trialEndsAt={tabCache.subscription.trialEndsAt}
+            />
+          )}
+          {activeTab === 'payments' && tabCache.payments && (
+            <StorePaymentsTab
+              storeId={store.id}
+              methods={tabCache.payments.methods}
+              locked={store.status === 'LOCKED'}
+              onSaved={() => refreshQuiet('payments')}
+            />
+          )}
+          {activeTab === 'messages' && tabCache.messages && (
+            <StoreMessagesTab
+              storeId={store.id}
+              templates={tabCache.messages.templates}
+              onSaved={() => refreshQuiet('messages')}
             />
           )}
           {activeTab === 'activity' && tabCache.activity && (

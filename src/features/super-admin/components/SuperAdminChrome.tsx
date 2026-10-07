@@ -2,26 +2,35 @@
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import WorkspaceAnnouncements from '@/components/WorkspaceAnnouncements';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { lockBodyScroll } from '@/features/admin/admin.dialog';
 import { superAdminLogoutAction } from '../actions/auth.actions';
 import Icon, { type IconName } from './Icon';
 import { initials } from '../utils';
+import CommandPalette from './CommandPalette';
 
-const links: [string, IconName, string][] = [
-  ['/super-admin', 'dashboard', 'Dashboard'],
-  ['/super-admin/stores', 'store', 'Organizations'],
-  ['/super-admin/users', 'users', 'People'],
-  ['/super-admin/subscriptions', 'subscriptions', 'Subscriptions'],
-  ['/super-admin/billing', 'card', 'Billing'],
-  ['/super-admin/payment-methods', 'card', 'Payment methods'],
-  ['/super-admin/announcements', 'bell', 'Announcements'],
-  ['/super-admin/activity', 'history', 'Activity'],
-  ['/super-admin/deletion-requests', 'trash', 'Deletion requests'],
-  ['/super-admin/profile', 'users', 'Profile'],
+const links: [string, IconName, string, string][] = [
+  ['/super-admin', 'dashboard', 'Dashboard', 'Home'],
+  ['/super-admin/stores', 'store', 'Organizations', 'Orgs'],
+  ['/super-admin/users', 'users', 'People', 'People'],
+  ['/super-admin/subscriptions', 'subscriptions', 'Subscriptions', 'Plans'],
+  ['/super-admin/billing', 'card', 'Billing', 'Billing'],
+  ['/super-admin/payment-methods', 'card', 'Payment methods', 'Pay'],
+  ['/super-admin/message-templates', 'mail', 'Message templates', 'Msgs'],
+  ['/super-admin/tools/import', 'export', 'Import history', 'Import'],
+  ['/super-admin/tools/corrections', 'edit', 'Order corrections', 'Fixes'],
+  ['/super-admin/announcements', 'bell', 'Announcements', 'News'],
+  ['/super-admin/activity', 'history', 'Activity', 'Activity'],
+  ['/super-admin/deletion-requests', 'trash', 'Deletion requests', 'Deletes'],
+  ['/super-admin/profile', 'users', 'Profile', 'Profile'],
 ];
 
-function Nav({ pathname, name, pendingDeletions = 0, onNavigate }: { pathname: string; name: string; pendingDeletions?: number; onNavigate?: () => void }) {
+const SIDE_KEY = 'soa-side';
+const SIDE_EVENT = 'soa-side-change';
+const subscribeSide = (notify: () => void) => { window.addEventListener(SIDE_EVENT, notify); window.addEventListener('storage', notify); return () => { window.removeEventListener(SIDE_EVENT, notify); window.removeEventListener('storage', notify); }; };
+const readSide = () => { try { return localStorage.getItem(SIDE_KEY) !== 'open'; } catch { return true; } };
+
+function Nav({ pathname, name, pendingDeletions = 0, onNavigate, rail = false }: { pathname: string; name: string; pendingDeletions?: number; onNavigate?: () => void; rail?: boolean }) {
   return <>
     <div className="brand">
       <span className="brand-mark"><Icon name="logo" size="l" /></span>
@@ -29,7 +38,7 @@ function Nav({ pathname, name, pendingDeletions = 0, onNavigate }: { pathname: s
     </div>
     <p className="nav-label">PLATFORM</p>
     <nav aria-label="Super Admin navigation">
-      {links.map(([href, icon, label]) => {
+      {links.map(([href, icon, label, short]) => {
         let active = false;
         if (href === '/super-admin') {
           active = pathname === '/super-admin';
@@ -40,9 +49,9 @@ function Nav({ pathname, name, pendingDeletions = 0, onNavigate }: { pathname: s
         } else {
           active = pathname === href || pathname.startsWith(href + '/');
         }
-        return <Link key={href} href={href} aria-current={active ? 'page' : undefined} className={active ? 'on' : ''} onClick={onNavigate}>
-          <Icon name={icon} />{label}
-          {href === '/super-admin/deletion-requests' && pendingDeletions > 0 && <span className="badge warm plain" style={{ marginLeft: 'auto' }} aria-label={`${pendingDeletions} pending`}>{pendingDeletions}</span>}
+        return <Link key={href} href={href} aria-current={active ? 'page' : undefined} aria-label={rail ? label : undefined} title={rail ? label : undefined} className={active ? 'on' : ''} onClick={onNavigate}>
+          <Icon name={icon} />{rail ? <span className="side-short">{short}</span> : label}
+          {href === '/super-admin/deletion-requests' && pendingDeletions > 0 && <span className="badge warm plain" style={rail ? undefined : { marginLeft: 'auto' }} aria-label={`${pendingDeletions} pending`}>{pendingDeletions}</span>}
         </Link>;
       })}
     </nav>
@@ -88,6 +97,15 @@ export default function SuperAdminChrome({ name, pendingDeletions = 0, children 
   const pathname = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState(false);
+  const [palette, setPalette] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setPalette(open => !open); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // Collapsed by default; the choice is remembered per browser.
+  const collapsed = useSyncExternalStore(subscribeSide, readSide, () => true);
+  const toggleSide = () => { try { localStorage.setItem(SIDE_KEY, collapsed ? 'open' : 'rail'); } catch {} window.dispatchEvent(new Event(SIDE_EVENT)); };
 
   function logout() {
     superAdminLogoutAction().then(() => {
@@ -101,17 +119,19 @@ export default function SuperAdminChrome({ name, pendingDeletions = 0, children 
   const crumbLabel = activeLink?.[2] ?? 'Dashboard';
 
   return <div className="app">
-    <aside className="side">
-      <Nav pathname={pathname} name={name} pendingDeletions={pendingDeletions} />
+    <aside className={'side' + (collapsed ? ' rail' : '')}>
+      <Nav pathname={pathname} name={name} pendingDeletions={pendingDeletions} rail={collapsed} />
     </aside>
+    <CommandPalette open={palette} onClose={() => setPalette(false)} />
     {menu && <MobileNav pathname={pathname} name={name} pendingDeletions={pendingDeletions} onClose={() => setMenu(false)} />}
     <div className="workspace">
       <header className="top">
+        <button className="collapse-toggle icon-btn" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={toggleSide}><Icon name="hamburger" /></button>
         <button className="menu-toggle icon-btn" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}><Icon name="hamburger" /></button>
         <div className="crumb">Platform <Icon name="chevronRight" /> <b>{crumbLabel}</b></div>
-        <div className="searchbar" aria-hidden="true" style={{ cursor: 'default' }}>
-          <Icon name="search" size="s" /><span>Search…</span>
-        </div>
+        <button type="button" className="searchbar" aria-haspopup="dialog" onClick={() => setPalette(true)}>
+          <Icon name="search" size="s" /><span>Search or jump to…</span><kbd className="kbd">⌘K</kbd>
+        </button>
         <div className="top-right">
           <span className="icon-btn plain" aria-hidden="true" title="Notifications aren't built yet"><Icon name="bell" /></span>
           <Link className="av" href="/super-admin/profile" aria-label={`Profile: ${name}`} title="Profile">{initials(name)}</Link>

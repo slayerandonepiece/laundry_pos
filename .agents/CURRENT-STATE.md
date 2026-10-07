@@ -1,7 +1,315 @@
 # Implemented state
 
-Last reviewed: 2026-09-11. Describes the working tree; it does not assert these
+Last reviewed: 2026-10-06. Describes the working tree; it does not assert these
 changes are deployed to production.
+
+## Mobile sync status and message templates (2026-10-07 working tree, uncommitted)
+
+- New `GET /api/v1/message-templates` (any member, read-only, `allowRestricted: true`): all four statuses in order, built from `listOrganizationMessageTemplates`; inherited rows read the platform template live and report its `updatedAt` (new `defaultUpdatedAt` on the DTO). No migration.
+- `GET /api/v1/sync/status` adds `paymentMethodsUpdatedAt`, `messageTemplatesUpdatedAt`, `profileUpdatedAt` and the owner-only (null for employees) `expensesUpdatedAt`, `employeesUpdatedAt`, `invoicesUpdatedAt`; existing fields unchanged. `allowRestricted` covers billing restriction only, not a `LOCKED` or archived store (403).
+- Blind spots, no migration: `StoreMembership` and `OutletMembership` have no `updatedAt` (employee deactivation and outlet grants do not move `employeesUpdatedAt`); `SubscriptionPayment` has only `createdAt`; hard deletes (expenses, a template reset to default) cannot be seen by a max, so the phone must compare with inequality.
+- Template copying: onboarding no longer copies; only `saveOrganizationMessageTemplates` writes an organization row, and only for a status that differs from the default, but that row then freezes all three fields (`body`, `enabled`, `attachment`), so a body-only override stops following later platform changes to enabled/attachment.
+- Tests: `tests/sync-status-templates.integration.test.ts` (in the runner). Contract: `.agents/MOBILE-API-CONTRACT.md`, "Sync status and message templates".
+
+## Payment stage lives only in the catalogue (2026-10-07 working tree, uncommitted)
+
+- Migration `20261007100000_payment_stage_catalogue_only` (tested on disposable local PostgreSQL; **applied to the dev Neon database by the user**; stage and prod are intentionally ignored for now; hand `prisma migrate deploy` to the user): drops `organization_payment_methods.stage`. `PlatformPaymentMethod.defaultStage` keeps its name but is now the one authoritative stage. Before the change, 19 of 21 dev organization rows differed from the catalogue (all `BOTH`, the old default); `enabled` flags are untouched.
+- `effectiveStage()` (`platform-payment-methods.ts`) is the single reader: `listOrganizationPaymentMethods`, `setOrganizationPaymentMethodEnabled`, `resolveActivePaymentMethod` (the `?? 'BOTH'` fallback is gone), `GET /api/v1/payment-methods` (shape unchanged) and the web workspace all use it. `saveOrganizationPaymentConfig` takes only `{ platformPaymentMethodId, enabled }` and computes the "at least one post-order method" rule from catalogue stages; `applyOrganizationDefaults` no longer copies a stage.
+- Super Admin: the organization Payments tab shows each method's stage as a read-only label; the catalogue edit dialog is the only place to change it (COD stays PRE_ORDER-only in `validatePaymentStage`). A catalogue stage edit can leave an organization with no post-order method; only the organization save validates that.
+- Tests: new case in `tests/org-settings.integration.test.ts` (catalogue change visible with no organization write; punch, payment and deliver accept or refuse by stage; COD never post-order); other tests no longer pass a stage. 185 integration tests and 2 PDF tests pass.
+- **Legacy per-store methods removed (2026-10-07):** migration `20261007120000_drop_store_payment_methods` (applied to dev) drops `store_payment_methods`. Deleted `services/payment-methods.ts` and the unused `payment-methods.actions.ts`; onboarding no longer seeds Cash/UPI rows; `resolveActivePaymentMethod` has no `allowLegacy` fallback, so pre-outlet orders also need an enabled organization method. `payments.method` text snapshots keep history. The legacy cases in the invoice, multi-outlet, platform-method and cache tests were rewritten or removed.
+- **Message templates inherit (2026-10-07):** migration `20261007140000_message_templates_inherit_defaults` (applied to dev) deletes only organization template rows identical to the current platform default. Onboarding no longer copies templates; an organization row exists only for wording that differs, and `saveOrganizationMessageTemplates` deletes a status saved as the default instead of storing a copy, so later platform edits reach every inheriting organization. Tests cover inheritance, override isolation, live platform edits and the migration SQL.
+- **Subscription terms follow the plan (2026-10-07):** migration `20261007160000_subscription_terms_follow_plan` (applied to dev) makes `subscriptions.depositAmount` / `annualFeeAmount` nullable per-organization overrides; NULL means "use the plan's current price". `effectiveSubscriptionTerms()` (`src/server/subscription-terms.ts`) is the one reader (store list/detail, plan detail). Onboarding stores no price for plan organizations (custom terms, and a deposit once paid, are stored); `changeStorePlan` stores a number only when it differs from the plan's; recording a deposit payment freezes the deposit; archiving a plan and detaching its organizations writes down their current price. Renewals already read the plan's billing cycle live. The migration clears only values identical to the plan (not paid deposits, overrides or custom terms). Tests: `tests/subscription-terms.integration.test.ts`.
+- **History is immutable (verified on dev 2026-10-07):** order lines snapshot name, quantity, unit and line total, and payments snapshot the method name. Changing a service's price or name, or making it inactive, left 15 existing lines (₹2,880) unchanged; the change was reverted. Invoice rate is stored total divided by quantity. Subscription invoices use the amount stored on `SubscriptionPayment`.
+- Not browser-verified: owner Billing page, employee view, mobile app, a real order and payment. Dev QA orgs (QA Laundry 1238, QA Laundry 3880, QA Phase Org) remain to delete.
+- **POS cache:** `usePosCatalogue` always takes the server's payment methods on load and refetches them on every refresh (focus, online); the 5-minute localStorage copy is only an offline fallback. Products keep their TTL.
+
+## Profile split into sections (2026-10-06 working tree, uncommitted)
+
+- `/admin/profile` is now five pages with an in-page tab bar (`ProfileTabs`, config in `src/features/admin/profile-sections.ts`): My account (`/admin/profile`, all roles), then owner-only `/organization`, `/billing`, `/payments`, `/messages` (employees are redirected to My account). `Profile.tsx` takes a `section` prop; `AdminScreenContainer` takes `profileSection` and `serverInvoices`.
+- Billing (`BillingView.tsx`): status, plan, current term start/end, paid-through, and an invoices/receipts table from `listStoreInvoices` with View/Download via `/api/v1/subscription/invoices/<seq>/pdf`.
+- Payment methods: two columns, "When placing an order" and "After the order" (via `methodAllowsPhase`, so COD never shows after the order), with a plain-language legend instead of "Both".
+- Customer messages: On/Off per status, a WhatsApp-style preview filled by `fillSampleMessage` (sample customer Ravi), attachment, and the raw template under "View template".
+- Invoice dialog: `InvoiceViewerPanel.tsx` is the single store-workspace invoice dialog (Print, Share, WhatsApp, Open, Download), used by `OrderInvoicePdfViewer` (customer invoices, `/i/<token>`) and Billing. Owner subscription invoices share through `/s/<token>` (`src/app/s/[token]/route.tsx`): the token is the invoice number encrypted with AES-256-GCM (`encryptSubscriptionInvoiceRef` in `server/auth/token.ts`, key derived from `SESSION_SECRET`); the link is made by `getSubscriptionInvoiceLinkAction` (owner of that organization only). Super Admin's own share link (`?token=` HMAC on its pdf route) is unchanged.
+- Verified as owner at desktop width only (all five pages, invoice PDF returns 200, `/s/<token>` returns the PDF without a session and 404 for a tampered or guessed token). Not verified: phone width, employee redirect, Edit and Change password dialogs on their new pages.
+
+## Sales, order details and Orders counter polish (2026-10-06 working tree, uncommitted)
+
+- **Sales custom dates:** choosing "Custom dates" or editing From/To loads nothing; an **Apply** button (`DateFilter` `manual` prop in `Primitives.tsx`) sets the URL range. Other periods apply immediately.
+- **Order details drawer:** footer is the status select plus a bordered **Cancel order** button (icon, 48px); no Close button (the panel's bordered 48px × closes, drawn SVG icon). **Share update** lives in the header title row beside the invoice actions: on its own row under the title until the header is 720px wide (container query), then right-aligned. Drawer width: full on phones, 75vw (min 640px) at 768 to 1280px, clamp(640px, 50vw, 900px) above.
+- **Share update (web):** link only, no PDF. `OrderMessageShare` builds the template text (appends the public `/o/<token>/view` or invoice link when the template has no `{link}`) and opens `wa.me` via `shareOrderMessage(text)` in `invoiceShare.ts`. It must call `window.open` after the action resolves with `noopener`; opening a blank tab first did not work in the user's browser. Result messages are a light toast (white, coloured icon, top right) rendered by that component; other toasts are still the navy `.ad-toast`.
+- **Payment methods:** `methodAllowsPhase` (`src/lib/paymentStage.ts`) filters every phase list; Cash on delivery is never post-order (Record payment, Deliver dialog) even when an older organization row says `BOTH`. Cached POS method lists without a `stage` are discarded (`isPaymentMethod`). Record payment shows Method and the submit button on one row, with no helper text.
+- **Orders counter is now two steps.** `OrderTicket` (right card) holds only: Clear, Outlet, customer phone and name (`CustomerBar`, moved here from the main column), Total with "N services selected", and **Proceed to pay** (disabled with no services). Items are edited on the service tiles. `EmployeeSalesContainer.proceedToPay` checks outlet, phone and available services, then opens `OrderPaymentDialog` ("Review and pay"): items table with rate and amounts, order total, received and balance due (red, no background) on the left; delivery, payment method chips, received with Full, notes on the right; Back and **Place order**. `punchOrder` still does the full validation. The dialog is up to 1200px (1360px at 1600+), one column below 860px, and focuses the Received field via `data-autofocus` (the shared `Dialog` now honours it) with a single focus outline.
+- **Counter on narrow screens (<=950px):** the bottom bar opens the summary, which is a right drawer (up to 440px) from 600px and full screen below 600px, with its own scroll and Proceed pinned to the bottom. The bar is disabled until a service is selected.
+- **Customer fields layout** (before they moved) used a container query; they now stack at full width inside the card.
+- Dev note: the Next dev server serves stale CSS until a hard reload; reload before judging a CSS change.
+- Verified in the browser as owner at 375, 768, 1156, 1400 and 1700px (no order placed). Not verified: the employee views, a real order submission, a real on-screen keyboard, a real WhatsApp tab (the pane blocks popups), and the pre-order list matching a Super Admin stage change.
+
+## Owner workspace sidebar, footer and Expenses layout (2026-10-05 working tree, uncommitted)
+
+- Desktop sidebar (`AdminChrome.tsx`) is collapsible to a 76px icon rail via a top-bar toggle; the choice is stored per browser in
+  localStorage `el-side` (default expanded, read with `useSyncExternalStore`). Expanded width is 220px with tighter spacing.
+- Sidebar footer follows the Super Admin pattern: initials avatar, name, "Owner/Employee · store", and an icon logout button that
+  still goes through the logout confirmation (new `logout` icon in `Icon.tsx`). The desktop sidebar is exactly viewport height with
+  `overflow:hidden`; max-height 700px/560px media queries compress it instead of scrolling. The mobile drawer still scrolls.
+- `/admin/orders` now shows the same sidebar, toggle and mobile menu as every other screen; the old `.ad-counter-topnav` bar and CSS
+  are gone. Employees' sidebar includes Profile. Workspace footer and main got side/bottom padding (`tables.css`).
+- Expenses: "Add expense" in the page heading; the period filter, an outlet dropdown and a client-side summary sit in one toolbar
+  inside the table card; row click opens View; actions are Mark paid plus a keyboard-operable "⋯" menu (`ui/RowActionsMenu.tsx`)
+  with View/Edit/Delete. Data loading is unchanged: `listExpenses` returns the whole list and period/outlet/search filter in the browser.
+- Verified: `tsc`, eslint on changed files, browser at desktop/768/375 (owner). Not verified in a browser: employee sidebar,
+  multi-store footer text, locked-store Expenses, the 560px compact sidebar.
+
+## Sales register: server-side filters and paging (2026-10-05 working tree, uncommitted)
+
+- `/admin/sales` no longer loads every order. `searchOrders(storeId, { outletId?, from, to, q?, work?, pay?, due?, page, pageSize })`
+  in `src/server/services/orders.ts` (zod-validated, page sizes 10/25/50/100, default 25) filters in SQL and returns
+  `{ orders, total, page, pageSize, hasOrders }`. Same rules as the old in-browser filter: period on the order date; Due today /
+  Late / dashboard `?attention=1` are open (not Delivered) orders by due date and ignore the period; search is a case-insensitive
+  substring of "name phone code"; payment status compares line and payment totals; cancelled excluded, imported included; newest
+  order date first. Owners see the store, employees only their current outlet (none: empty).
+- Filters live in the URL (`period`, `from`/`to` for custom, `q`, `work`, `pay`, `due`, `attention`, `page`, `size`), parsed by
+  `src/features/admin/sales-query.ts`; the client (`Sales.tsx`) pushes URLs in a transition (search debounced 300 ms) and shows a
+  table skeleton in the register while the page loads. `?order=<code>` still opens that order even when it is not on the page.
+  Default period is This week (changed from This quarter, 2026-10-06); the last chosen period is remembered in the session-only `el_sales_period` cookie (not
+  localStorage, so the server renders the same period; no max-age, and `logoutAction` deletes it so the next sign-in starts at the default) and applies only when the URL has no period.
+- The Sales page no longer uses `useOrdersCache` or `/api/v1/orders/sync`; the hook remains only because the unused `OrdersClient`
+  in `OrderTable.tsx` imports it. Pager is the shared Super Admin `Pager` (new optional `sizes` prop) styled in `admin/sales.css`.
+- Verified: `tsc`, eslint on changed files, 184 integration tests incl. new `tests/sales-search.integration.test.ts`, and the owner
+  browser flow at 1400/1000/768/375 (filters, debounce, skeleton, paging, back/forward, reload, deep link, order dialog opened only).
+  Not verified: the employee Sales view in a browser; mutations from the dialog after the change (not exercised by design).
+
+## Super Admin UI redesign round (2026-10-05 working tree, uncommitted)
+
+Everything below is in the working tree only. Verified with `tsc`, `eslint`, the 183 integration tests plus 2 PDF tests, and
+dev-browser checks of each screen (details of what was and was not looked at are in the session notes, not asserted here).
+
+- **Shell:** the app is viewport height; sidebar and top bar are fixed and only `.main` scrolls. The sidebar is a collapsible
+  icon rail with short titles (default collapsed, remembered in `localStorage` key `soa-side`, read with `useSyncExternalStore`).
+  Cmd/Ctrl+K opens `CommandPalette` (quick actions, go-to pages, organization search via `palette.actions.ts`); "create" actions
+  deep-link with `?new=<token>` handled by `useNewParamDialog`. Header search is now that button.
+- **Shared pieces:** `Pager` (range, rows per page, numbered pages) + `usePaged` (client-side) used by People and Order
+  corrections (server-side). `MessageWorkspace` (status rail + editor + phone preview) is shared by the platform Message templates
+  page and the organization Messages tab. Compact `.stat` tiles for every Super Admin page. The owner workspace's unscoped `.card`
+  rule leaked padding into Super Admin; `.soa .card` now resets it. One focus treatment for fields (`.soa :is(input,select,textarea):focus-visible{outline:none}`).
+- **Import history:** searchable organization combobox (no preloaded list; `searchImportOrganizationsAction`), Outlet/Date empty until
+  an organization is chosen, sheet-wide Payment method that fills every row (each row can differ, same customer number must share one),
+  spreadsheet-style grid, actions at the top (Validate / Save), loading states, empty fields start blank. Server: `ImportRowInput.paymentMethod`
+  per row with the sheet value as fallback; batch `paymentMethod` stores a summary such as "Cash, UPI". Not integration-tested with a mixed Cash/UPI batch.
+- **Order corrections:** search (org, order number, phone, outlet, date range) with paged results, then a detail page (payments, lines,
+  customer, history, inline Adjust / Edit forms). `searchDeliveredOrders` + extended `getDeliveredOrderForCorrection` in `orders.ts`.
+- **Organizations / Billing / Subscription:** Plan column with short tags (Annual, Free trial), Paid/Unpaid deposit tags, trial rows no longer
+  show a ₹0 deposit; "Terms not set" renamed to "Awaiting payment" / "Trial ended" / "No plan"; long addresses clamp to two lines;
+  Subscription tab is a terms card with header actions plus a Status panel. Payments tab has stage segmented controls and a live "What staff will see"
+  preview. Dashboard widgets are paired in three rows.
+- **Bug fixed on the way:** the platform Payment methods list cache was stale after the new columns (cache key bumped to `v2-stage-defaults`).
+- **Dev data to clean up:** throwaway organization "QA Phase Org" (org code 008) with three QA accounts (phones 9000000001 to 9000000003) was left
+  in the dev database for click-through; delete it before sharing the dev data. Credentials were generated into the session scratchpad only.
+- **Not done / open:** commit, stage and prod migrations, Organizations and Billing lists do not use `Pager` yet, owner/employee dialog redesigns
+  from the design page were not built, invoices for imported orders and summary-only imports still not built.
+
+## Dev database and browser verification (2026-10-05 working tree)
+
+- The five migrations `20261005120000` to `20261005150000` were **applied to the dev Neon database**
+  (the `.env` database; stage and prod untouched and still pending, and prod's migration history is
+  still unreconciled). Existing dev organizations received org codes `001` to `006` and keep their
+  payment methods at `BOTH` with no template rows. The dev database also records an applied
+  `20261004120000_app_update_settings` migration that lives on another branch, not in this checkout.
+- A throwaway QA organization with Super Admin, owner and employee accounts was created through the
+  real onboarding service, exercised in the browser against the dev server, and then deleted; dev
+  returned to its previous row counts.
+- Verified in the browser against dev: Super Admin Payments tab (stage selectors, COD locked, the
+  at-least-one-post-order guard, a real save with confirmation) and Messages tab (placeholder and
+  `{link}` validation, a real save); the owner's read-only payment and message views showing exactly
+  what Super Admin saved; the sign-in pending state; forward-only status select and the Delivered
+  dialog collecting a balance and delivering in one step; the invoice reading `IN007/27/0000001`;
+  Share update building the organization's custom Ready text with a public `/o/<token>/view` link; the
+  public order slip page; owner cancel with a required reason; the Super Admin import grid (customer
+  name suggestion, row errors, import, undo, with the stored order, payment and rollups checked in
+  the database and fully reversed by undo); and the corrections page with its audit row.
+- Fixed from that pass: the Payments and Messages tabs lost their "saved" confirmation because the
+  post-save refetch swapped them for the loading skeleton (now a silent refresh); 10-digit order numbers
+  wrapped mid-number in the Sales table; and a stale Share update note survived a status change.
+  `db.ts` now also recreates a cached Prisma client that predates the import model, so a running
+  dev server picks up regenerated clients.
+- Not checked in the browser: the custom outlet dropdown on the owner's Orders counter would not open in
+  the headless pane, so punching an order through that screen was done through the service layer
+  instead; the employee counter; native share-sheet file sharing (the pane blocks popups and has no
+  Web Share); and mobile widths.
+
+## Loaders pass (2026-10-05 working tree)
+
+Audited by reading the code (the app could not be driven in a browser without its database, so
+nothing here was checked visually). Only demonstrated gaps were changed:
+- **Fixed:** the store-workspace sign-in form (`Login.tsx`) had no pending state, so the button stayed
+  live and gave no feedback while `loginAction` ran. It now locks the fields and button, shows
+  "Signing in…", ignores a second submit, and reports a network failure instead of failing silently.
+- **Fixed:** Super Admin pages with only the generic spinner now have matching skeletons:
+  announcements, deletion requests, profile, and the outlet detail page. New pages (message
+  templates, import, corrections) ship with their own.
+- **Checked, no change needed:** `UserAddAction`, `PlanNewAction` and `InvoicePdfViewer` only open dialogs
+  whose forms already track pending; the organization tabs show the `[storeId]` skeleton while data
+  loads (the hub also shows its own tab skeleton); the nested `[storeId]/*` tab routes are covered by that
+  parent boundary; order punch, payment, delivery, cancel, import and undo all disable their controls
+  while working and are idempotent or guarded on the server.
+- **Not done:** a visible indicator while `router.refresh()` re-fetches after a mutation outside the
+  order dialogs. The mutations already show their own pending state; a global indicator was not
+  added without being able to see it.
+
+## Order cancellation and Super Admin corrections (2026-10-05 working tree)
+
+- **Cancel before delivery (owner only).** `cancelOrder` marks the order cancelled with a mandatory
+  reason (3 to 500 characters), reverses its creation and payment rollups exactly, and writes a
+  `CANCEL_ORDER` audit row with the actor and reason. It reuses the existing `legacyCancelled` flag
+  instead of a new `CANCELLED` status because every read already honors it: the order list and detail
+  hide it, mobile sync returns it as a `deleted: true` tombstone, and payments, status changes and a
+  second cancel answer "Order not found". Delivered orders are refused. Money already collected is not
+  refunded; the dialog says so. Web: owner-only **Cancel order** button and `CancelOrderDialog` in order
+  details (`cancelOrderAction`); mobile: `POST /api/v1/orders/{code}/cancel` (owner, `{ reason }`).
+- **Corrections after delivery (Super Admin only).** `/super-admin/tools/corrections` finds a delivered
+  order in an organization and fixes the customer name or phone, or adjusts or voids (amount 0) one
+  payment. A payment fix updates the daily collected total; each correction needs a reason and writes
+  an audit row (`CORRECT_ORDER_CUSTOMER`, `ADJUST_ORDER_PAYMENT`, `VOID_ORDER_PAYMENT`) with the actor
+  and the old and new values. There is no line editing, no status change, and no owner or employee
+  access. An invoice already issued reads the live order, so it shows the corrected figures.
+- User-facing failures from both are `ValidationError`s, so the actions return them as written.
+- Tests: `tests/order-corrections.integration.test.ts` (exact rollup reversal, tombstone and list
+  behavior, delivered refusal, reason rules, owner-only on web and mobile, audited corrections with
+  before and after values, tenant isolation, Super Admin-only role matrix).
+
+## Super Admin history import (2026-10-05 working tree)
+
+- Migration `20261005150000_order_import` (prepared and tested on disposable local
+  PostgreSQL only; **not applied to dev, stage or prod**): `Order.isImported` and
+  `Order.importBatchId`, `ImportBatch` (per-store unique `idempotencyKey`, status
+  IMPORTED / UNDONE).
+- Page `/super-admin/tools/import` (Super Admin only, nav "Import history"): global
+  Organization, Outlet, Order date (not in the future) and Payment method, plus an editable grid
+  of Customer number, Name (optional), Service, Type, Qty, Price charged. Services are the
+  organization's catalogue (including retired ones, since old orders may use them); Type is
+  read from the service; paste from Excel is supported; existing customer names are suggested
+  and a typed name is never replaced; Validate runs a dry run; Import asks for confirmation;
+  recent imports list with Undo.
+- `src/server/services/order-import.ts`: one transaction per batch (max 300 rows). Rows with the same
+  customer number become one order. Each is Delivered and paid in full on the chosen date with the
+  chosen post-order method (it must be enabled for the organization), at the price charged, with a
+  Delivered history event dated that day, an order number from the organization's counter, and **no
+  invoice or receipt number**. Rollups are applied through `applyImportedBatchRollup` (one aggregated
+  update per day and service, same math as the per-order helpers) and verified against both a fresh
+  aggregate and `reconcileDailyOutletRollups`. A retry or double click with the same key returns the
+  first batch. Undo reverses the rollups exactly (zeroed rows are removed), deletes the batch's
+  orders, and is refused once any imported order was changed; undoing twice is a no-op. Import and
+  undo are audited.
+- Imported orders show in the owner's Sales history (marked `imported`) but are excluded from mobile
+  sync (`listOrdersSince`), invoice generation (`getOrCreateOrderInvoice` refuses; the mobile order
+  detail reports `canGenerate: false`), customer messages, and the invoice/Share buttons.
+- Tests: `tests/order-import.integration.test.ts` (grouping and exact stored values, rollups vs fresh
+  aggregate and reconcile, undo and no-op undo, undo refused after a change, duplicate and concurrent
+  submits, name rules, row errors and sheet errors, exclusions, counter, Super Admin-only role matrix).
+- Not built: invoices for imported orders, summary-only (daily or monthly) imports, a CSV mapping UI,
+  and browser verification of the page. Undo leaves a gap in the organization's order numbers.
+
+## Order status flow, payment-gated delivery, slips and messages (2026-10-05 working tree)
+
+- Migration `20261005140000_order_slip_token` (prepared and tested on disposable local
+  PostgreSQL only; **not applied to dev, stage or prod**): `Order.slipToken`, unique, created
+  on first use.
+- `updateOrderStatus` is forward-only (skipping allowed, same status a no-op), **Delivered is
+  terminal**, and Delivered is refused while a balance is due, checked under the order row lock. The
+  backward-transition rollup reversal was removed because it is unreachable. New
+  `deliverOrderWithPayment` collects the exact balance (method must be post-order, COD refused) and
+  delivers in one transaction, with a receipt number and payment rollup; a retry with the same
+  `clientActionId` is a no-op. `completedAt` is the real delivery date.
+- Web: the status select offers only the current and later statuses (disabled once Delivered). Choosing
+  Delivered opens `DeliverOrderDialog`, which shows the balance and a post-order payment-method select
+  and delivers in one step; "Deliver anyway" is gone. The web actions return `{ ok: false, error }` for
+  explained failures and `useOrderMutation` shows them as written. Mobile: `PATCH /status` returns the
+  `400`; new `POST /orders/{code}/deliver`, `GET /orders/{code}/message`, `GET /orders/{code}/slip/pdf`.
+- Order slip: `OrderSlipPdf` (no document number, no tax lines, amounts as `Rs.`), staff route
+  `/admin/orders/{code}/slip/pdf`, public routes `/o/[token]` and `/o/[token]/view` reached only by the
+  opaque token. `buildOrderMessage` fills the organization's template for the current status (every
+  placeholder but `{link}`), picks the slip or invoice link and PDF, falls back to the slip when an
+  invoice is requested before one exists, and never creates an invoice for Ready. The workspace
+  **Share update** button shares the text and PDF through the device share sheet where files are
+  supported, otherwise opens WhatsApp with the text and link.
+- Tests: `tests/order-flow.integration.test.ts` (forward-only, delivery gate on service and mobile route,
+  atomic collect-and-deliver, concurrency and retry, outlet access, web actions, slip tokens, message
+  building) and `tests/order-pdf.test.mts` (renders both PDFs and reads the text back; it is bundled
+  with esbuild because `@react-pdf/renderer` does not load under tsx). Existing tests that delivered
+  unpaid orders, re-opened a Delivered order, or looked orders up by number alone were updated.
+- Not verified in a browser: the delivery dialog, the Share update button, and the public `/o/` pages.
+  Messages are shared by a staff button; nothing is sent automatically.
+
+## Organization payment stages, message templates and defaults (2026-10-05 working tree)
+
+- Migration `20261005130000_org_payment_stages_message_templates` (prepared and
+  tested on disposable local PostgreSQL only; **not applied to dev, stage or prod**;
+  schema-drift check against `schema.prisma` shows no drift from this migration):
+  `PaymentStage` (`PRE_ORDER` / `POST_ORDER` / `BOTH`), `OrganizationPaymentMethod.stage`,
+  `PlatformPaymentMethod.enabledByDefault` + `defaultStage`, `PlatformMessageTemplate`
+  and `OrganizationMessageTemplate` (one per status: Placed, In progress, Ready,
+  Delivered; enabled flag and attachment None / Order slip PDF / Invoice PDF). It seeds
+  the platform methods COD (pre-order), CASH (post-order), UPI (both) as default-on,
+  and the four default templates (Ready and Delivered on). `prisma/seed.ts` does the
+  same idempotently. Existing organizations keep every method at `BOTH` and get no
+  template rows; they fall back to the platform default wording.
+- **Super Admin only** edits an organization's methods, stages and templates (new
+  Payments and Messages tabs on the organization page, plus `/super-admin/message-templates`
+  for the platform defaults and two new fields on the platform payment-method dialogs).
+  Owners see both read-only on Profile; employees see neither. The owner server action
+  and the mobile `PATCH /payment-methods/{id}` and `/platform/{id}` routes were removed or
+  now return 403. Every Super Admin change writes an audit row.
+- Cash on delivery (`COD`) may only be `PRE_ORDER` (validated on platform and
+  organization saves). It is a promise to pay, so `createOrder` records no payment for
+  it (zero amount accepted, a positive amount rejected) and `recordPayment` always
+  rejects it. `createOrder` accepts only `PRE_ORDER`/`BOTH` methods for the initial
+  payment; `recordPayment` only `POST_ORDER`/`BOTH`. The punch screens, employee counter
+  and Record payment form filter by stage; the form tells staff COD cannot be recorded.
+- Saving an organization's payment table validates the whole set: at least one
+  enabled method and at least one enabled post-order or both method.
+- `onboardStore` now calls `applyOrganizationDefaults` in the same transaction: only
+  platform methods flagged `enabledByDefault` (with their stage) and the four templates
+  are created. It fails with a clear error when no default method appears after the
+  order, so an unusable organization is never created. It no longer enables every
+  active platform method.
+- Tests: `tests/org-settings.integration.test.ts` (stage rules, whole-table validation,
+  enforcement, COD, defaults, template validation and fallback, role matrix, audit);
+  the onboarding test and the owner-PATCH route tests were updated to the new rules.
+- Not built yet: sending messages and the order slip PDF (Phase 2 reads these templates),
+  and browser verification of the new Super Admin tabs and owner read-only views.
+
+## Document numbering (2026-10-05 working tree)
+
+- Migration `20261005120000_document_numbering` (prepared and tested on disposable
+  local PostgreSQL only; **not applied to dev, stage or prod**): `Store.orgCode`
+  (3-5 digits, unique by numeric value, default drawn from sequence
+  `stores_orgCode_seq`), `Store.orderSeqBase` (default 1000000001), `DocumentCounter`
+  keyed (storeId, docType, fy), `Order.orderNumber` now BIGINT and unique per
+  `(storeId, orderNumber)` instead of globally, `OrderInvoice.invoiceNumber` and
+  `Payment.receiptNumber` (both unique per store). Existing stores get codes `001..N`
+  by onboarding date; legacy invoices read `INV-<6 digits>`; legacy orders keep their
+  `EL-<n>` code.
+- Order numbers: plain 10-digit, continuous per organization (`document_counters`,
+  fy 0), starting at the organization's base. Invoices and receipts:
+  `IN` / `RC` + org code + `/` + two-digit FY (year the 1 April financial year ends) +
+  `/` + 7 digits, counters per organization per FY. The invoice FY comes from the
+  order date; the receipt FY from the payment date. `src/server/numbering.ts`
+  allocates with one `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, inside the
+  caller's transaction, so a rollback returns the number.
+- Every order lookup is scoped by `storeId` (`storeId_orderNumber`). `parseOrderCode`
+  accepts `EL-<n>` and 10-digit codes. Mobile contract updated (order `id` format,
+  `payments[].receiptNumber`, `invoice.invoiceNumber`).
+- Every payment (including the initial payment at punch when amount > 0) gets a
+  receipt number. The Delivered/invoice flows are unchanged otherwise.
+- Super Admin: optional org code at onboarding (next free code otherwise), and a
+  "Document numbering" card on the organization edit page (org code locked once any
+  order or invoice exists; order base can only be raised and lifts the live counter).
+  Service: `src/server/services/org-numbering.ts`.
+- Tests: `tests/document-numbering.integration.test.ts` (concurrency, FY boundary,
+  rollback, isolation, legacy codes, code immutability, base, onboarding). Existing
+  tests that assumed globally unique order codes were made store-scoped. Migration
+  upgrade over legacy data verified with a throwaway script on a disposable cluster.
+- Not built: quotation and credit-note numbering (enum values reserved only).
 
 ## Account deletion (2026-10-04 working tree)
 
@@ -59,7 +367,7 @@ changes are deployed to production.
 
 - Session display/routing mirrors use guarded localStorage reads/writes at `express-laundry-admin-v1-session`, with server-confirmed `storeId`. Every tab reconciles with the server; cached data is enabled only after verification. Storage logout/clear events remove client caches and invalidate pending requests. Store switching rechecks context. Mirrors never authorize server operations.
 - Employee POS catalogue and enabled organization methods use five-minute store-scoped localStorage caches, optional Web Locks for cross-tab fetch serialization, storage updates, and online/focus refresh. `/api/v1/sync/status` provides uncached store-local maximum product/order update timestamps; catalogue version changes trigger refetch. POS drafts remain in sessionStorage.
-- Owner Orders uses a 60-second display cache plus paginated delta refresh. Cancellation tombstones remove cached rows. Successful owner sale creation writes through without advancing the sync checkpoint. Employees retain SSR Orders without reading owner caches.
+- (Superseded 2026-10-05: Sales now pages on the server and no longer uses this cache; see the top of this file.) Owner Orders uses a 60-second display cache plus paginated delta refresh. Cancellation tombstones remove cached rows. Successful owner sale creation writes through without advancing the sync checkpoint. Employees retain SSR Orders without reading owner caches.
 - Existing `/api/v1/orders/sync` accepts ISO timestamps and existing composite `(updatedAt, orderNumber)` cursors, default limit 100, maximum 500. Response retains `orders`/`nextCursor` and adds server `syncedAt`. Web clients drain all pages and checkpoint the first server request time, avoiding timestamp tie loss and device-clock gaps. Auth and outlet guards remain live; orders/expenses remain uncached on the server.
 - Successful JSON GET products/payment-methods responses have standards-compliant weak ETags `W/"<hash>"`; authorized matching conditional requests return bodyless 304 responses with private cache/Vary headers. Auth failures stay no-store and never return 304.
 - Manifest and static 192/512 PNG icons added, with standalone/Apple metadata. This supplies installation metadata; there is no service worker, offline navigation guarantee, or offline write queue.
@@ -1589,7 +1897,7 @@ retaining query parameters and order drilldowns. Order HTTP APIs and invoice PDF
 routes under /admin/orders/[orderCode] remain unchanged. Employees have New sale
 and Sales register views in Sales; server-rendered employee records are scoped to
 the currently authorized outlet. The verified-owner 60-second browser order cache
-now runs in Sales, with server store-id matching before cache use.
+now runs in Sales, with server store-id matching before cache use. (Superseded 2026-10-05 by server-side paging.)
 
 Order details stack compact full-width delivery progress, a service/quantity/rate/
 amount bill table and chronological status history. Invoice actions appear at the
@@ -1663,10 +1971,14 @@ Migration verification: `prisma migrate deploy` successfully applied `2026092718
 
 ### Full-width counter and compact-screen steps
 
-Orders uses top navigation instead of the desktop sidebar. Services render as price-breakdown rows with selected quantities and service totals; checkout does not duplicate the items table. At widths up to 950px, Add starts customer entry, followed by service quantity selection and then payment. Step navigation supports revisiting customer/services/payment without discarding the draft. Quantity dialogs use text inputs with decimal/numeric keyboards and explicit quantity validation, avoiding native wheel-driven number changes. Received amount also uses a decimal text input with server-side/domain validation unchanged. Existing draft restoration selects the services step when the customer is already ready.
+Orders uses top navigation instead of the desktop sidebar (superseded 2026-10-05: Orders now uses the normal sidebar). Services render as price-breakdown rows with selected quantities and service totals; checkout does not duplicate the items table. At widths up to 950px, Add starts customer entry, followed by service quantity selection and then payment. Step navigation supports revisiting customer/services/payment without discarding the draft. Quantity dialogs use text inputs with decimal/numeric keyboards and explicit quantity validation, avoiding native wheel-driven number changes. Received amount also uses a decimal text input with server-side/domain validation unchanged. Existing draft restoration selects the services step when the customer is already ready.
 
 Browser verified desktop price list, no duplicate checkout items, unchanged weight after wheel scrolling, customer/services/payment navigation and 320/375px overflow checks. No live order or payment submitted.
 
 ### Compact catalogue and independent customer entry
 
 The Orders catalogue uses smaller row spacing and typography; Clear belongs to its heading. Customer entry is rendered independently of selected services. The customer step has no order-total or Punch order control. Continuing with selected services opens delivery/payment; without services, checkout remains unavailable. Mobile step navigation uses the same guard. Verified an empty temporary draft, optional blank name, service quantity entry and the next payment screen with correct total; 375px has no horizontal overflow. No live order submitted.
+
+### Orders counter redesign (2026-10-05 working tree)
+
+Supersedes the step-based counter above. `/admin/orders` now keeps the workspace sidebar (collapsible rail, `el-side` in localStorage) and shows one screen: `CustomerBar` (phone looked up on Enter/blur/search, optional name, returning/new tag), `ServiceGrid` tiles (piece services add on tap with a stepper; weight services open the existing `QuantityForm`), and `OrderTicket` (lines with edit/remove, total, Today/Tomorrow/date delivery, payment chips for pre-order methods, received amount with a Full button, notes, Create order). Below 950px the ticket is a bottom bar that opens as a sheet. `OrderCart.tsx` and the Customer/Services/Payment steps were removed; `counter.css` was rewritten (`ad-ctr-*`). Choosing COD hides the received amount and sends no initial payment. Order validation, draft restore and the idempotency key are unchanged. Browser-checked as owner at desktop, tablet and 375px with a draft only (no order submitted); the employee view and a real order submission were not exercised.

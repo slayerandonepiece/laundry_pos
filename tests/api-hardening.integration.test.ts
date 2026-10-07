@@ -182,13 +182,18 @@ test('M5: concurrent identical Delivered transitions count the completed rollup 
   const before = (await summary()).ordersCompletedCount;
   const created = await Promise.all(Array.from({ length: 8 }, (_, i) =>
     orders.createOrder(f.store.id, orderInput(f, `m5-${i}`), f.owner.id, f.outletA.id)));
+  // Delivery needs the order paid in full.
+  for (const o of created) {
+    const row = await prisma.order.findUniqueOrThrow({ where: { storeId_orderNumber: { storeId: f.store.id, orderNumber: orders.parseOrderCode(o.id)! } } });
+    await prisma.payment.create({ data: { orderId: row.id, storeId: f.store.id, outletId: f.outletA.id, amount: 100, method: 'Cash', paidAt: today } });
+  }
   await Promise.all(created.flatMap(o => [
     orders.updateOrderStatus(f.store.id, o.id, 'Delivered', f.owner.id),
     orders.updateOrderStatus(f.store.id, o.id, 'Delivered', f.owner.id),
   ]));
   assert.equal((await summary()).ordersCompletedCount - before, 8);
   for (const o of created) {
-    const events = await prisma.statusEvent.count({ where: { order: { orderNumber: Number(o.id.replace(/\D/g, '')) }, status: 'DELIVERED' } });
+    const events = await prisma.statusEvent.count({ where: { order: { storeId: f.store.id, orderNumber: orders.parseOrderCode(o.id)! }, status: 'DELIVERED' } });
     assert.equal(events, 1);
   }
 });

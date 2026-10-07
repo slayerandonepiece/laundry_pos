@@ -79,7 +79,10 @@ export async function loginAction(phone: string, password: string): Promise<Logi
 export async function logoutAction(): Promise<void> {
   await destroySession();
   try {
-    (await cookies()).delete('el_selected_outlet');
+    const jar = await cookies();
+    jar.delete('el_selected_outlet');
+    // The Sales period is a per-session convenience: the next sign-in starts at the default.
+    jar.delete({ name: 'el_sales_period', path: '/admin/sales' });
   } catch {
     // Ignore if cookies() fails
   }

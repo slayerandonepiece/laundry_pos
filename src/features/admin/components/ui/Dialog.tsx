@@ -55,7 +55,7 @@ export function Dialog({
     // Focus the first form field inside the dialog, or first focusable element, or the dialog itself
     const timer = setTimeout(() => {
       if (dialogRef.current) {
-        const autoFocused = dialogRef.current.querySelector<HTMLElement>('[autofocus]');
+        const autoFocused = dialogRef.current.querySelector<HTMLElement>('[autofocus], [data-autofocus]');
         const bodyInput = dialogRef.current.querySelector<HTMLElement>(
           '.dialog-body input:not([type="hidden"]):not([disabled]), .dialog-body select:not([disabled]), .dialog-body textarea:not([disabled])'
         );

@@ -41,9 +41,10 @@ export async function applyOrderCreationRollup(
     outletId: string;
     orderDate: Date;
     lines: { name: string; quantity: number; amount: number }[];
+    delta?: 1 | -1;
   },
 ): Promise<void> {
-  const { storeId, outletId, orderDate, lines } = params;
+  const { storeId, outletId, orderDate, lines, delta = 1 } = params;
   const totalAmount = lines.reduce((sum, line) => sum + line.amount, 0);
 
   // 1. Update DailyOutletSummary
@@ -59,12 +60,12 @@ export async function applyOrderCreationRollup(
       storeId,
       outletId,
       businessDate: orderDate,
-      ordersCreatedCount: 1,
-      grossOrderAmount: totalAmount,
+      ordersCreatedCount: delta,
+      grossOrderAmount: totalAmount * delta,
     },
     update: {
-      ordersCreatedCount: { increment: 1 },
-      grossOrderAmount: { increment: totalAmount },
+      ordersCreatedCount: { increment: delta },
+      grossOrderAmount: { increment: totalAmount * delta },
     },
   });
 
@@ -94,14 +95,14 @@ export async function applyOrderCreationRollup(
         outletId,
         serviceName,
         businessDate: orderDate,
-        piecesCount: service.piecesCount,
-        orderCount: 1,
-        amount: service.amount,
+        piecesCount: service.piecesCount * delta,
+        orderCount: delta,
+        amount: service.amount * delta,
       },
       update: {
-        piecesCount: { increment: service.piecesCount },
-        orderCount: { increment: 1 },
-        amount: { increment: service.amount },
+        piecesCount: { increment: service.piecesCount * delta },
+        orderCount: { increment: delta },
+        amount: { increment: service.amount * delta },
       },
     });
   }
@@ -117,9 +118,10 @@ export async function applyPaymentRollup(
     outletId: string;
     paidAt: Date;
     amount: number;
+    delta?: 1 | -1;
   },
 ): Promise<void> {
-  const { storeId, outletId, paidAt, amount } = params;
+  const { storeId, outletId, paidAt, amount, delta = 1 } = params;
 
   await tx.dailyOutletSummary.upsert({
     where: {
@@ -133,10 +135,10 @@ export async function applyPaymentRollup(
       storeId,
       outletId,
       businessDate: paidAt,
-      paymentsCollectedAmount: amount,
+      paymentsCollectedAmount: amount * delta,
     },
     update: {
-      paymentsCollectedAmount: { increment: amount },
+      paymentsCollectedAmount: { increment: amount * delta },
     },
   });
 }
@@ -173,6 +175,86 @@ export async function applyOrderStatusCompletedRollup(
       ordersCompletedCount: { increment: delta },
     },
   });
+}
+
+export interface ImportedOrderRollupInput {
+  lines: { name: string; quantity: number; amount: number }[];
+  /** Paise paid on the order; imported orders are paid in full on their order date. */
+  paid: number;
+}
+
+/**
+ * Applies (delta 1) or reverses (delta -1) the rollups for a whole import batch in one
+ * pass. Every imported order is created, paid and delivered on the same business date at
+ * the same outlet, so the batch collapses to one summary row plus one row per service. The
+ * arithmetic is the same as applyOrderCreationRollup + applyPaymentRollup +
+ * applyOrderStatusCompletedRollup applied once per order: orders created and completed
+ * count each order once, gross is the sum of order totals, payments the sum paid, and a
+ * service's `orderCount` is the number of distinct orders containing it while its pieces
+ * round each line's quantity.
+ */
+export async function applyImportedBatchRollup(
+  tx: Prisma.TransactionClient,
+  params: { storeId: string; outletId: string; businessDate: Date; orders: ImportedOrderRollupInput[]; delta: 1 | -1 },
+): Promise<void> {
+  const { storeId, outletId, businessDate, orders, delta } = params;
+  if (!orders.length) return;
+  const gross = orders.reduce((sum, order) => sum + order.lines.reduce((lineSum, line) => lineSum + line.amount, 0), 0);
+  const paid = orders.reduce((sum, order) => sum + order.paid, 0);
+  const count = orders.length;
+
+  await tx.dailyOutletSummary.upsert({
+    where: { storeId_outletId_businessDate: { storeId, outletId, businessDate } },
+    create: {
+      storeId, outletId, businessDate,
+      ordersCreatedCount: count * delta,
+      ordersCompletedCount: count * delta,
+      grossOrderAmount: gross * delta,
+      paymentsCollectedAmount: paid * delta,
+    },
+    update: {
+      ordersCreatedCount: { increment: count * delta },
+      ordersCompletedCount: { increment: count * delta },
+      grossOrderAmount: { increment: gross * delta },
+      paymentsCollectedAmount: { increment: paid * delta },
+    },
+  });
+
+  const services = new Map<string, { piecesCount: number; orderCount: number; amount: number }>();
+  for (const order of orders) {
+    const perOrder = new Map<string, { piecesCount: number; amount: number }>();
+    for (const line of order.lines) {
+      const entry = perOrder.get(line.name) ?? { piecesCount: 0, amount: 0 };
+      entry.piecesCount += Math.round(line.quantity);
+      entry.amount += line.amount;
+      perOrder.set(line.name, entry);
+    }
+    for (const [name, entry] of perOrder) {
+      const total = services.get(name) ?? { piecesCount: 0, orderCount: 0, amount: 0 };
+      total.piecesCount += entry.piecesCount;
+      total.orderCount += 1;
+      total.amount += entry.amount;
+      services.set(name, total);
+    }
+  }
+  for (const [serviceName, total] of services) {
+    await tx.dailyOutletServiceSummary.upsert({
+      where: { storeId_outletId_serviceName_businessDate: { storeId, outletId, serviceName, businessDate } },
+      create: { storeId, outletId, serviceName, businessDate, piecesCount: total.piecesCount * delta, orderCount: total.orderCount * delta, amount: total.amount * delta },
+      update: { piecesCount: { increment: total.piecesCount * delta }, orderCount: { increment: total.orderCount * delta }, amount: { increment: total.amount * delta } },
+    });
+  }
+
+  if (delta === -1) {
+    // Reversing a batch that created these rows leaves them all zero; remove them so the
+    // day looks exactly as it did before the batch existed.
+    await tx.dailyOutletServiceSummary.deleteMany({
+      where: { storeId, outletId, businessDate, serviceName: { in: [...services.keys()] }, piecesCount: 0, orderCount: 0, amount: 0 },
+    });
+    await tx.dailyOutletSummary.deleteMany({
+      where: { storeId, outletId, businessDate, ordersCreatedCount: 0, ordersCompletedCount: 0, grossOrderAmount: 0, paymentsCollectedAmount: 0, expensesAmount: 0 },
+    });
+  }
 }
 
 /**

@@ -480,6 +480,55 @@ Transitions order status across the 4 work statuses: `'Pending'`, `'In Progress'
   }
   ```
 - **Response `200 OK`**: Returns updated order DTO with new entry in `history`.
+- **Rules**: status only moves forward (`Pending` → `In Progress` → `Ready` → `Delivered`); skipping ahead is allowed and re-sending the current status is a no-op. `Delivered` is final. A backward move or any change after `Delivered` returns `400` with a plain message. **`Delivered` is refused with `400` while a balance is due** (`"Collect the balance of ₹50 before marking this order delivered."`): use `POST /orders/{code}/deliver` to collect and deliver together.
+
+---
+
+### `POST /api/v1/orders/[orderCode]/cancel`
+
+Cancels an order that has **not been delivered**. **Owner only.**
+
+- **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
+- **Request Body**: `{ "reason": "Customer asked to cancel" }` (3 to 500 characters, kept in the audit trail).
+- **Response `200 OK`**: `{ "ok": true }`. The order leaves `GET /orders`, `GET /orders/{code}` answers `404`, and `/orders/sync` returns it once with `deleted: true` so devices drop it.
+- **Errors**: `400` for a missing or short reason or a delivered order (`Delivered orders are final and cannot be cancelled.`), `403` for an employee, `404` unknown order. Money already collected is not refunded by this call.
+
+---
+
+### `POST /api/v1/orders/[orderCode]/deliver`
+
+Collects the outstanding balance (if any) and marks the order delivered in **one transaction**: if the payment is refused the order is not delivered, and if delivery fails no payment is kept. Allowed for `OWNER` and for an `EMPLOYEE` who holds the order's outlet.
+
+- **Auth**: Bearer token + `X-Store-Id`.
+- **Request Body** (every field optional when nothing is due):
+  ```json
+  { "method": "Cash", "amount": 5000, "clientActionId": "uuid" }
+  ```
+  `method` is required when a balance is due and must be a method that appears **after** the order (`stage` `POST_ORDER` or `BOTH`); Cash on delivery is refused. `amount`, if sent, must equal the balance exactly (omit it to pay the balance). `clientActionId` makes a retry a no-op: the same id returns the delivered order without a second payment.
+- **Response `200 OK`**: the updated order DTO (`status: "Delivered"`, the new payment with its `receiptNumber`).
+- **Errors**: `400` with the explanation (`Choose how the balance was paid.`, `Collect the full balance of ₹…`, a stage/COD rejection, or `Delivered orders are final…` when it was already delivered by a different request), `403` outlet, `404`.
+
+---
+
+### `GET /api/v1/orders/[orderCode]/message`
+
+The customer message for the order's **current status**, built from the organization's template (set by the platform administrator).
+
+- **Auth**: Bearer token + `X-Store-Id`; an employee needs the order's outlet.
+- **Response `200 OK`**:
+  ```json
+  {
+    "statusKey": "READY", "enabled": true,
+    "text": "Hi Ravi, your laundry order 1000004314 at … Order details: {link}. Thank you.",
+    "linkPath": "/o/<token>/view", "pdfPath": "/o/<token>", "pdfName": "Order 1000004314",
+    "attachment": "ORDER_SLIP_PDF"
+  }
+  ```
+  Every placeholder is filled except `{link}`: replace it with your origin + `linkPath` and attach the PDF at origin + `pdfPath` where the device can share files, otherwise send the text. `enabled: false` means no message is offered for this status. Delivered messages link to the invoice (`/i/<token>/view`); earlier statuses link to the order slip (`/o/<token>/view`). A template that asks for the invoice before one exists falls back to the slip.
+
+### `GET /api/v1/orders/[orderCode]/slip/pdf[?download=1]`
+
+The order slip PDF (order, items, total, paid, amount due; no invoice number). Staff-authenticated like the invoice PDF. The public customer link is `/o/<token>` (PDF) and `/o/<token>/view` (page), reached only by the opaque token.
 
 ---
 
@@ -640,11 +689,18 @@ Lists the organization's **enabled** payment methods.
 - **Response `200 OK`**:
   ```json
   [
-    { "id": "ppm_1", "code": "CASH", "name": "Cash", "enabled": true },
-    { "id": "ppm_2", "code": "UPI", "name": "Upi", "enabled": true }
+    { "id": "ppm_0", "code": "COD", "name": "Cash on delivery", "enabled": true, "stage": "PRE_ORDER" },
+    { "id": "ppm_1", "code": "CASH", "name": "Cash", "enabled": true, "stage": "POST_ORDER" },
+    { "id": "ppm_2", "code": "UPI", "name": "Upi", "enabled": true, "stage": "BOTH" }
   ]
   ```
-  `id` is the **platform** method id — the same id `PATCH` takes.
+  `id` is the **platform** method id. `stage` says where the method appears:
+  `PRE_ORDER` (offered when an order is placed), `POST_ORDER` (offered when
+  collecting a payment or delivering) or `BOTH`. Offer a method only in the
+  matching place; the server rejects it elsewhere. Cash on delivery (`COD`) is a
+  promise to pay, never money received: it is always `PRE_ORDER`, records no
+  payment, and `POST /orders` with `initialPayment.method = COD` and an amount
+  above zero is rejected.
 
 ---
 
@@ -658,18 +714,12 @@ toggles enablement.
 
 ### `PATCH /api/v1/payment-methods/[id]`
 
-Enables or disables a catalogue method for this organization. **Restricted to
-`OWNER`**.
-
-- **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
-- **Request Body**:
-  ```json
-  { "enabled": false }
-  ```
-  `active` is accepted as an alias for `enabled`.
-- **Response `200 OK`**: `{ "id": "...", "code": "...", "name": "...", "enabled": false }`
-- **`400`** if `name` is supplied — display names belong to the platform
-  catalogue and are shared across organizations.
+**Retired for the app.** Payment methods and where each appears are configured
+per organization by the platform administrator (Super Admin), not by owners.
+Any signed-in member gets `403` with
+`{ "error": "...", "code": "payment_methods_managed_by_platform" }`; an
+unauthenticated call still gets `401`. Read the configuration with
+`GET /api/v1/payment-methods`.
 
 ---
 

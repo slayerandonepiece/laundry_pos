@@ -5,5 +5,6 @@ import { mock } from 'node:test';
 const cache = {
   unstable_cache: callback => callback,
   revalidateTag: mock.fn(),
+  revalidatePath: mock.fn(),
 };
 mock.module('next/cache', { namedExports: cache, defaultExport: cache });

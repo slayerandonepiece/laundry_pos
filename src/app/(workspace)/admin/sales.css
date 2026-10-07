@@ -1,0 +1,64 @@
+/* Sales register (owner + employee): header row, one filter bar, table, pager. 8px grid. */
+.ad-root .ad-sales{display:flex;flex-direction:column;gap:16px;min-width:0}
+.ad-root .ad-sales-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;flex-wrap:wrap}
+.ad-root .ad-sales-head h1{font-size:28px;margin:0 0 4px}
+.ad-root .ad-sales-head p{margin:0;font-size:14px}
+/* Actions sit right of the title; when they don't fit, the whole group wraps below it, left-aligned. */
+.ad-root .ad-sales-head-actions{display:flex;align-items:center;gap:12px 28px;flex-wrap:wrap;justify-content:flex-start;flex:0 0 auto;max-width:100%;min-width:0}
+.ad-root .ad-sales-head-actions .ad-dates{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;min-width:0}
+/* Reserve the Custom dates footprint (select + From + To) for every period, so choosing a
+   period never moves the header between "beside the title" and "below it" at the same width. */
+@media(min-width:601px){.ad-root .ad-sales-head-actions{flex:1 1 auto;min-width:min(648px,100%)}.ad-root .ad-sales-head-actions .ad-dates{flex:1 1 auto}.ad-root .ad-sales-head-actions .ad-button{margin-left:auto}}
+.ad-root .ad-sales-head-actions .ad-dates>span{font-size:12px;color:var(--ad-muted);white-space:nowrap}
+.ad-root .ad-sales-head-actions .ad-dates select{height:40px;min-height:40px;min-width:150px;padding:0 36px 0 12px;background-position:right 12px center}
+.ad-root .ad-sales-head-actions .ad-date-bound{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;font-size:12px!important;font-weight:500!important;color:var(--ad-muted);white-space:nowrap}
+.ad-root .ad-sales-head-actions .ad-date-bound input{flex:none;width:150px;min-width:150px;height:40px;min-height:40px;padding:0 8px 0 12px}
+.ad-root .ad-sales-head-actions .ad-button{height:40px;min-height:40px}
+
+.ad-root .ad-sales-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ad-root .ad-sales-filters input[type=search]{flex:1 1 240px;min-height:40px;padding:8px 12px}
+.ad-root .ad-sales-filters .switcher-trigger{min-height:40px;height:40px}
+.ad-root .ad-sales-toggles{display:flex;gap:8px}
+.ad-root .ad-sales-toggles button{min-height:40px;padding:8px 12px;border:1px solid #dce2e9;border-radius:8px;background:#fff;font-size:13px;font-weight:600;color:var(--ad-text);white-space:nowrap}
+.ad-root .ad-sales-toggles button[aria-pressed=true]{background:#eef3ff;border-color:var(--ad-blue);color:var(--ad-blue)}
+.ad-root .ad-sales-filters .ad-text-link{min-height:40px;padding:0 8px;font-size:13px}
+
+.ad-root .ad-sales-register{border:1px solid #e2e6eb;border-radius:12px;background:#fff;overflow:hidden;min-width:0}
+.ad-root .ad-sales-register table.grid th{border-radius:0;padding:8px 16px}
+.ad-root .ad-sales-register table.grid td{padding:12px 16px}
+.ad-root .ad-sales-register .workspace-loading{padding:0}
+.ad-root .ad-sales-register>.empty-state,.ad-root .ad-sales-register>div>.empty-state{margin:0;border:0}
+
+/* Shared Pager markup (also used by Super Admin), styled for the store workspace. */
+.ad-root .ad-sales .pager{display:flex;align-items:center;gap:8px 24px;flex-wrap:wrap;padding:8px 16px;border-top:1px solid #edf0f4;background:#fafbfc;font-size:12.5px;color:var(--ad-muted)}
+.ad-root .ad-sales .pager-range b{color:var(--ad-text);font-weight:600}
+.ad-root .ad-sales .pager-size{display:flex;flex-direction:row;align-items:center;gap:8px;margin-left:auto;font-weight:500}
+.ad-root .ad-sales .pager-size select{width:auto;min-width:64px;min-height:32px;height:32px;padding:0 28px 0 10px;background-position:right 8px center;font-size:12.5px;line-height:30px}
+.ad-root .ad-sales .pager-pages{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.ad-root .ad-sales .pager-pages button{min-width:32px;height:32px;padding:0 8px;border:1px solid #dce2e9;border-radius:8px;background:#fff;font-size:12.5px;font-weight:600;color:var(--ad-text)}
+.ad-root .ad-sales .pager-pages button.on{background:var(--ad-blue);border-color:var(--ad-blue);color:#fff}
+.ad-root .ad-sales .pager-gap{padding:0 4px}
+
+@media(max-width:768px){
+  .ad-root .ad-sales{gap:12px}
+  .ad-root .ad-sales-head{gap:12px}
+  .ad-root .ad-sales-head h1{font-size:24px}
+  .ad-root .ad-sales-filters input[type=search]{flex-basis:100%}
+  .ad-root .ad-sales-filters>div:not(.ad-sales-toggles){flex:1 1 140px;min-width:0}
+  .ad-root .ad-sales-filters>div:not(.ad-sales-toggles) .switcher-trigger{width:100%;justify-content:space-between}
+  /* Phones get the card list: no outer box around the cards. */
+  .ad-root .ad-screen-sales .ad-sales-register{border:0;border-radius:0;background:none;overflow:visible;padding:0}
+  .ad-root .ad-sales .pager{border:1px solid #edf0f4;border-radius:8px;margin-top:8px;padding:8px 12px}
+}
+@media(max-width:600px){
+  /* Period full width, From/To side by side, New order full width. */
+  .ad-root .ad-sales-head-actions{width:100%;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+  .ad-root .ad-sales-head-actions .ad-dates{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;width:100%}
+  .ad-root .ad-sales-head-actions .ad-dates>select{grid-column:1/-1;width:100%;min-width:0}
+  .ad-root .ad-sales-head-actions .ad-dates>span{grid-column:1/-1}
+  .ad-root .ad-sales-head-actions .ad-date-bound{flex-direction:column;align-items:stretch;gap:4px;min-width:0}
+  .ad-root .ad-sales-head-actions .ad-date-bound input{width:100%;min-width:0;padding:0 8px;font-size:16px}
+  .ad-root .ad-sales-head-actions .ad-button{width:100%}
+  .ad-root .ad-sales .pager{gap:8px 12px}
+  .ad-root .ad-sales .pager-range{flex-basis:100%}
+}

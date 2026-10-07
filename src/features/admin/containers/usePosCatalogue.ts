@@ -1,18 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Product, StorePaymentMethod } from '../admin.types';
+import type { Product, PaymentMethodOption } from '../admin.types';
 import { CATALOGUE_TTL, cacheGeneration, isFresh, isPaymentMethod, isProduct, readListCache, withCacheLock, writeCache } from '../client-cache';
 
-export function usePosCatalogue(storeId: string | undefined, enabled: boolean, serverProducts: Product[], serverMethods: StorePaymentMethod[]) {
-  const [snapshot, setSnapshot] = useState<{ storeId: string; products: Product[]; methods: StorePaymentMethod[] } | null>(null);
+export function usePosCatalogue(storeId: string | undefined, enabled: boolean, serverProducts: Product[], serverMethods: PaymentMethodOption[]) {
+  const [snapshot, setSnapshot] = useState<{ storeId: string; products: Product[]; methods: PaymentMethodOption[] } | null>(null);
   useEffect(() => {
     if (!enabled || !storeId) return;
     const catalogueKey = `el-catalogue-${storeId}`, methodsKey = `el-payment-methods-${storeId}`;
     const controller = new AbortController(), generation = cacheGeneration();
     let products = readListCache(catalogueKey, isProduct), methods = readListCache(methodsKey, isPaymentMethod);
     let currentProducts = products && (isFresh(products.cachedAt, CATALOGUE_TTL) || !navigator.onLine) ? products.data : serverProducts;
-    let currentMethods = methods && (isFresh(methods.cachedAt, CATALOGUE_TTL) || !navigator.onLine) ? methods.data : serverMethods;
+    // Payment methods and their stage are set by Super Admin, so the server's list wins on every load; the cache is only an offline fallback.
+    let currentMethods = methods && !navigator.onLine ? methods.data : serverMethods;
     const active = () => !controller.signal.aborted && generation === cacheGeneration();
     const publish = () => { if (active()) setSnapshot({ storeId, products: currentProducts, methods: currentMethods }); };
     publish();
@@ -39,12 +40,11 @@ export function usePosCatalogue(storeId: string | undefined, enabled: boolean, s
             writeCache(catalogueKey, { data, cachedAt: Date.now(), version });
           })(),
           (async () => {
-            if (methods && isFresh(methods.cachedAt, CATALOGUE_TTL)) { currentMethods = methods.data; return; }
             const response = await fetch('/api/v1/payment-methods', { ...options, cache: 'no-cache' });
             if (!response.ok) return;
             const raw: unknown = await response.json();
             if (!Array.isArray(raw) || !active()) return;
-            const data = raw.filter(method => method?.enabled === true).map(method => ({ id: method.id, name: method.name, code: method.code, active: true }));
+            const data = raw.filter(method => method?.enabled === true).map(method => ({ id: method.id, name: method.name, code: method.code, stage: method.stage, active: true }));
             if (!data.every(isPaymentMethod)) return;
             currentMethods = data;
             writeCache(methodsKey, { data, cachedAt: Date.now() });

@@ -6,12 +6,47 @@ export function TableLoading({
   cols = 5,
   rows = 6,
   hasSearch = true,
+  bare = false,
 }: {
   hasStats?: boolean;
   cols?: number;
   rows?: number;
   hasSearch?: boolean;
+  /** Only the table rows, for a list area that reloads under its own heading and filters. */
+  bare?: boolean;
 }) {
+  const table = (
+    <table className="grid">
+      <thead>
+        <tr>
+          {Array.from({ length: cols }, (_, i) => (
+            <th key={i}>
+              <div className="shimmer line" style={{ height: '12px', width: i === 0 ? '70px' : i === cols - 1 ? '40px' : '90px' }} />
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rows }, (_, r) => (
+          <tr key={r}>
+            {Array.from({ length: cols }, (_, c) => (
+              <td key={c} style={c === cols - 1 ? { textAlign: 'right' } : undefined}>
+                <div
+                  className="shimmer line"
+                  style={{
+                    height: '14px',
+                    width: c === 0 ? '75%' : c === cols - 1 ? '50px' : '65%',
+                    display: c === cols - 1 ? 'inline-block' : 'block',
+                  }}
+                />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  if (bare) return <div className="workspace-loading" role="status" aria-label="Loading orders" aria-busy="true" style={{ overflowX: 'auto' }}>{table}</div>;
   return (
     <div className="workspace-loading" role="status" aria-label="Loading content" aria-busy="true" style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       <div className="ad-page-heading" style={{ margin: 0 }}>
@@ -45,35 +80,7 @@ export function TableLoading({
         )}
 
         <div style={{ overflowX: 'auto' }}>
-          <table className="grid">
-            <thead>
-              <tr>
-                {Array.from({ length: cols }, (_, i) => (
-                  <th key={i}>
-                    <div className="shimmer line" style={{ height: '12px', width: i === 0 ? '70px' : i === cols - 1 ? '40px' : '90px' }} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: rows }, (_, r) => (
-                <tr key={r}>
-                  {Array.from({ length: cols }, (_, c) => (
-                    <td key={c} style={c === cols - 1 ? { textAlign: 'right' } : undefined}>
-                      <div
-                        className="shimmer line"
-                        style={{
-                          height: '14px',
-                          width: c === 0 ? '75%' : c === cols - 1 ? '50px' : '65%',
-                          display: c === cols - 1 ? 'inline-block' : 'block',
-                        }}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {table}
         </div>
       </Card>
     </div>

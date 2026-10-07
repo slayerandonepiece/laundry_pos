@@ -8,6 +8,10 @@ import { parseCalendarDate, formatCalendarDate, todayIST } from '@/server/dates'
 import { hasCurrentAccess } from '@/lib/subscriptionAccess';
 import { isValidNewPassword } from '@/lib/contactValidation';
 import { ValidationError } from '@/server/errors';
+import { nextFreeOrgCode } from '@/server/numbering';
+import { effectiveSubscriptionTerms, planDepositAmount } from '@/server/subscription-terms';
+import { applyOrganizationDefaults } from '@/server/services/org-defaults';
+import { assertOrgCodeFree, isNumberingLocked, parseOrgCode } from '@/server/services/org-numbering';
 import type { CollectedThisYearStats, DashboardStats, OnboardStoreInput, OwnerLookupResult, PaymentState, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '@/features/super-admin/types';
 
 const EXPIRING_SOON_DAYS = 30;
@@ -79,10 +83,12 @@ function paymentStateFor(
 
 function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number; paidAt: Date }): StoreListItem {
   const owner = row.memberships[0]?.user;
+  const terms = effectiveSubscriptionTerms(row.subscription);
   const paidThroughDate = row.subscription?.paidThroughDate ? formatCalendarDate(row.subscription.paidThroughDate) : undefined;
   const trialEndsAt = row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined;
   return {
     id: row.id,
+    orgCode: row.orgCode,
     name: row.name,
     address: row.address,
     phone: row.phone,
@@ -92,9 +98,9 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     ownerEmail: owner?.email ?? undefined,
     ownerPhone: owner?.phone ?? undefined,
     planName: row.subscription?.plan?.name,
-    depositAmount: row.subscription?.depositAmount ?? 0,
+    depositAmount: terms.depositAmount,
     depositPaidAt: row.subscription?.depositPaidAt ? formatCalendarDate(row.subscription.depositPaidAt) : undefined,
-    annualFeeAmount: row.subscription?.annualFeeAmount ?? 0,
+    annualFeeAmount: terms.annualFeeAmount,
     paidThroughDate,
     trialEndsAt,
     paymentState: row.status === 'LOCKED' ? 'locked' : paymentStateFor(paidThroughDate, trialEndsAt, today),
@@ -136,8 +142,11 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
     },
   });
   if (!row) return null;
+  const numberingLocked = await isNumberingLocked(prisma, storeId);
   return {
     ...toDTO(row, today),
+    orderSeqBase: Number(row.orderSeqBase),
+    numberingLocked,
     onboardedAt: formatCalendarDate(row.onboardedAt),
     planId: row.subscription?.planId ?? undefined,
     planName: row.subscription?.plan?.name,
@@ -223,6 +232,7 @@ export async function lookupOwnerByPhone(phone: string): Promise<OwnerLookupResu
 
 const onboardSchema = z.object({
   storeName: z.string().trim().min(1),
+  orgCode: z.string().trim().optional(),
   address: z.string().trim().default(''),
   phone: z.string().trim().min(1, 'Enter a contact phone number for this organization.').refine(isValidPhone, 'Enter a valid phone number (8–15 digits).'),
   owner: z.discriminatedUnion('mode', [
@@ -274,19 +284,21 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
       ownerId = existing.id;
     }
 
+    // A custom code must be free; otherwise take the next free one. Both happen
+    // in this transaction so a rolled-back onboarding does not keep a code.
+    let orgCode: string;
+    if (data.orgCode) {
+      orgCode = parseOrgCode(data.orgCode);
+      await assertOrgCodeFree(tx, orgCode);
+    } else {
+      orgCode = await nextFreeOrgCode(tx);
+    }
     const store = await tx.store.create({
-      data: { name: data.storeName, address: data.address, phone: data.phone, onboardedById: superAdminId },
+      data: { orgCode, name: data.storeName, address: data.address, phone: data.phone, onboardedById: superAdminId },
     });
 
-    // auto-enable all active platform payment methods for the new org
-    const activeMethods = await tx.platformPaymentMethod.findMany({ where: { active: true }, select: { id: true } });
-    await tx.organizationPaymentMethod.createMany({
-      data: activeMethods.map(method => ({ storeId: store.id, platformPaymentMethodId: method.id, enabled: true })),
-    });
-
-    await tx.storePaymentMethod.createMany({
-      data: [{ storeId: store.id, name: 'Cash' }, { storeId: store.id, name: 'UPI' }],
-    });
+    // Platform defaults: payment methods flagged enabledByDefault. Message templates are inherited, not copied.
+    await applyOrganizationDefaults(tx, store.id);
 
     await tx.storeMembership.create({ data: { storeId: store.id, userId: ownerId, role: 'OWNER' } });
 
@@ -298,7 +310,7 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
     if (data.subscription.mode === 'plan') {
       const plan = await tx.subscriptionPlan.findUnique({ where: { id: data.subscription.planId } });
       if (!plan || plan.archivedAt) throw new ValidationError('Plan not found.');
-      depositAmount = plan.depositWaivedByDefault ? 0 : plan.depositAmount;
+      depositAmount = planDepositAmount(plan);
       annualFeeAmount = plan.annualFeeAmount;
       planId = plan.id;
       discountAmount = data.subscription.discountAmount;
@@ -314,9 +326,11 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
       data: {
         storeId: store.id,
         planId,
-        depositAmount,
+        // A plan's price is read from the plan, never copied; only custom terms (and a deposit frozen
+        // at the moment it was paid) are stored on the subscription.
+        depositAmount: planId ? (recordPayment ? depositAmount : null) : depositAmount,
         depositPaidAt: recordPayment ? parseCalendarDate(today) : null,
-        annualFeeAmount,
+        annualFeeAmount: planId ? null : annualFeeAmount,
         discountAmount,
         paidThroughDate,
         trialStartsAt: data.subscription.mode === 'trial' && data.subscription.trialStartDate ? parseCalendarDate(data.subscription.trialStartDate) : null,
@@ -382,7 +396,7 @@ export async function recordSubscriptionPayment(storeId: string, input: RecordSu
       SELECT id FROM subscriptions WHERE "storeId" = ${storeId} FOR UPDATE
     `;
     if (!locked.length) throw new ValidationError('This store has no subscription yet.');
-    const subscription = await tx.subscription.findUniqueOrThrow({ where: { storeId }, include: { plan: { select: { billingCycle: true } } } });
+    const subscription = await tx.subscription.findUniqueOrThrow({ where: { storeId }, include: { plan: true } });
 
     let coversFrom: Date | undefined;
     let coversTo: Date | undefined;
@@ -395,7 +409,8 @@ export async function recordSubscriptionPayment(storeId: string, input: RecordSu
       coversTo = parseCalendarDate(addBillingCycle(base, billingCycle));
       await tx.subscription.update({ where: { storeId }, data: { paidThroughDate: coversTo } });
     } else {
-      await tx.subscription.update({ where: { storeId }, data: { depositPaidAt: paidAt } });
+      // The deposit is a historical fact once paid: freeze the amount so a later plan edit cannot rewrite it.
+      await tx.subscription.update({ where: { storeId }, data: { depositPaidAt: paidAt, depositAmount: effectiveSubscriptionTerms(subscription).depositAmount } });
     }
 
     return tx.subscriptionPayment.create({

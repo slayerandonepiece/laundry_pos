@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@/server/db';
 import { randomBytes } from 'node:crypto';
 import { formatCalendarDate } from '@/server/dates';
+import { allocateInvoiceNumber } from '@/server/numbering';
 import { ValidationError } from '@/server/errors';
 import { parseOrderCode, toOrderCode } from './orders';
 import { AuthError, requireOutletSession, type StoreSession } from '@/server/auth/session';
@@ -18,6 +19,7 @@ export interface OrderInvoiceLine { name: string; quantity: number; unit: string
 export interface OrderInvoicePayment { amount: number; method: string; date: string }
 export interface OrderInvoiceData {
   invoiceSeq: number;
+  invoiceNumber: string;
   accessToken: string;
   generatedAt: string;
   orderCode: string;
@@ -49,6 +51,7 @@ function toInvoiceData(invoice: InvoiceRow): OrderInvoiceData {
 
   return {
     invoiceSeq: invoice.invoiceSeq,
+    invoiceNumber: invoice.invoiceNumber,
     accessToken: invoice.accessToken,
     generatedAt: invoice.generatedAt.toISOString(),
     orderCode: toOrderCode(order.orderNumber),
@@ -79,8 +82,8 @@ export async function assertCanReadOrderInvoice(session: StoreSession, orderCode
   // getOrCreateOrderInvoice still serves them, so they need the outlet check too.
   const orderNumber = parseOrderCode(orderCode);
   if (orderNumber === null) return;
-  const order = await prisma.order.findUnique({ where: { orderNumber }, select: { storeId: true, outletId: true } });
-  if (!order || order.storeId !== session.storeId) return;
+  const order = await prisma.order.findUnique({ where: { storeId_orderNumber: { storeId: session.storeId, orderNumber } }, select: { storeId: true, outletId: true } });
+  if (!order) return;
   if (!order.outletId) throw new AuthError('FORBIDDEN');
   await requireOutletSession(session.storeId, order.outletId, 'EMPLOYEE', session, { allowRestricted: true });
 }
@@ -93,10 +96,11 @@ export async function getOrCreateOrderInvoice(storeId: string, orderCode: string
   if (orderNumber === null) throw new Error('Order not found.');
 
   const order = await prisma.order.findUnique({
-    where: { orderNumber },
+    where: { storeId_orderNumber: { storeId, orderNumber } },
     include: { lines: true, payments: { orderBy: { paidAt: 'asc' } }, store: true },
   });
-  if (!order || order.storeId !== storeId) throw new Error('Order not found.');
+  if (!order) throw new Error('Order not found.');
+  if (order.isImported) throw new ValidationError("Invoices aren't available for imported orders.");
 
   const total = order.lines.reduce((sum, line) => sum + line.amount, 0);
   const paid = order.payments.reduce((sum, payment) => sum + payment.amount, 0);
@@ -112,20 +116,27 @@ export async function getOrCreateOrderInvoice(storeId: string, orderCode: string
   }
 
   // Lazy, get-or-create: no invoice (and no consumed invoice number) exists
-  // until someone actually asks to view/print/download/share one. `upsert`
-  // on the unique orderId is a single atomic statement, so a concurrent
-  // double-click can't create two invoices or skip a number — exactly one
-  // insert wins, the other becomes a no-op update of the same row.
-  const invoice = await prisma.orderInvoice.upsert({
-    where: { orderId: order.id },
-    create: {
-      orderId: order.id,
-      storeId,
-      outletId: order.outletId ?? null,
-      accessToken: randomBytes(32).toString('base64url'),
-    },
-    update: {},
-  });
+  // until someone actually asks to view/print/download/share one. The number is
+  // allocated from the organization's per-FY counter (FY of the order date) in
+  // the same transaction as the insert, so a failed insert returns the number.
+  // A concurrent double-click loses on the unique orderId and reads the winner.
+  let invoice = existing;
+  if (!invoice) {
+    try {
+      invoice = await prisma.$transaction(async tx => tx.orderInvoice.create({
+        data: {
+          orderId: order.id,
+          storeId,
+          outletId: order.outletId ?? null,
+          invoiceNumber: await allocateInvoiceNumber(tx, storeId, formatCalendarDate(order.orderDate)),
+          accessToken: randomBytes(32).toString('base64url'),
+        },
+      }));
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      invoice = await prisma.orderInvoice.findUniqueOrThrow({ where: { orderId: order.id } });
+    }
+  }
 
   return toInvoiceData({ ...invoice, order } as InvoiceRow);
 }
@@ -149,4 +160,8 @@ export async function getOrderInvoiceByToken(accessToken: string): Promise<Order
   if (!/^[A-Za-z0-9_-]{43}$/.test(accessToken)) return null;
   const invoice = await prisma.orderInvoice.findUnique({ where: { accessToken }, include: invoiceInclude });
   return invoice ? toInvoiceData(invoice) : null;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002';
 }

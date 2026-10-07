@@ -4,13 +4,13 @@ import { listProducts } from '@/server/services/products';
 import { listOrganizationPaymentMethods } from '@/server/services/platform-payment-methods';
 import { listOutletsForStoreAdmin } from '@/server/services/outlets';
 import { requireStoreSession, resolveStoreSelection, resolveOutletSelection, AuthError } from '@/server/auth/session';
-import type { StorePaymentMethod } from '@/features/admin/admin.types';
+import type { PaymentMethodOption } from '@/features/admin/admin.types';
 
 export default async function Page() {
   let serverStoreId = '';
   let serverOrders: Awaited<ReturnType<typeof listOrders>> = [];
   let serverProducts: Awaited<ReturnType<typeof listProducts>> = [];
-  let serverPaymentMethods: StorePaymentMethod[] = [];
+  let serverPaymentMethods: PaymentMethodOption[] = [];
   let serverOutlets: Awaited<ReturnType<typeof listOutletsForStoreAdmin>> = [];
   try {
     // Sales always requires one specific store — no "All stores" view
@@ -32,7 +32,7 @@ export default async function Page() {
     serverProducts = products;
     serverPaymentMethods = orgMethods
       .filter(method => method.enabled)
-      .map(method => ({ id: method.id, storeId: session.storeId, name: method.name, code: method.code, active: true }));
+      .map(method => ({ id: method.id, storeId: session.storeId, name: method.name, code: method.code, stage: method.stage, active: true }));
     // Owners pick the outlet on New sale when the store has more than one active outlet.
     serverOutlets = (await listOutletsForStoreAdmin(session.storeId)).filter(outlet => session.storeRole === 'OWNER' || outlet.id === outletSelection?.outletId);
   } catch (error) {

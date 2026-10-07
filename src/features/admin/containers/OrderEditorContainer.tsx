@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { findCustomerNameByPhoneAction } from '../actions/orders.actions';
 import { isCashOnDelivery } from '../payment-methods';
 import { useState, useRef } from 'react';
-import type { Product, Line, StorePaymentMethod } from '../admin.types';
+import type { Product, Line, PaymentMethodOption } from '../admin.types';
+import { methodAllowsPhase } from '@/lib/paymentStage';
 import { money, price, today } from '../admin.data';
 import { Button, usePanelClose } from '../components/Primitives';
 import { SingleSelectDropdown } from '../components/ui/Dropdown';
@@ -18,8 +19,10 @@ const blankEntry = (): Entry => ({ key: crypto.randomUUID(), id: '', quantity: 1
 const addDays = (date: string, days: number) => { const value = new Date(date + 'T00:00:00Z'); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10); };
 // Keeps the 10-digit mobile number when a number is typed or pasted with a +91 / 0 prefix.
 const tenDigitPhone = (value: string) => { const digits = value.replace(/\D/g, ''); return digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits.length === 11 && digits.startsWith('0') ? digits.slice(1) : digits; };
-export default function OrderEditorContainer({ products, paymentMethods, outlets = [], onSave }: { products: Product[]; paymentMethods: StorePaymentMethod[]; outlets?: OutletListItem[]; onSave: (input: CreateOrderInput, outletId?: string) => Promise<void> }) {
+export default function OrderEditorContainer({ products, paymentMethods: allPaymentMethods, outlets = [], onSave }: { products: Product[]; paymentMethods: PaymentMethodOption[]; outlets?: OutletListItem[]; onSave: (input: CreateOrderInput, outletId?: string) => Promise<void> }) {
   const onCancel = usePanelClose();
+  // Only methods set to appear when an order is placed are offered here.
+  const paymentMethods = allPaymentMethods.filter(method => methodAllowsPhase(method, 'PRE_ORDER'));
   const [entries, setEntries] = useState<Entry[]>([]), [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [outletId, setOutletId] = useState(''), [received, setReceived] = useState('0');

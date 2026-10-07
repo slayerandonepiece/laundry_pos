@@ -30,3 +30,8 @@ export async function shareInvoice({ downloadUrl, publicUrl, title, whatsApp = f
   await navigator.clipboard.writeText(publicUrl);
   return 'copied';
 }
+
+/** Opens WhatsApp with an order status message. The message carries the public order link; no file is attached. */
+export function shareOrderMessage(text: string): void {
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+}
