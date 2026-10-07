@@ -75,4 +75,4 @@ local Postgres: `LC_ALL=C LANG=C npm run test:subscription-payments` (needs
 
 ## Project and agent documentation
 
-- [Shared agent guidance](.agents/README.md)
+- [Shared agent guidance](.agents/README.md) 
