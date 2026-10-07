@@ -83,7 +83,7 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
         <strong className="num">{money(overdueAmount)}</strong><small>across {counts.locked.length} organization{counts.locked.length === 1 ? '' : 's'}</small>
       </div>
       <div className="stat">
-        <div className="stat-top"><span>Terms not set</span><span className="stat-ic"><Icon name="filter" size="s" /></span></div>
+        <div className="stat-top"><span>Awaiting payment</span><span className="stat-ic"><Icon name="filter" size="s" /></span></div>
         <strong className="num">{counts.unset}</strong><small>need onboarding</small>
       </div>
     </div>
@@ -96,7 +96,7 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
         ['locked', 'Locked'],
         ['trial', 'Trial'],
         ['trial_ending', 'Trial ending'],
-        ['unset', 'Terms not set'],
+        ['unset', 'Awaiting payment'],
       ] as [Filter, string][]).map(([value, label]) => (
         <button key={value} type="button" className={'fpill' + (filter === value ? ' on' : '')} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label}</button>
       ))}
@@ -123,8 +123,12 @@ export default function SubscriptionsBillingTable({ stores, collectedThisYear, s
               return <tr key={store.id}>
                 <td><div className="who"><span className="av sq">{initials(store.name)}</span><Link href={`/super-admin/stores/${store.id}/subscription`}><strong>{store.name}</strong></Link></div></td>
                 <td>{store.ownerName}</td>
-                <td>{store.planName ? <span className="chip">{store.planName}</span> : <span className="chip" style={{ color: 'var(--faint)' }}>No plan yet</span>}</td>
-                <td className="right num">{money(store.depositAmount)}{!store.depositPaidAt && <small> · unpaid</small>}</td>
+                <td className="plan-cell">{store.planName
+                  ? <span className="chip" title={store.planName}>{store.planName.replace(/\s+plan$/i, '')}</span>
+                  : store.paymentState === 'trial' || store.paymentState === 'trial_ending' ? <span className="chip info">Free trial</span>
+                  : <span className="chip" style={{ color: 'var(--faint)' }}>Custom</span>}
+                  {store.annualFeeAmount > 0 && store.paymentState !== 'trial' && store.paymentState !== 'trial_ending' && <span className="tag annual">Annual</span>}</td>
+                <td className="right num dep-cell">{money(store.depositAmount)}{store.depositAmount > 0 && <span className={'tag ' + (store.depositPaidAt ? 'paid' : 'due')}>{store.depositPaidAt ? 'Paid' : 'Unpaid'}</span>}</td>
                 <td className="right num">{money(store.annualFeeAmount)}</td>
                 <td className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</td>
                 <td className="num">

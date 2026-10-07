@@ -38,6 +38,18 @@ enum WorkStatus {
   DELIVERED
 }
 
+enum PaymentStage {
+  PRE_ORDER
+  POST_ORDER
+  BOTH
+}
+
+enum MessageAttachment {
+  NONE
+  ORDER_SLIP_PDF
+  INVOICE_PDF
+}
+
 enum StoreStatus {
   ACTIVE
   LOCKED
@@ -49,7 +61,7 @@ enum SubscriptionPaymentType {
 }
 
 // Platform subscription billing only. Customer order payments snapshot the
-// owning store's free-text StorePaymentMethod.name into Payment.method.
+// platform payment method's name into Payment.method.
 enum PaymentMethod {
   CASH
   UPI
@@ -60,6 +72,14 @@ enum BillingCycle {
   HALF_YEARLY
   QUARTERLY
   MONTHLY
+}
+
+enum DocumentType {
+  ORDER
+  INVOICE
+  RECEIPT
+  QUOTATION
+  CREDIT_NOTE
 }
 
 model User {
@@ -80,14 +100,17 @@ model User {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  sessions          Session[]
-  statusEvents      StatusEvent[]
-  memberships       StoreMembership[]
-  onboardedStores   Store[]               @relation("StoreOnboardedBy")
-  recordedPayments  SubscriptionPayment[] @relation("SubscriptionPaymentRecordedBy")
-  outletMemberships OutletMembership[]
-  createdOutlets    Outlet[]              @relation("OutletCreatedBy")
-  auditLogs         AuditLog[]
+  sessions                            Session[]
+  statusEvents                        StatusEvent[]
+  memberships                         StoreMembership[]
+  onboardedStores                     Store[]                       @relation("StoreOnboardedBy")
+  recordedPayments                    SubscriptionPayment[]         @relation("SubscriptionPaymentRecordedBy")
+  outletMemberships                   OutletMembership[]
+  createdOutlets                      Outlet[]                      @relation("OutletCreatedBy")
+  auditLogs                           AuditLog[]
+  updatedOrganizationMessageTemplates OrganizationMessageTemplate[] @relation("OrganizationMessageTemplateUpdatedBy")
+  importBatchesCreated                ImportBatch[]                 @relation("ImportBatchCreatedBy")
+  importBatchesUndone                 ImportBatch[]                 @relation("ImportBatchUndoneBy")
 
   @@index([active])
   @@index([isSuperAdmin])
@@ -109,11 +132,11 @@ model Session {
 }
 
 model AuthThrottle {
-  key             String   @id
+  key             String    @id
   count           Int
   windowStartedAt DateTime
   blockedUntil    DateTime?
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime  @updatedAt
 
   @@index([updatedAt])
   @@map("auth_throttle")
@@ -123,56 +146,73 @@ model AuthThrottle {
 // the outlet rollout. Outlets are schema-only in this batch and are not yet used
 // for authorization, records, reports, or UI.
 model Store {
-  id            String      @id @default(cuid())
-  name          String
-  address       String      @default("")
-  phone         String      @default("")
-  email         String      @default("")
-  status        StoreStatus @default(ACTIVE)
-  onboardedAt   DateTime    @default(now())
-  onboardedById String?
-  onboardedBy   User?       @relation("StoreOnboardedBy", fields: [onboardedById], references: [id], onDelete: SetNull)
+  id                   String      @id @default(cuid())
+  name                 String
+  address              String      @default("")
+  phone                String      @default("")
+  email                String      @default("")
+  orgCode              String      @unique @default(dbgenerated("lpad((nextval('\"stores_orgCode_seq\"'::regclass))::text, 3, '0'::text)"))
+  orderSeqBase         BigInt      @default(1000000001)
+  status               StoreStatus @default(ACTIVE)
+  onboardedAt          DateTime    @default(now())
+  onboardedById        String?
+  onboardedBy          User?       @relation("StoreOnboardedBy", fields: [onboardedById], references: [id], onDelete: SetNull)
   // Soft delete — a store is archived, never hard-deleted, so its order and
   // payment history survives. Null means active/not archived.
-  deletedAt     DateTime?
-  accessGrantedUntil DateTime? @db.Date
+  deletedAt            DateTime?
+  accessGrantedUntil   DateTime?   @db.Date
   // Protected app-store review organization: never wiped by the deletion job,
   // never subscription-locked, and pending deletion requests auto-restore.
-  isReviewDemo  Boolean     @default(false)
+  isReviewDemo         Boolean     @default(false)
   // Set while an ORGANIZATION-scope AccountDeletionRequest is PENDING; locks
   // the organization for everyone with blockedReason 'deletion_pending'.
   deletionScheduledFor DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
-  memberships                StoreMembership[]
-  subscription               Subscription?
-  payments                   SubscriptionPayment[]
-  products                   Product[]
-  orders                     Order[]
-  orderInvoices              OrderInvoice[]
-  paymentMethods             StorePaymentMethod[]
-  expenses                   Expense[]
-  recurringExpenseSeries     RecurringExpenseSeries[]
-  outlets                    Outlet[]
-  organizationPaymentMethods OrganizationPaymentMethod[]
-  auditLogs                  AuditLog[]
-  orderPayments              Payment[]                   @relation("StoreOrderPayments")
-  storeStatusEvents          StatusEvent[]               @relation("StoreStatusEvents")
+  memberships                 StoreMembership[]
+  subscription                Subscription?
+  payments                    SubscriptionPayment[]
+  products                    Product[]
+  orders                      Order[]
+  orderInvoices               OrderInvoice[]
+  expenses                    Expense[]
+  recurringExpenseSeries      RecurringExpenseSeries[]
+  outlets                     Outlet[]
+  organizationPaymentMethods  OrganizationPaymentMethod[]
+  messageTemplates            OrganizationMessageTemplate[]
+  auditLogs                   AuditLog[]
+  orderPayments               Payment[]                     @relation("StoreOrderPayments")
+  storeStatusEvents           StatusEvent[]                 @relation("StoreStatusEvents")
   dailyOutletSummaries        DailyOutletSummary[]
   dailyOutletServiceSummaries DailyOutletServiceSummary[]
+  documentCounters            DocumentCounter[]
+  importBatches               ImportBatch[]
 
   @@index([deletedAt])
   @@map("stores")
 }
 
-model StoreMembership {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model DocumentCounter {
   storeId   String
-  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  role      Role
+  store     Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  docType   DocumentType
+  fy        Int
+  nextValue BigInt
+  updatedAt DateTime     @updatedAt
+
+  @@id([storeId, docType, fy])
+  @@index([storeId])
+  @@map("document_counters")
+}
+
+model StoreMembership {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId        String
+  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  role           Role
   // Per-store access flag — an employee can be deactivated at one store
   // without affecting a membership they still hold at another (see
   // .agents/2026-09-brainstorm-plan.md Item 1). Deliberately independent of
@@ -197,7 +237,7 @@ model SubscriptionPlan {
   billingCycle           BillingCycle @default(ANNUAL)
   // When true, organizations on this plan skip the deposit.
   depositWaivedByDefault Boolean      @default(false)
-  defaultTrialDays Int?
+  defaultTrialDays       Int?
   notes                  String       @default("")
   // Archived, never hard-deleted — plans can be in use by active
   // subscriptions (see archivePlan()'s reassign-or-detach flow).
@@ -219,9 +259,12 @@ model Subscription {
   planId  String?
   plan    SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
 
-  depositAmount   Int // paise
+  // Per-organization price overrides, in paise. NULL means "follow the plan":
+  // the effective amount is read live from the plan (see effectiveSubscriptionTerms).
+  // A value is a custom negotiated price, or the deposit frozen once it is paid.
+  depositAmount   Int?
   depositPaidAt   DateTime? @db.Date
-  annualFeeAmount Int // paise
+  annualFeeAmount Int?
   // Manual per-store discount, independent of any plan's list price.
   discountAmount  Int       @default(0) // paise
   // Null until a first payment is recorded. Only an explicit, past date locks
@@ -295,45 +338,53 @@ model ProductSlab {
 }
 
 model Order {
-  id              String     @id @default(cuid())
+  id              String       @id @default(cuid())
   storeId         String
-  store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  orderNumber     Int        @unique @default(autoincrement())
+  store           Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderNumber     BigInt       @default(autoincrement())
   idempotencyKey  String?
   // Client-generated id for orders created in the mobile app (offline-first).
   // Null for orders created on the web.
   offlineId       String?
+  // Opaque token for the public order-slip link; created the first time a slip is shared.
+  slipToken       String?      @unique
+  // Entered through the Super Admin history import rather than punched at a counter.
+  isImported      Boolean      @default(false)
+  importBatchId   String?
+  importBatch     ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
   customerName    String
   phone           String
   // Calendar dates (Asia/Kolkata), not instants — stored without a time
   // component so no server timezone conversion can shift the day.
-  orderDate       DateTime   @default(now()) @db.Date
-  dueDate         DateTime   @db.Date
-  completedAt     DateTime?  @db.Date
-  status          WorkStatus @default(PENDING)
-  notes           String     @default("")
-  legacyCancelled Boolean    @default(false)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  orderDate       DateTime     @default(now()) @db.Date
+  dueDate         DateTime     @db.Date
+  completedAt     DateTime?    @db.Date
+  status          WorkStatus   @default(PENDING)
+  notes           String       @default("")
+  legacyCancelled Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
   outletId        String?
-  outlet          Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  outlet          Outlet?      @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
   lines        OrderLine[]
   payments     Payment[]
   statusEvents StatusEvent[]
   invoice      OrderInvoice?
 
+  @@unique([storeId, offlineId])
+  @@unique([storeId, idempotencyKey])
+  @@unique([storeId, orderNumber])
   @@index([storeId])
   @@index([status])
   @@index([dueDate])
   @@index([storeId, outletId, orderDate])
   @@index([outletId, status])
   @@index([outletId, dueDate])
-  @@unique([storeId, offlineId])
-  @@unique([storeId, idempotencyKey])
   @@index([orderDate])
   @@index([updatedAt])
   @@index([storeId, phone, orderDate])
+  @@index([importBatchId])
   @@map("orders")
 }
 
@@ -347,36 +398,22 @@ model Order {
 // order-creation time — so no invoice (and no consumed number) exists for an
 // order nobody ever asked to see the invoice for.
 model OrderInvoice {
-  id          String   @id @default(cuid())
-  invoiceSeq  Int      @unique @default(autoincrement())
-  orderId     String   @unique
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  storeId     String
-  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  accessToken String   @unique
-  generatedAt DateTime @default(now())
-  outletId    String?
-  outlet      Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  id            String   @id @default(cuid())
+  invoiceSeq    Int      @unique @default(autoincrement())
+  invoiceNumber String
+  orderId       String   @unique
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  accessToken   String   @unique
+  generatedAt   DateTime @default(now())
+  outletId      String?
+  outlet        Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
+  @@unique([storeId, invoiceNumber])
   @@index([storeId])
   @@index([storeId, outletId])
   @@map("order_invoices")
-}
-
-// Payment choices configured independently by each store owner. Payment rows
-// copy `name` as an immutable snapshot, so rename/deactivation never rewrites
-// historical order receipts.
-model StorePaymentMethod {
-  id        String   @id @default(cuid())
-  storeId   String
-  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  name      String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-
-  @@unique([storeId, name])
-  @@index([storeId, active])
-  @@map("store_payment_methods")
 }
 
 model OrderLine {
@@ -402,6 +439,7 @@ model Payment {
   method                  String
   paidAt                  DateTime               @default(now()) @db.Date // calendar date (Asia/Kolkata), not an instant
   clientActionId          String?                @unique
+  receiptNumber           String?
   storeId                 String?
   store                   Store?                 @relation("StoreOrderPayments", fields: [storeId], references: [id], onDelete: Cascade)
   outletId                String?
@@ -409,6 +447,7 @@ model Payment {
   platformPaymentMethodId String?
   platformPaymentMethod   PlatformPaymentMethod? @relation(fields: [platformPaymentMethodId], references: [id], onDelete: SetNull)
 
+  @@unique([storeId, receiptNumber])
   @@index([orderId])
   @@index([storeId, outletId, paidAt])
   @@index([outletId])
@@ -516,9 +555,10 @@ model Outlet {
   expenses               Expense[]
   recurringExpenseSeries RecurringExpenseSeries[]
   orderInvoices          OrderInvoice[]
+  importBatches          ImportBatch[]
   statusEvents           StatusEvent[]
-  dailySummaries        DailyOutletSummary[]
-  dailyServiceSummaries DailyOutletServiceSummary[]
+  dailySummaries         DailyOutletSummary[]
+  dailyServiceSummaries  DailyOutletServiceSummary[]
 
   @@index([storeId])
   @@map("outlets")
@@ -541,12 +581,15 @@ model OutletMembership {
 }
 
 model PlatformPaymentMethod {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String       @id @default(cuid())
+  code             String       @unique
+  name             String
+  active           Boolean      @default(true)
+  enabledByDefault Boolean      @default(false)
+  // The method's stage. Authoritative for every organization (read via effectiveStage); never copied.
+  defaultStage     PaymentStage @default(BOTH)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   organizationPaymentMethods OrganizationPaymentMethod[]
   payments                   Payment[]
@@ -567,6 +610,37 @@ model OrganizationPaymentMethod {
   @@unique([storeId, platformPaymentMethodId])
   @@index([storeId])
   @@map("organization_payment_methods")
+}
+
+model PlatformMessageTemplate {
+  id                String            @id @default(cuid())
+  statusKey         WorkStatus        @unique
+  body              String
+  defaultEnabled    Boolean           @default(false)
+  defaultAttachment MessageAttachment @default(NONE)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@map("platform_message_templates")
+}
+
+model OrganizationMessageTemplate {
+  id          String            @id @default(cuid())
+  storeId     String
+  store       Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  statusKey   WorkStatus
+  body        String
+  enabled     Boolean           @default(false)
+  attachment  MessageAttachment @default(NONE)
+  updatedById String?
+  updatedBy   User?             @relation("OrganizationMessageTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([storeId, statusKey])
+  @@index([storeId])
+  @@index([updatedById])
+  @@map("organization_message_templates")
 }
 
 model AuditLog {
@@ -703,6 +777,42 @@ model BillingRecordArchive {
   archivedAt     DateTime                @default(now())
 
   @@map("billing_record_archive")
+}
+
+enum ImportBatchStatus {
+  IMPORTED
+  UNDONE
+}
+
+// One Super Admin history import: past delivered-and-paid orders for one outlet on
+// one date. Kept after an undo (status UNDONE) as the audit record of what happened.
+model ImportBatch {
+  id             String            @id @default(cuid())
+  storeId        String
+  store          Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  outletId       String
+  outlet         Outlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  createdById    String?
+  createdBy      User?             @relation("ImportBatchCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  undoneById     String?
+  undoneBy       User?             @relation("ImportBatchUndoneBy", fields: [undoneById], references: [id], onDelete: SetNull)
+  // Client-generated per import attempt so a retry or double click cannot import twice.
+  idempotencyKey String
+  businessDate   DateTime          @db.Date
+  paymentMethod  String
+  rowCount       Int
+  orderCount     Int
+  totalAmount    Int // paise
+  status         ImportBatchStatus @default(IMPORTED)
+  createdAt      DateTime          @default(now())
+  finishedAt     DateTime?
+  undoneAt       DateTime?
+  orders         Order[]
+
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId, createdAt])
+  @@index([outletId])
+  @@map("import_batches")
 }
 
 // Per-platform app-update advisory thresholds (X-Update-Level header on

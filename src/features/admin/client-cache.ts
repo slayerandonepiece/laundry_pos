@@ -1,4 +1,4 @@
-import type { Order, Product, StorePaymentMethod } from './admin.types';
+import type { Order, Product, PaymentMethodOption } from './admin.types';
 
 export const SESSION_KEY = 'express-laundry-admin-v1-session';
 export const CATALOGUE_TTL = 5 * 60 * 1000;
@@ -14,7 +14,7 @@ export const isProduct = (value: unknown): value is Product => {
   return typeof p.id === 'string' && typeof p.name === 'string' && typeof p.category === 'string' && typeof p.active === 'boolean' &&
     (p.type === 'item' ? Number.isFinite(p.price) : p.type === 'weight' && Array.isArray(p.slabs) && Number.isFinite(p.extra) && p.slabs.every(s => s && Number.isFinite(s.limit) && Number.isFinite(s.price)));
 };
-export const isPaymentMethod = (value: unknown): value is StorePaymentMethod => !!value && typeof value === 'object' && typeof (value as StorePaymentMethod).id === 'string' && typeof (value as StorePaymentMethod).name === 'string' && typeof (value as StorePaymentMethod).active === 'boolean';
+export const isPaymentMethod = (value: unknown): value is PaymentMethodOption => !!value && typeof value === 'object' && typeof (value as PaymentMethodOption).id === 'string' && typeof (value as PaymentMethodOption).name === 'string' && typeof (value as PaymentMethodOption).active === 'boolean' && typeof (value as PaymentMethodOption).stage === 'string';
 export const isOrder = (value: unknown): value is Order => {
   if (!value || typeof value !== 'object') return false;
   const o = value as Order;

@@ -2,6 +2,8 @@ export type PaymentState = 'active' | 'expiring' | 'locked' | 'unset' | 'trial' 
 
 export interface StoreListItem {
   id: string;
+  // 3-5 digit numeric code embedded in invoice and receipt numbers.
+  orgCode: string;
   name: string;
   address: string;
   phone: string;
@@ -44,6 +46,9 @@ export interface DashboardStats {
 }
 
 export interface StoreDetail extends StoreListItem {
+  orderSeqBase: number;
+  // True once an order or invoice exists; the org code can no longer change.
+  numberingLocked: boolean;
   onboardedAt: string;
   planId?: string;
   planName?: string;
@@ -71,6 +76,8 @@ export interface OwnerLookupResult {
 
 export interface OnboardStoreInput {
   storeName: string;
+  // Optional custom 3-5 digit code; the next free one is assigned when omitted.
+  orgCode?: string;
   address: string;
   phone: string;
   owner:

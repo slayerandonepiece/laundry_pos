@@ -51,7 +51,7 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
   else stage = 'active';
 
   const statusBadge: Record<Stage, { label: string; tone: 'good' | 'warm' | 'bad' | 'info' | 'gray' }> = {
-    'terms-not-set': { label: 'Terms not set', tone: 'gray' },
+    'terms-not-set': { label: 'No plan', tone: 'gray' },
     trial: { label: 'Trial', tone: 'info' },
     'trial-ending': { label: `Trial ending${trialDaysLeft !== undefined ? ` · ${trialDaysLeft}d` : ''}`, tone: 'warm' },
     active: { label: 'Active', tone: 'good' },
@@ -80,51 +80,50 @@ export default function StoreSubscriptionTab({ store, invoices, plans, hasSubscr
     </div>;
   }
 
+  const statusMessage: { tone: 'info' | 'warn' | 'danger' | 'good'; icon: 'clock' | 'alertTriangle' | 'lock' | 'check'; text: string } | null =
+    stage === 'ending' ? { tone: 'warn', icon: 'alertTriangle', text: `Subscription is ending soon${store.paidThroughDate ? `, paid through ${dateLabelFull(store.paidThroughDate)}` : ''}. Record a renewal payment to extend it.` }
+    : stage === 'restricted' ? { tone: 'danger', icon: 'lock', text: `Access blocked since ${store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : trialEndsAt ? dateLabelFull(trialEndsAt) : 'an unknown date'}. Record a renewal payment to restore access automatically.` }
+    : stage === 'trial' || stage === 'trial-ending' ? { tone: stage === 'trial-ending' ? 'warn' : 'info', icon: 'clock', text: `${stage === 'trial-ending' ? `Trial ends in ${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'}` : 'Free trial'}${trialEndsAt ? ` until ${dateLabelFull(trialEndsAt)}` : ''}. Record a payment or extend the trial to continue access.` }
+    : stage === 'active' ? { tone: 'good', icon: 'check', text: store.paidThroughDate ? `Paid through ${dateLabelFull(store.paidThroughDate)}.` : 'Subscription is in good standing.' }
+    : null;
+  const items: [string, React.ReactNode][] = [
+    ['Plan', store.planId ? (store.planName ?? '—') : 'Custom terms'],
+    ['Deposit', <>{money(store.depositAmount)}{!store.depositPaidAt && <span className="sub-flag">Unpaid</span>}</>],
+    ['Annual fee', money(store.annualFeeAmount)],
+    ...(store.planId ? [['Discount', money(store.discountAmount)] as [string, React.ReactNode]] : []),
+    ...(trialEndsAt ? [['Trial period', store.trialStartsAt ? `${dateLabel(store.trialStartsAt)} – ${dateLabel(trialEndsAt)}` : `Until ${dateLabel(trialEndsAt)}`] as [string, React.ReactNode]] : []),
+    ['Paid through', store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'],
+  ];
+
   return <div>
     {notice && <div className="ad-toast" role="status">✓ {notice}</div>}
 
-    {stage === 'ending' && (
-      <div className="notice warn" style={{ marginBottom: 16 }}>
-        <Icon name="alertTriangle" size="s" />
-        <span>Subscription is ending soon{store.paidThroughDate ? ` — paid through ${dateLabelFull(store.paidThroughDate)}` : ''}. Record a renewal payment to extend it.</span>
+    <div className="sub-layout">
+      <div className="card">
+        <div className="card-head">
+          <h2><Icon name="card" />Subscription terms</h2>
+          <div className="sub-actions">
+            <button type="button" className="btn sm" onClick={() => setPaymentOpen(true)}><Icon name="card" size="s" />Record payment</button>
+            {['trial', 'trial-ending', 'unset'].includes(stage) && <button type="button" className="btn outline sm" onClick={() => setAccessDialog('trial')}>Set trial period</button>}
+            {stage === 'restricted' && <button type="button" className="btn outline sm" onClick={() => setAccessDialog('temporary')}>Grant temporary access</button>}
+            <button type="button" className="btn outline sm" onClick={() => setPlanOpen(true)} disabled={stage === 'restricted'} title={stage === 'restricted' ? 'Renew the subscription before changing plan terms.' : undefined}><Icon name="edit" size="s" />Change plan</button>
+          </div>
+        </div>
+        <dl className="sub-grid">
+          {items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="num">{value}</dd></div>)}
+        </dl>
       </div>
-    )}
-    {stage === 'restricted' && (
-      <div className="notice danger" style={{ marginBottom: 16 }}>
-        <Icon name="lock" size="s" />
-        <span>Access blocked — subscription expired on {store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : trialEndsAt ? dateLabelFull(trialEndsAt) : 'an unknown date'}. Record a renewal payment to restore access automatically.</span>
-      </div>
-    )}
-    {(stage === 'trial' || stage === 'trial-ending') && (
-      <div className={'notice' + (stage === 'trial-ending' ? ' warn' : '')} style={{ marginBottom: 16 }}>
-        <Icon name="clock" size="s" />
-        <span>{stage === 'trial-ending' ? `Trial ending in ${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'}` : 'On trial'}{trialEndsAt ? store.trialStartsAt ? ` from ${dateLabelFull(store.trialStartsAt)} to ${dateLabelFull(trialEndsAt)}` : ` until ${dateLabelFull(trialEndsAt)}` : ''}. Record a payment or extend the trial to continue access.</span>
-      </div>
-    )}
 
-    {store.accessGrantedUntil && store.accessGrantedUntil >= today() && <div className="notice warn">Temporary access granted until {dateLabelFull(store.accessGrantedUntil)}.</div>}
-    <div className="card">
-      <div className="card-head"><h2><Icon name="card" />Subscription terms</h2></div>
-      <div className="card-body" style={{ paddingTop: 6 }}>
-        <div className="kv"><span>Plan</span><strong>{store.planId ? (store.planName ?? '—') : 'Custom terms'}</strong></div>
-        {store.planId && <div className="kv"><span>Discount</span><strong className="num">{money(store.discountAmount)}</strong></div>}
-        <div className="kv"><span>Deposit</span><strong className="num">{money(store.depositAmount)}{!store.depositPaidAt && ' · unpaid'}</strong></div>
-        <div className="kv"><span>Annual fee</span><strong className="num">{money(store.annualFeeAmount)}</strong></div>
-        {trialEndsAt && <div className="kv"><span>Trial period</span><strong>{store.trialStartsAt ? `${dateLabelFull(store.trialStartsAt)} – ${dateLabelFull(trialEndsAt)}` : `Until ${dateLabelFull(trialEndsAt)}`}</strong></div>}
-        <div className="kv"><span>Paid through</span><strong className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</strong></div>
-        <div className="kv"><span>Status</span><span className={'badge ' + statusTone}>{statusLabel}</span></div>
-      </div>
-    </div>
-    <div className="filters" style={{ marginTop: 16, marginBottom: 0 }}>
-      <button type="button" className="btn" onClick={() => setPaymentOpen(true)}><Icon name="card" size="s" />Record payment</button>
-      {['trial', 'trial-ending', 'unset'].includes(stage) && <button type="button" className="btn outline" onClick={() => setAccessDialog('trial')}>Set trial period</button>}
-      {stage === 'restricted' && <button type="button" className="btn outline" onClick={() => setAccessDialog('temporary')}>Grant temporary access</button>}
-      <button type="button" className="btn outline" onClick={() => setPlanOpen(true)} disabled={stage === 'restricted'} title={stage === 'restricted' ? 'Renew the subscription before changing plan terms.' : undefined}><Icon name="edit" size="s" />Change plan</button>
+      <aside className="card sub-status" aria-label="Subscription status">
+        <div className="card-head"><h2>Status</h2><span className={'badge ' + statusTone}>{statusLabel}</span></div>
+        {statusMessage && <p className={'sub-msg ' + statusMessage.tone}><Icon name={statusMessage.icon} size="s" /><span>{statusMessage.text}</span></p>}
+        {store.accessGrantedUntil && store.accessGrantedUntil >= today() && <p className="sub-msg warn"><Icon name="clock" size="s" /><span>Temporary access granted until {dateLabelFull(store.accessGrantedUntil)}.</span></p>}
+      </aside>
     </div>
 
-    <h3 style={{ margin: '28px 0 12px' }}>Invoices</h3>
+    <h3 style={{ margin: '20px 0 10px', fontSize: 15 }}>Invoices</h3>
     {!invoices.length ? (
-      <div className="card"><div className="empty">
+      <div className="card"><div className="empty compact">
         <span className="ic l"><Icon name="card" size="l" /></span>
         <h3>No payments recorded yet</h3>
         <p>Record a payment to generate the first invoice.</p>

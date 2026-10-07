@@ -4,6 +4,7 @@ import { Button } from '@/features/admin/components/Primitives';
 import { useDialogClose, DialogFooter } from './Dialog';
 import { createPlatformPaymentMethodAction } from '../actions/platform-payment-methods.actions';
 import type { PlatformPaymentMethodDTO } from '@/server/services/platform-payment-methods';
+import { PAYMENT_STAGE_LABELS, allowedPaymentStages, type PaymentStageValue } from '../utils';
 
 const CODE_PATTERN = /^[A-Z0-9_]{2,30}$/;
 
@@ -13,6 +14,8 @@ export default function AddPaymentMethodDialog({ onSaved }: {
   const onCancel = useDialogClose();
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [enabledByDefault, setEnabledByDefault] = useState(false);
+  const [stage, setStage] = useState<PaymentStageValue>('BOTH');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -26,7 +29,7 @@ export default function AddPaymentMethodDialog({ onSaved }: {
     }
     setBusy(true);
     setError('');
-    createPlatformPaymentMethodAction({ code: cleanCode, name: name.trim() })
+    createPlatformPaymentMethodAction({ code: cleanCode, name: name.trim(), enabledByDefault, defaultStage: allowedPaymentStages(cleanCode).includes(stage) ? stage : 'PRE_ORDER' })
       .then(result => {
         if (!result.ok || !result.method) {
           setError(result.error || 'Could not add this payment method. Try again.');
@@ -60,6 +63,17 @@ export default function AddPaymentMethodDialog({ onSaved }: {
         placeholder="e.g. UPI / QR Code, Card (POS)"
         required
       />
+    </label>
+    <label>
+      Appears at (default)
+      <select value={allowedPaymentStages(code.trim().toUpperCase()).includes(stage) ? stage : 'PRE_ORDER'} onChange={e => setStage(e.target.value as PaymentStageValue)} disabled={allowedPaymentStages(code.trim().toUpperCase()).length === 1}>
+        {allowedPaymentStages(code.trim().toUpperCase()).map(value => <option key={value} value={value}>{PAYMENT_STAGE_LABELS[value]}</option>)}
+      </select>
+    </label>
+    <p className="ad-help">Pre-order: shown when an order is placed. Post-order: shown when collecting payment or delivering. Cash on delivery can only be pre-order.</p>
+    <label className="ad-checkbox">
+      <input type="checkbox" checked={enabledByDefault} onChange={e => setEnabledByDefault(e.target.checked)} />
+      Enable for every new organization
     </label>
     {error && <p className="ad-error" role="alert">{error}</p>}
     <DialogFooter>

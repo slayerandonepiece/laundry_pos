@@ -23,7 +23,7 @@ Five backend changes, all in this tree, all covered by tests.
 | # | Change | Files |
 | --- | --- | --- |
 | 1 | `GET /api/v1/payment-methods` now returns **organization** methods, not the legacy per-store list. `POST` is retired (410). | `src/app/api/v1/payment-methods/route.ts` |
-| 2 | `PATCH /api/v1/payment-methods/{id}` toggles organization enablement by platform-method id. Renaming is rejected (400). | `src/app/api/v1/payment-methods/[id]/route.ts` |
+| 2 | `PATCH /api/v1/payment-methods/{id}` (and `/platform/{id}`) now always return **403** `payment_methods_managed_by_platform`: organization methods are enabled by Super Admin only, and a method's `stage` lives only in the platform catalogue (never copied per organization, so a catalogue change applies to every organization immediately). `GET` rows carry `stage` (`PRE_ORDER` / `POST_ORDER` / `BOTH`), read live from the catalogue; shape unchanged. | `src/app/api/v1/payment-methods/[id]/route.ts` |
 | 3 | Bulk sync files **each queued order against its own `payload.outletId`**, instead of the single header outlet. | `src/server/services/orders.ts:528` |
 | 4 | `POST /api/v1/orders` rejects a header/body outlet conflict with 400 instead of silently preferring the header. | `src/app/api/v1/orders/route.ts` |
 | 5 | `GET /api/v1/auth/status` and `GET /api/v1/memberships` now carry outlet context, so a cold start no longer needs a fresh login to learn the caller's outlets. | `src/server/api/membership-context.ts` |
@@ -301,15 +301,21 @@ top of the outlet rules above.
 
 ### 3.5 Two ids per order: `id` and `offlineId`
 
-- `id` is the server order code (`EL-123`). `offlineId` is a client-generated
+- `id` is the server order code. New orders are a plain 10-digit number (e.g.
+  `1000004314`), continuous per organization and starting at the organization's
+  order base (default `1000000001`). Orders created before per-organization
+  numbering keep their `EL-<n>` code, and both formats are accepted wherever an
+  order code is. Codes are unique per organization, not globally, so every lookup
+  is scoped to the caller's organization. `payments[].receiptNumber` carries the
+  per-payment receipt number (`RC<orgCode>/<FY>/<7 digits>`) when one was issued. `offlineId` is a client-generated
   id, unique per organization, set only for orders created in the app;
   web-created orders have none (the field is omitted).
 - `create_order` payloads may carry `payload.offlineId`. A retry with the same
   `offlineId` returns the existing order instead of creating a second one,
   including when two retries arrive at the same time.
 - `offlineId` is trimmed, at most 64 characters, and must not look like an
-  order code (`EL-<n>`) — that is a 400. Use a UUID.
-- `update_status` / `record_payment` `orderRef` may be an `EL-` code or an
+  order code (`EL-<n>` or a 10-digit number) — that is a 400. Use a UUID.
+- `update_status` / `record_payment` `orderRef` may be an order code (`EL-<n>` or a 10-digit number) or an
   `offlineId`, including one whose `create_order` synced in an earlier request.
   `orderRef` and `offlineCode` are trimmed.
 - In bulk-sync, an employee's `update_status` / `record_payment` on an order
@@ -331,26 +337,42 @@ top of the outlet rules above.
 
 ---
 
+## Imported history (2026-10-05)
+
+Orders entered by Super Admin's history import carry `imported: true` on the order object. They are
+**never returned by `GET /orders/sync`** (so they never reach a device), `GET /orders/{code}` reports
+`invoice.canGenerate: false` for them, `GET /orders/{code}/message` returns `enabled: false`, and the
+invoice routes refuse them. `GET /orders` still lists them.
+
+## Order status flow and delivery (2026-10-05)
+
+- Status moves **forward only** (`Pending` → `In Progress` → `Ready` → `Delivered`). Skipping ahead
+  is allowed, re-sending the current status is a no-op, a backward move is `400`, and **Delivered is
+  final** (any change after it is `400`). `PATCH /orders/{code}/status` with `Delivered` is now
+  **`400` while a balance is due**; the app must call **`POST /orders/{code}/deliver`**, which
+  collects the balance and delivers in one transaction (see `API_ENDPOINTS.md`). An old app
+  version that still sends the unpaid `PATCH` gets the plain `400` message, never a `500`.
+- Payment `method` for `deliver` and `payments` must be a method whose `stage` is `POST_ORDER` or
+  `BOTH`; `COD` is never accepted. `createOrder` accepts only `PRE_ORDER`/`BOTH`.
+- `GET /orders/{code}/message` returns the template text for the current status plus the public link and
+  PDF paths. Public customer pages: `/o/<token>/view` and `/o/<token>` (order slip),
+  `/i/<token>/view` and `/i/<token>` (invoice).
+
 ## 4. Payment methods — the rule that breaks checkout if you get it wrong
 
 ### 4.1 The rule
 
-`resolveActivePaymentMethod(storeId, method, { allowLegacy })` matches on
+`resolveActivePaymentMethod(storeId, method, { phase, allowCashOnDelivery })` matches on
 **id, code, or case-insensitive name**, and requires an
 `OrganizationPaymentMethod` that is `enabled` for this store on a
 currently-`active` `PlatformPaymentMethod`
-(`src/server/services/platform-payment-methods.ts:194`).
+(`src/server/services/platform-payment-methods.ts`). The method's stage is read from that
+catalogue row through `effectiveStage()`; `OrganizationPaymentMethod` has no stage column
+(migration `20261007100000_payment_stage_catalogue_only`).
 
-`allowLegacy` is not something you pass — it is derived:
-
-| Operation | `allowLegacy` |
-| --- | --- |
-| `createOrder` | `!data.outletId && !explicitOutletId` (`orders.ts:310`) |
-| `recordPayment` | `!order.outletId` (`orders.ts:670`) |
-
-Because of the §3.3 fallback, almost every order already *has* an
-outlet, so **collecting a balance already requires an enabled
-organization method today** — before any client change.
+There is no legacy fallback: the per-store `StorePaymentMethod` table was dropped
+(migration `20261007120000_drop_store_payment_methods`), so every order and payment, with or
+without an outlet, needs an enabled organization method.
 
 ### 4.2 The endpoints
 
@@ -358,7 +380,7 @@ organization method today** — before any client change.
 | --- | --- | --- |
 | `GET /api/v1/payment-methods` | any member | enabled organization methods |
 | `GET /api/v1/payment-methods?all=true` | any member | all, enabled and disabled — for the owner's settings screen |
-| `PATCH /api/v1/payment-methods/{id}` | OWNER | `{"enabled": bool}` (`active` accepted as an alias). `{"name": …}` → 400 |
+| `PATCH /api/v1/payment-methods/{id}` | any member | **403** `payment_methods_managed_by_platform`; Super Admin configures methods |
 | `POST /api/v1/payment-methods` | — | **410 Gone** |
 
 Response item: `{ "id", "code", "name", "enabled" }`. `id` is the
@@ -414,6 +436,8 @@ Every route under `/api/v1`. "Outlet" = does it read `X-Outlet-Id`.
 | `/account/deletion` | POST | any (works while deletion is pending) | — |
 | `/account/deletion/restore` | POST | any (works while deletion is pending) | — |
 | `/memberships` | GET | any | — |
+| `/sync/status` | GET | any (owner-only fields null for employees) | no |
+| `/message-templates` | GET | any (read-only) | no |
 | `/products` | GET / POST | any / OWNER | no |
 | `/orders` | GET / POST | any | **yes** (§3.1) |
 | `/orders/sync` | GET | any | **yes** |
@@ -421,11 +445,15 @@ Every route under `/api/v1`. "Outlet" = does it read `X-Outlet-Id`.
 | `/orders/customer-lookup?phone=` | GET | any | no — see below |
 | `/orders/{code}` | GET | any | derived from order |
 | `/orders/{code}/status` | PATCH | any | derived from order |
+| `/orders/{code}/deliver` | POST | any (owner **and** employee) | derived from order |
+| `/orders/{code}/cancel` | POST | OWNER | derived from order |
+| `/orders/{code}/message` | GET | any | derived from order |
+| `/orders/{code}/slip/pdf` | GET | any | derived from order |
 | `/orders/{code}/payments` | POST | any (owner **and** employee) | derived from order |
 | `/orders/{code}/invoice` | GET | any | derived from order |
 | `/orders/{code}/invoice/pdf` | GET | any | derived from order |
 | `/payment-methods` | GET / POST | any / **410** | no |
-| `/payment-methods/{id}` | PATCH | OWNER | no |
+| `/payment-methods/{id}` | PATCH | any → **403** | no |
 | `/expenses` | GET / POST | OWNER | optional |
 | `/expenses/{id}` | PUT / DELETE | OWNER | body outletId only for PUT |
 | `/expenses/{id}/pay` | POST | OWNER | no |
@@ -454,7 +482,7 @@ Notes:
   Delivered** (`B5.1`/`B6.5`). Don't offer the action before then.
 - **Order DTO `invoice` sub-object** on `GET /api/v1/orders/{code}` (`src/app/api/v1/orders/[orderCode]/route.ts`):
   - When no invoice exists: `{ "exists": false, "canGenerate": boolean }` (`invoiceSeq`, `accessToken`, `generatedAt` omitted).
-  - When an invoice exists: `{ "exists": true, "invoiceSeq": number, "accessToken": string, "generatedAt": string, "canGenerate": true }`.
+  - When an invoice exists: `{ "exists": true, "invoiceSeq": number, "invoiceNumber": string (e.g. `IN001/27/0000632`; legacy invoices read `INV-000312`), "accessToken": string, "generatedAt": string, "canGenerate": true }`.
   - `generatedAt`: ISO 8601 string (e.g. `"2026-09-28T00:51:34.000Z"`) from the persistent `OrderInvoice.generatedAt` column.
     Mobile clients can format this timestamp (e.g. `generatedAt.slice(0, 10)` formatted with `dateLabelFull`) to render local invoice PDFs
     with the exact same "Generated {date}" footer text as web-rendered PDFs (`src/features/admin/pdf/OrderInvoicePdf.tsx:86`),
@@ -551,6 +579,15 @@ Read-only, OWNER only, available while the store is locked or lapsed
   type: 'DEPOSIT' | 'RENEWAL', amount (paise), method | null, paidAt (yyyy-MM-dd),
   coversFrom | null, coversTo | null }] }`, newest first. No internal fields
   (recorder, free-text reference).
+- The same response carries a top-level `plan` (added 2026-10-07, additive):
+  `{ planName: string | null, annualFeeAmount: number, depositAmount: number }`. Amounts are
+  **paise** (same unit as `invoices[].amount`; the web divides by 100). They are the organization's
+  *effective* terms read live (`getStore` / `effectiveSubscriptionTerms`): the plan's current price
+  unless the organization has its own, so a Super Admin plan or fee edit shows with no other write.
+  `planName` is `null` on custom terms (the client shows "Custom terms"). `depositAmount` is `0`
+  when none or waived (never null). Same access as the invoices: OWNER only, `allowRestricted` +
+  `allowLockedReadOnly`; employees get 403. No separate `/subscription` route was added: the
+  mobile app already calls this one when billing opens.
 - `GET /api/v1/subscription/invoices/{invoiceSeq}/pdf[?download=1]` → the same
   PDF Super Admin renders. Another store's invoice, or an unknown number, is a
   plain 404. Employees get 403.
@@ -613,3 +650,43 @@ Retained after a wipe: the `AccountDeletionRequest` row (opaque `userId`,
 organization name) and, for an `ORGANIZATION` wipe, `BillingRecordArchive` rows
 (opaque organization id, invoice number, type, amount, method, paid date and
 covered period — no reference, notes, recorder or names).
+
+## Sync status and message templates (added 2026-10-07)
+
+Both routes use `requireApiStoreSession(..., { allowRestricted: true })`: a store whose billing
+restricts it (expired or unset subscription) can still be read. `allowRestricted` does **not**
+bypass a hard `LOCKED` or archived store; those still return 403, like every other route.
+
+### `GET /api/v1/sync/status` (any member)
+
+Latest-change marker per cached dataset, one request, one aggregate each. Compare each value with
+the one stored at the last sync using **inequality**, not ordering: a hard delete (an expense, an
+organization template reset to default) can leave the value equal or move it backwards.
+
+| Field | Source | Employee |
+| --- | --- | --- |
+| `productsUpdatedAt`, `ordersUpdatedAt` | newest `updatedAt` of the store's rows (unchanged) | value |
+| `paymentMethodsUpdatedAt` | max over **all** platform methods (not only active, so deactivating one moves it) and this organization's rows | value |
+| `messageTemplatesUpdatedAt` | max over platform templates and this organization's rows | value |
+| `profileUpdatedAt` | `Store.updatedAt` | value |
+| `expensesUpdatedAt` | newest expense `updatedAt` | `null` |
+| `employeesUpdatedAt` | newest `User.updatedAt` among the store's employee members | `null` |
+| `invoicesUpdatedAt` | newest `SubscriptionPayment.createdAt` (that table has no `updatedAt`; rows are not edited) | `null` |
+| `planUpdatedAt` | max of the organization's `Subscription.updatedAt` and its plan's `SubscriptionPlan.updatedAt`; moves on a plan edit, a plan change or an override, and also on renewals/deposit payments (over-triggers harmlessly: refetch `GET /subscription/invoices`) | `null` |
+
+Every value is an ISO string, or `null` when there are no rows (or the caller is an employee for the
+owner-only fields). Known blind spots (no usable `updatedAt`, no migration added): employee
+activate/deactivate (`StoreMembership` has no `updatedAt`) and outlet grants, and hard deletes.
+
+### `GET /api/v1/message-templates` (any member, read-only)
+
+```json
+{ "templates": [ { "statusKey": "PENDING", "label": "Placed", "enabled": false,
+  "attachment": "NONE", "body": "...", "updatedAt": "2026-10-07T00:00:00.000Z" } ] }
+```
+
+Always four rows, in the order `PENDING`, `IN_PROGRESS`, `READY`, `DELIVERED`
+(labels Placed / In progress / Ready / Delivered). `attachment` is `NONE`, `ORDER_SLIP_PDF` or
+`INVOICE_PDF`. An organization with no override reads the platform template live, and `updatedAt`
+is then the platform row's; an override row uses its own. Owners and employees get identical rows.
+`GET /orders/{code}/message` is unchanged.

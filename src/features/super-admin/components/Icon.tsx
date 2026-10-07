@@ -14,6 +14,7 @@ const paths: Record<string, string> = {
   arrowLeft: '<path d="M19 12H5.4"/><path d="m11 5.4-5.6 6.6 5.6 6.6"/>',
   trash: '<path d="M5.4 7.4h13.2"/><path d="M9.4 7.4V5.2a1.4 1.4 0 0 1 1.4-1.4h2.4a1.4 1.4 0 0 1 1.4 1.4v2.2"/><path d="M7.4 7.4 8.2 19a1.6 1.6 0 0 0 1.6 1.5h4.4a1.6 1.6 0 0 0 1.6-1.5l.8-11.6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  logout: '<path d="M14 4.6h3.6a1.8 1.8 0 0 1 1.8 1.8v11.2a1.8 1.8 0 0 1-1.8 1.8H14"/><path d="M10 8.4 6.4 12l3.6 3.6"/><path d="M6.6 12h8.6"/>',
   hamburger: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>',
   close: '<path d="M6 6l12 12"/><path d="M18 6 6 18"/>',
   mail: '<rect x="3.4" y="5.4" width="17.2" height="13.2" rx="2"/><path d="m4.4 7 7.6 6 7.6-6"/>',

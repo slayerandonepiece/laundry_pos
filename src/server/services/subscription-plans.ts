@@ -1,3 +1,4 @@
+import { effectiveSubscriptionTerms, planDepositAmount } from '@/server/subscription-terms';
 import 'server-only';
 import { z } from 'zod';
 import { unstable_cache, revalidateTag } from 'next/cache';
@@ -46,7 +47,7 @@ export async function getPlan(planId: string): Promise<SubscriptionPlanDetail | 
     include: {
       _count: { select: { subscriptions: true } },
       subscriptions: {
-        include: { store: { include: { memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } } } } },
+        include: { plan: true, store: { include: { memberships: { where: { role: 'OWNER' }, include: { user: true }, orderBy: { createdAt: 'asc' } } } } },
       },
     },
   });
@@ -56,7 +57,7 @@ export async function getPlan(planId: string): Promise<SubscriptionPlanDetail | 
     name: s.store.name,
     ownerName: s.store.memberships[0]?.user.name ?? '—',
     onboardedAt: formatCalendarDate(s.store.onboardedAt),
-    depositAmount: s.depositAmount,
+    depositAmount: effectiveSubscriptionTerms(s).depositAmount,
     status: s.store.status,
   }));
   const lastUsedAt = stores.length ? stores.reduce((latest, s) => s.onboardedAt > latest ? s.onboardedAt : latest, stores[0].onboardedAt) : undefined;
@@ -155,7 +156,16 @@ export async function archivePlan(planId: string, reassignToPlanId?: string): Pr
 
   await prisma.$transaction(async tx => {
     if (existing._count.subscriptions > 0) {
-      await tx.subscription.updateMany({ where: { planId }, data: { planId: reassignToPlanId ?? null } });
+      if (!reassignToPlanId) {
+        // Detached to custom terms: write down the price they follow today, or they would drop to zero.
+        const attached = await tx.subscription.findMany({ where: { planId } });
+        for (const sub of attached) {
+          const terms = effectiveSubscriptionTerms({ ...sub, plan: existing });
+          await tx.subscription.update({ where: { id: sub.id }, data: { depositAmount: terms.depositAmount, annualFeeAmount: terms.annualFeeAmount, planId: null } });
+        }
+      } else {
+        await tx.subscription.updateMany({ where: { planId }, data: { planId: reassignToPlanId } });
+      }
     }
     await tx.subscriptionPlan.update({ where: { id: planId }, data: { archivedAt: new Date() } });
   });
@@ -199,12 +209,21 @@ export async function changeStorePlan(storeId: string, input: ChangeStorePlanInp
     ? `${subscription.notes ? subscription.notes + '\n' : ''}[Plan changed ${todayIST()}] ${data.reason}`
     : subscription.notes;
 
+  // On a plan, an amount is stored only when it differs from the plan's own (a negotiated override);
+  // otherwise it stays empty and follows the plan. A deposit that was already paid stays frozen.
+  const currentPlan = subscription.planId ? await prisma.subscriptionPlan.findUnique({ where: { id: subscription.planId } }) : null;
+  const current = effectiveSubscriptionTerms({ ...subscription, plan: currentPlan });
+  const stored = (explicit: number | undefined, fromPlan: number | undefined, existing: number): number | null => {
+    if (fromPlan === undefined) return explicit ?? existing; // custom terms: always an explicit number
+    return explicit === undefined || explicit === fromPlan ? null : explicit;
+  };
+  const deposit = subscription.depositPaidAt ? current.depositAmount : stored(data.depositAmount, plan ? planDepositAmount(plan) : undefined, current.depositAmount);
   await prisma.subscription.update({
     where: { storeId },
     data: {
       planId: data.planId,
-      depositAmount: data.depositAmount ?? (plan ? (plan.depositWaivedByDefault ? 0 : plan.depositAmount) : subscription.depositAmount),
-      annualFeeAmount: data.annualFeeAmount ?? plan?.annualFeeAmount ?? subscription.annualFeeAmount,
+      depositAmount: deposit,
+      annualFeeAmount: stored(data.annualFeeAmount, plan?.annualFeeAmount, current.annualFeeAmount),
       discountAmount: data.discountAmount ?? subscription.discountAmount,
       notes,
     },

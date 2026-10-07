@@ -1,6 +1,5 @@
 import { Document, Page, View, Text } from '@react-pdf/renderer';
 import { dateLabelFull, paymentMethodLabel } from '@/features/admin/admin.data';
-import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 import { pdfMoney } from '@/lib/pdfMoney';
 import { InvoiceHeader, invoiceStyles as styles } from '@/lib/pdf/InvoiceLayout';
 import type { OrderInvoiceData } from '@/server/services/order-invoices';
@@ -8,7 +7,7 @@ import type { OrderInvoiceData } from '@/server/services/order-invoices';
 // Customer-order and subscription invoices share the PDF primitives.
 // Business fields remain specific to their invoice type; no invented tax lines.
 export function OrderInvoicePdf({ invoice }: { invoice: OrderInvoiceData }) {
-  const invoiceNumber = formatInvoiceNumber(invoice.invoiceSeq);
+  const invoiceNumber = invoice.invoiceNumber;
   const paymentMethods = [...new Set(invoice.payments.map(p => p.method))];
   const methodLabel = paymentMethods.length === 0 ? '-' : paymentMethods.length === 1 ? paymentMethodLabel(paymentMethods[0]) : 'Multiple';
 
