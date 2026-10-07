@@ -1,9 +1,12 @@
 'use client';
-import type { Order, StorePaymentMethod, WorkStatus } from '../admin.types';
-import { Button, usePanelClose } from './Primitives';
+import { useState } from 'react';
+import type { Order, PaymentMethodOption, WorkStatus } from '../admin.types';
+import { usePanelClose } from './Primitives';
 import OrderDeliveryDetails from './OrderDeliveryDetails';
 import OrderPaymentSummary from './OrderPaymentSummary';
 import { Dialog } from './ui';
+import DeliverOrderDialog from './DeliverOrderDialog';
+import CancelOrderDialog from './CancelOrderDialog';
 
 const statuses: WorkStatus[] = ['Pending', 'In Progress', 'Ready', 'Delivered'];
 
@@ -11,6 +14,10 @@ export default function OrderDetails({
   order, 
   paymentMethods, 
   onStatus, 
+  onDeliver,
+  deliverBusy = false,
+  canCancel = false,
+  onCancelOrder,
   onPayment, 
   error, 
   readOnly = false,
@@ -21,8 +28,12 @@ export default function OrderDetails({
   readOnly?: boolean;
   canRecordPayment?: boolean; 
   order: Order; 
-  paymentMethods: StorePaymentMethod[]; 
+  paymentMethods: PaymentMethodOption[]; 
   onStatus: (status: WorkStatus) => void; 
+  onDeliver: (method?: string) => void;
+  deliverBusy?: boolean;
+  canCancel?: boolean;
+  onCancelOrder?: (reason: string) => Promise<string | null>;
   onPayment: (amount: number, method: string) => void; 
   error: string;
   asDialog?: boolean;
@@ -30,6 +41,11 @@ export default function OrderDetails({
 }) {
   const panelClose = usePanelClose();
   const handleClose = onClose || panelClose;
+  const [delivering, setDelivering] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  // Orders only move forward and Delivered is final, so earlier statuses are not offered.
+  const forward = statuses.slice(statuses.indexOf(order.status));
+  const final = order.status === 'Delivered';
 
   const content = (
     <div className="ad-order-detail-content">
@@ -50,8 +66,10 @@ export default function OrderDetails({
   const footer = (
     <div className="ad-detail-footer" style={{ width: '100%' }}>
       {error && <p className="ad-error" role="alert">{error}</p>}
-      <label>Update work status<select disabled={readOnly} value={order.status} aria-label="Work status" onChange={e => onStatus(e.target.value as WorkStatus)}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label>
-      <Button secondary onClick={handleClose}>Close</Button>
+      <label>Update work status<select disabled={readOnly || final} value={order.status} aria-label="Work status" onChange={e => { const next = e.target.value as WorkStatus; if (next === 'Delivered') setDelivering(true); else onStatus(next); }}>{forward.map(status => <option key={status}>{status}</option>)}</select>{final && <small className="ad-help">Delivered orders are final.</small>}</label>
+      {canCancel && onCancelOrder && !final && !order.imported && <button type="button" className="ad-button ad-secondary ad-cancel-order" onClick={() => setCancelling(true)}><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>Cancel order</button>}
+      {cancelling && onCancelOrder && <CancelOrderDialog order={order} onClose={() => setCancelling(false)} onCancelOrder={onCancelOrder} />}
+      {delivering && <DeliverOrderDialog order={order} paymentMethods={paymentMethods} busy={deliverBusy} onCancel={() => setDelivering(false)} onConfirm={method => { setDelivering(false); onDeliver(method); }} />}
     </div>
   );
 

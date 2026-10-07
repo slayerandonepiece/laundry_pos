@@ -1,13 +1,13 @@
 'use client';
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Dialog from './Dialog';
+import { useNewParamDialog } from '../useNewParamDialog';
 import Icon from './Icon';
 import PlanEditor from './PlanEditor';
 
 export default function PlanNewAction() {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useNewParamDialog();
 
   return <>
     <button type="button" className="btn" onClick={() => setOpen(true)}><Icon name="plus" size="s" />New plan</button>

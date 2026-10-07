@@ -178,12 +178,11 @@ async function createTestFixture(
     },
   });
 
-  const cash = await prisma.storePaymentMethod.create({
-    data: {
-      storeId: store.id,
-      name: "Cash",
-      active: true,
-    },
+  const cash = await prisma.platformPaymentMethod.create({
+    data: { code: `MOB_${store.id.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, name: "Cash", defaultStage: "BOTH" },
+  });
+  await prisma.organizationPaymentMethod.create({
+    data: { storeId: store.id, platformPaymentMethodId: cash.id, enabled: true },
   });
 
   return { store, user, session, token, product, cash };
@@ -269,7 +268,7 @@ test("B6.1: Auth matrix enforcement across route handlers", async () => {
     params: Promise.resolve({ id: "some-id" }),
   });
   assert.equal(empRoleRes.status, 403);
-  assert.equal((await empRoleRes.json()).error, "Forbidden");
+  assert.equal((await empRoleRes.json()).code, "payment_methods_managed_by_platform");
 
   // EMPLOYEE also forbidden on GET /api/v1/employees
   const empListReq = createReq("http://localhost/api/v1/employees", {
@@ -457,7 +456,7 @@ test("B6.4: Concurrent payment row locking prevents overpayment", async () => {
   const orderNumber = parseOrderCode(orderCode);
   assert.notEqual(orderNumber, null);
   const payments = await prisma.payment.findMany({
-    where: { order: { orderNumber: orderNumber! } },
+    where: { order: { storeId: fixture.store.id, orderNumber: orderNumber! } },
   });
   assert.equal(payments.length, 1);
   assert.equal(payments[0].amount, 8_000);
@@ -744,12 +743,6 @@ test("Task C: payment methods expose organization methods only", async () => {
   await prisma.organizationPaymentMethod.create({
     data: { storeId: fixture.store.id, platformPaymentMethodId: disabledMethod.id, enabled: false },
   });
-  // A legacy per-store method must never reach the client: an outlet-owned
-  // order would reject it at checkout.
-  await prisma.storePaymentMethod.create({
-    data: { storeId: fixture.store.id, name: "Legacy Only", active: true },
-  });
-
   const listReq = createReq("http://localhost/api/v1/payment-methods", {
     token: fixture.token,
     storeId: fixture.store.id,
@@ -760,7 +753,6 @@ test("Task C: payment methods expose organization methods only", async () => {
   const names = listed.map(m => m.name);
   assert.ok(names.includes("Task C Enabled"));
   assert.ok(!names.includes("Task C Disabled"));
-  assert.ok(!names.includes("Legacy Only"));
   assert.ok(listed.every(m => m.enabled === true));
 
   const allReq = createReq("http://localhost/api/v1/payment-methods?all=true", {
@@ -775,7 +767,7 @@ test("Task C: payment methods expose organization methods only", async () => {
   const createRes = await paymentMethodsRoute.POST();
   assert.equal(createRes.status, 410);
 
-  // Owner toggles organization enablement by platform method id.
+  // Owners can no longer change payment methods: the platform administrator does.
   const patchReq = createReq(`http://localhost/api/v1/payment-methods/${disabledMethod.id}`, {
     token: fixture.token,
     storeId: fixture.store.id,
@@ -784,8 +776,10 @@ test("Task C: payment methods expose organization methods only", async () => {
   const patchRes = await paymentMethodDetailRoute.PATCH(patchReq, {
     params: Promise.resolve({ id: disabledMethod.id }),
   });
-  assert.equal(patchRes.status, 200);
-  assert.equal((await patchRes.json()).enabled, true);
+  assert.equal(patchRes.status, 403);
+  assert.equal((await patchRes.json()).code, "payment_methods_managed_by_platform");
+  const listAfter = await (await paymentMethodsRoute.GET(createReq("http://localhost/api/v1/payment-methods?all=true", { token: fixture.token, storeId: fixture.store.id }))).json();
+  assert.equal(listAfter.find((method: { id: string }) => method.id === disabledMethod.id)?.enabled, false);
 
   const renameReq = createReq(`http://localhost/api/v1/payment-methods/${disabledMethod.id}`, {
     token: fixture.token,
@@ -795,7 +789,7 @@ test("Task C: payment methods expose organization methods only", async () => {
   const renameRes = await paymentMethodDetailRoute.PATCH(renameReq, {
     params: Promise.resolve({ id: disabledMethod.id }),
   });
-  assert.equal(renameRes.status, 400);
+  assert.equal(renameRes.status, 403);
 });
 
 async function waitForBlocked(count: number) {

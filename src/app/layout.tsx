@@ -8,6 +8,7 @@ import './(workspace)/admin/admin.css';
 import './(workspace)/admin/pos.css';
 import './(workspace)/admin/counter.css';
 import './(workspace)/admin/tables.css';
+import './(workspace)/admin/sales.css';
 
 export const metadata: Metadata = {
   title: 'Store workspace',

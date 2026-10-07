@@ -112,9 +112,8 @@ async function setupOrg(suffix: string, subOpts?: { trialEndsAt?: Date; paidThro
     },
   });
 
-  const cash = await prisma.storePaymentMethod.create({
-    data: { storeId: store.id, name: 'Cash', active: true },
-  });
+  const cash = await prisma.platformPaymentMethod.create({ data: { code: `T_${suffix.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`, name: 'Cash', defaultStage: 'BOTH' } });
+  await prisma.organizationPaymentMethod.create({ data: { storeId: store.id, platformPaymentMethodId: cash.id, enabled: true } });
 
   return {
     store,

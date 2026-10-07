@@ -125,13 +125,7 @@ async function setupStoreWithOutlets(suffix: string) {
     },
   });
 
-  const cash = await prisma.storePaymentMethod.create({
-    data: { storeId: store.id, name: 'Cash', active: true },
-  });
-
-  // Outlet-owned orders require an explicitly enabled platform payment
-  // method (B4); the legacy StorePaymentMethod above only keeps historical,
-  // pre-outlet orders operable.
+  // Every payment requires an explicitly enabled platform payment method.
   const cleanSuffix = suffix.toUpperCase().replace(/[^A-Z0-9]/g, '_');
   const cashPlatformMethod = await platformMethods.createPlatformPaymentMethod({
     code: `CASH_${cleanSuffix}`,
@@ -165,7 +159,6 @@ async function setupStoreWithOutlets(suffix: string) {
     tokenEmp2,
     tokenOwner,
     product,
-    cash,
     cashPlatformMethod,
   };
 }
@@ -230,7 +223,7 @@ test('B3.2: Subsequent payment and status update preserve originating outletId o
 
   // Verify payment has storeId and outletId matching the order
   const payments = await prisma.payment.findMany({
-    where: { order: { orderNumber: orders.parseOrderCode(order.id)! } },
+    where: { order: { storeId: ctx.store.id, orderNumber: orders.parseOrderCode(order.id)! } },
   });
   assert.equal(payments.length, 1);
   assert.equal(payments[0].storeId, ctx.store.id);
@@ -240,7 +233,7 @@ test('B3.2: Subsequent payment and status update preserve originating outletId o
   await orders.updateOrderStatus(ctx.store.id, order.id, 'In Progress', ctx.ownerUser.id);
 
   const events = await prisma.statusEvent.findMany({
-    where: { order: { orderNumber: orders.parseOrderCode(order.id)! }, status: 'IN_PROGRESS' },
+    where: { order: { storeId: ctx.store.id, orderNumber: orders.parseOrderCode(order.id)! }, status: 'IN_PROGRESS' },
   });
   assert.equal(events.length, 1);
   assert.equal(events[0].storeId, ctx.store.id);
@@ -406,7 +399,7 @@ test('B3.3: Employee cross-outlet access denial on API endpoints', async () => {
   // Simulate a row written before the outlet migration. New writes receive a
   // default outlet; only this fixture deliberately represents legacy data.
   await prisma.order.update({
-    where: { orderNumber: orders.parseOrderCode(legacy.id)! },
+    where: { storeId_orderNumber: { storeId: ctx.store.id, orderNumber: orders.parseOrderCode(legacy.id)! } },
     data: { outletId: null },
   });
   const legacyRequest = new NextRequest(`http://localhost/api/v1/orders/${legacy.id}`, {
@@ -628,7 +621,7 @@ test('B3.7: A create retried with the same offlineId returns one order', async (
     entries: [{ productId: other.product.id, quantity: 1 }],
     outletId: other.outlet1.id,
   }, other.ownerUser.id);
-  assert.notEqual(otherOrder.id, firstOrder.id);
+  assert.equal(await prisma.order.count({ where: { storeId: other.store.id, offlineId } }), 1);
   assert.equal(otherOrder.offlineId, offlineId);
 });
 
@@ -765,6 +758,9 @@ test('B3.11: A replayed payment clientActionId cannot read or pay another order'
     outletId: ctx.outlet1.id,
   }, ctx.ownerUser.id);
 
+  // Order codes are per organization, so give A a code that B never issues.
+  await newOrder(a, 'b311-a-key-1');
+  await newOrder(a, 'b311-a-key-2');
   const orderA = await newOrder(a, 'b311-a-key');
   const orderB1 = await newOrder(b, 'b311-b-key-1');
   const orderB2 = await newOrder(b, 'b311-b-key-2');
@@ -858,8 +854,8 @@ test('B3.13: Concurrent payments with the same clientActionId record one payment
   }, ctx.ownerUser.id);
 
   const results = await raceBehindLock(
-    'SELECT id FROM orders WHERE "orderNumber" = $1 FOR UPDATE',
-    [Number(order.id.replace('EL-', ''))],
+    'SELECT id FROM orders WHERE "storeId" = $2 AND "orderNumber" = $1 FOR UPDATE',
+    [orders.parseOrderCode(order.id)!, ctx.store.id],
     [1, 2].map(() => () => orders.recordPayment(ctx.store.id, order.id, 1_000, 'Cash', 'b313-pay')),
   );
   assert.ok(results.every(r => r.status === 'fulfilled'), JSON.stringify(results));

@@ -4,11 +4,7 @@ import { handleApiRoute, jsonResponse, requireApiStoreSession } from '@/server/a
 
 export const runtime = 'nodejs';
 
-// Organization-level methods only. An outlet-owned order is validated against
-// an enabled OrganizationPaymentMethod (resolveActivePaymentMethod with
-// allowLegacy: false), so returning the legacy per-store list here handed
-// clients options the checkout would then reject. The workspace made the same
-// switch; this keeps the mobile app on the identical set.
+// Organization-level methods only, with each method's stage read live from the platform catalogue.
 export async function GET(req: NextRequest) {
   return handleApiRoute(async () => {
     const session = await requireApiStoreSession(req);

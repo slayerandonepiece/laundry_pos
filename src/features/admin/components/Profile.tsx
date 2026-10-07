@@ -4,12 +4,14 @@ import { useState } from 'react';
 import Link from 'next/link';
 import type { Profile as ProfileType, Role } from '../admin.types';
 import type { OrganizationPaymentMethodDTO } from '@/server/services/platform-payment-methods';
-import type { OutletListItem, StoreDetail } from '@/features/super-admin/types';
+import type { OutletListItem } from '@/features/super-admin/types';
 import { Card, CardHeading, Badge, Dialog, useDialog } from '@/features/admin/components/ui';
 import { Button } from './Primitives';
 import PaymentMethodsSettings from './PaymentMethodsSettings';
-import { money, dateLabel } from '@/features/admin/admin.data';
+import MessageTemplatesView from './MessageTemplatesView';
+import type { OrganizationMessageTemplateDTO } from '@/server/services/message-templates';
 import { outletStatusBadge } from './OutletsList';
+import type { ProfileSection } from '../profile-sections';
 
 function formatTimestamp(iso: string) {
   const d = new Date(iso);
@@ -23,12 +25,13 @@ function formatTimestamp(iso: string) {
 }
 
 export default function Profile({
+  section = 'account',
   readOnly = false,
   role = 'owner',
   profile: p,
   paymentMethods,
+  messageTemplates = [],
   outlets,
-  storeInfo,
   passwordUpdatedAt,
   phone = '',
   onSave,
@@ -37,12 +40,13 @@ export default function Profile({
   onRequestDeletion,
   error
 }: {
+  section?: ProfileSection;
   readOnly?: boolean;
   role?: Role;
   profile: ProfileType;
   paymentMethods: OrganizationPaymentMethodDTO[];
+  messageTemplates?: OrganizationMessageTemplateDTO[];
   outlets: OutletListItem[];
-  storeInfo: StoreDetail | null;
   passwordUpdatedAt?: string;
   phone?: string;
   onSave: (p: ProfileType) => void;
@@ -67,96 +71,81 @@ export default function Profile({
   );
 
   return (
-    <div className="ad-profile-grid">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {role !== 'employee' && (
-          <Card>
-            <CardHeading title="Organization details" action={<Button disabled={readOnly} secondary onClick={() => setShowEdit(true)}>Edit</Button>} />
-            <dl className="ad-profile-details">
-              <div><dt>Organization name</dt><dd>{p.store || '—'}</dd></div>
-              <div><dt>Address</dt><dd>{p.address || '—'}</dd></div>
-              <div><dt>Contact phone</dt><dd>{p.phone || '—'}</dd></div>
-              <div><dt>Email</dt><dd>{p.email || '—'}</dd></div>
-            </dl>
-          </Card>
-        )}
-        <Card>
-          <CardHeading title={role === 'employee' ? 'Account' : 'Owner account'} />
-          <dl className="ad-profile-details">
-            <div><dt>Name</dt><dd>{p.name}</dd></div>
-            <div><dt>Login phone</dt><dd>{phone || '—'}</dd></div>
-          </dl>
-        </Card>
-
-        <Card>
-          <CardHeading
-            title="Security"
-            action={<Button disabled={readOnly} secondary onClick={() => {
-              setOldPassword('');
-              setNewPassword('');
-              setConfirmPassword('');
-              setShowPasswordDialog(true);
-            }}>Change password</Button>}
-          />
-          <div>
-            <small style={{ color: 'var(--muted)' }}>Password last changed</small>
-            <div>{passwordUpdatedAt ? formatTimestamp(passwordUpdatedAt) : 'Unknown'}</div>
+    <div className="ad-profile-stack">
+      {section === 'account' && <>
+        <Card className="ad-profile-hero">
+          <span className="ad-profile-avatar" aria-hidden="true">{(p.name || '?').slice(0, 1).toUpperCase()}</span>
+          <div className="ad-profile-hero-text">
+            <h2>{p.name}</h2>
+            <p>{role === 'employee' ? 'Employee' : 'Owner'}{p.store ? ` · ${p.store}` : ''}</p>
+            <p>{phone ? `Signs in with ${phone}` : ''}</p>
           </div>
-        </Card>
-
-        {role !== 'employee' && (
-          <Card>
-            <CardHeading title="Billing & subscription" />
-            <div style={{ display: 'grid', gap: '12px' }}>
-              <div><small style={{ color: 'var(--muted)' }}>Current plan</small><div>{storeInfo?.planName || 'Custom'}</div></div>
-              <div><small style={{ color: 'var(--muted)' }}>Deposit amount</small><div>{storeInfo?.depositAmount !== undefined ? money(storeInfo.depositAmount) : '—'}</div></div>
-              <div><small style={{ color: 'var(--muted)' }}>Annual fee</small><div>{storeInfo?.annualFeeAmount !== undefined ? money(storeInfo.annualFeeAmount) : '—'}</div></div>
-              <div><small style={{ color: 'var(--muted)' }}>Paid through date</small><div>{storeInfo?.paidThroughDate ? dateLabel(storeInfo.paidThroughDate) : 'Not set'}</div></div>
-            </div>
-          </Card>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {role !== 'employee' && (
-          <>
-            <PaymentMethodsSettings readOnly={readOnly} methods={paymentMethods} />
-
-            <Card>
-              <CardHeading
-                title="Outlets"
-                action={<Link href="/admin/outlets" style={{ fontSize: '13px', fontWeight: 600 }}>View all &rarr;</Link>}
-              />
-              <div className="ad-profile-outlets">
-                {outlets.map(outlet => {
-                  const { tone, label } = outletStatusBadge(outlet.status);
-                  return <section className="ad-profile-outlet" key={outlet.id}>
-                    <div className="ad-row"><h3>{outlet.displayName}</h3><Badge tone={tone}>{label}</Badge></div>
-                    <dl className="ad-profile-details">
-                      <div><dt>Outlet code</dt><dd>{outlet.outletCode}</dd></div>
-                      <div><dt>Address</dt><dd>{outlet.address || '—'}</dd></div>
-                      <div><dt>Phone</dt><dd>{outlet.phone || '—'}</dd></div>
-                    </dl>
-                  </section>;
-                })}
-                {!outlets.length && <p>No outlets found.</p>}
-              </div>
-            </Card>
-          </>
-        )}
-
-        {role !== 'employee' && onRequestDeletion && (
-          <Card>
-            <CardHeading title="Delete organization" subtitle="Permanently delete this organization and all of its data after a grace period (90 days by default). Signing in and restoring before then cancels it." />
-            <Button secondary disabled={readOnly} onClick={onRequestDeletion}>Request deletion</Button>
-          </Card>
-        )}
-
-        <Card className="ad-account-card">
-          <CardHeading title="Done for the day?" subtitle="Sign out of your store workspace." />
           <Button secondary onClick={onLogout}>Log out &rarr;</Button>
         </Card>
-      </div>
+        <div className="ad-profile-split">
+          <Card>
+            <CardHeading title="Account details" />
+            <dl className="ad-profile-details ad-profile-dl2">
+              <div><dt>Name</dt><dd>{p.name}</dd></div>
+              <div><dt>Login phone</dt><dd>{phone || '—'}</dd></div>
+              <div><dt>Role</dt><dd>{role === 'employee' ? 'Employee' : 'Owner'}</dd></div>
+              <div><dt>Organization</dt><dd>{p.store || '—'}</dd></div>
+            </dl>
+          </Card>
+          <Card>
+            <CardHeading
+              title="Security"
+              subtitle="Use a password of at least 8 characters that you don't use elsewhere."
+              action={<Button disabled={readOnly} secondary onClick={() => {
+                setOldPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+                setShowPasswordDialog(true);
+              }}>Change password</Button>}
+            />
+            <dl className="ad-profile-details">
+              <div><dt>Password last changed</dt><dd>{passwordUpdatedAt ? formatTimestamp(passwordUpdatedAt) : 'Unknown'}</dd></div>
+            </dl>
+          </Card>
+        </div>
+      </>}
+
+      {role !== 'employee' && section === 'organization' && <>
+        <Card>
+          <CardHeading title="Organization details" subtitle="Shown on invoices and customer messages." action={<Button disabled={readOnly} secondary onClick={() => setShowEdit(true)}>Edit</Button>} />
+          <dl className="ad-profile-details ad-profile-dl2">
+            <div><dt>Organization name</dt><dd>{p.store || '—'}</dd></div>
+            <div><dt>Contact phone</dt><dd>{p.phone || '—'}</dd></div>
+            <div><dt>Email</dt><dd>{p.email || '—'}</dd></div>
+            <div className="wide"><dt>Address</dt><dd>{p.address || '—'}</dd></div>
+          </dl>
+        </Card>
+        <div>
+          <div className="ad-profile-section-title"><h2>Outlets <span className="ad-count">{outlets.length}</span></h2><Link href="/admin/outlets" style={{ fontSize: '13px', fontWeight: 600 }}>Manage outlets &rarr;</Link></div>
+          <div className="ad-outlet-cards">
+            {outlets.map(outlet => {
+              const { tone, label } = outletStatusBadge(outlet.status);
+              return <Card className="ad-profile-outlet" key={outlet.id}>
+                <div className="ad-row"><h3>{outlet.displayName}</h3><Badge tone={tone}>{label}</Badge></div>
+                <dl className="ad-profile-details">
+                  <div><dt>Outlet code</dt><dd>{outlet.outletCode}</dd></div>
+                  <div><dt>Address</dt><dd>{outlet.address || '—'}</dd></div>
+                  <div><dt>Phone</dt><dd>{outlet.phone || '—'}</dd></div>
+                </dl>
+              </Card>;
+            })}
+            {!outlets.length && <p>No outlets found.</p>}
+          </div>
+        </div>
+        {onRequestDeletion && (
+          <Card className="ad-danger-card">
+            <CardHeading title="Delete organization" subtitle="Permanently deletes this organization and all of its data after a grace period (90 days by default). Signing in and restoring before then cancels it." action={<Button secondary disabled={readOnly} onClick={onRequestDeletion}>Request deletion</Button>} />
+          </Card>
+        )}
+      </>}
+
+      {role !== 'employee' && section === 'payments' && <PaymentMethodsSettings methods={paymentMethods} />}
+      {role !== 'employee' && section === 'messages' && <MessageTemplatesView templates={messageTemplates} />}
 
       {showEdit && !readOnly && role !== 'employee' && (
         <Dialog title="Edit profile" onClose={() => setShowEdit(false)} warnOnChanges>

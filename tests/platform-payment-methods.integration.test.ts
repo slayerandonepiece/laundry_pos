@@ -175,7 +175,7 @@ test('B4.1: Super admin creates, updates, and controls platform payment methods;
   assert.equal(updated.code, 'UPI_QR'); // code remains unchanged
 });
 
-test('B4.2: Organization owner enables/disables platform methods; employee cannot toggle', async () => {
+test('B4.2: Owners and employees cannot enable or disable platform methods; the list stays readable', async () => {
   const ctx = await setupContext('b4-2');
 
   const method = await platformService.createPlatformPaymentMethod({
@@ -197,7 +197,7 @@ test('B4.2: Organization owner enables/disables platform methods; employee canno
   assert.ok(cardMethod);
   assert.equal(cardMethod.enabled, false);
 
-  // Owner explicitly enables the platform method for this organization.
+  // Owners cannot enable or disable methods; the platform administrator does that.
   const reqEnable = new NextRequest(`http://localhost/api/v1/payment-methods/platform/${method.id}`, {
     method: 'PATCH',
     headers: {
@@ -210,10 +210,10 @@ test('B4.2: Organization owner enables/disables platform methods; employee canno
   const resEnable = await orgMethodPlatformIdRoute.PATCH(reqEnable, {
     params: Promise.resolve({ id: method.id }),
   });
-  assert.equal(resEnable.status, 200);
-  assert.equal((await resEnable.json()).enabled, true);
+  assert.equal(resEnable.status, 403);
+  assert.equal((await resEnable.json()).code, 'payment_methods_managed_by_platform');
 
-  // Owner disables CARD_POS for organization
+  // Disabling is blocked the same way.
   const reqDisable = new NextRequest(`http://localhost/api/v1/payment-methods/platform/${method.id}`, {
     method: 'PATCH',
     headers: {
@@ -226,9 +226,11 @@ test('B4.2: Organization owner enables/disables platform methods; employee canno
   const resDisable = await orgMethodPlatformIdRoute.PATCH(reqDisable, {
     params: Promise.resolve({ id: method.id }),
   });
-  assert.equal(resDisable.status, 200);
-  const disabled = await resDisable.json();
-  assert.equal(disabled.enabled, false);
+  assert.equal(resDisable.status, 403);
+  const listAfter = await (await orgMethodsPlatformRoute.GET(new NextRequest('http://localhost/api/v1/payment-methods/platform', {
+    headers: { Authorization: `Bearer ${ctx.tokenOwner}`, 'X-Store-Id': ctx.store.id },
+  }))).json();
+  assert.equal(listAfter.find((m: { id: string }) => m.id === method.id).enabled, false);
 
   // Employee is DENIED toggling organization payment method
   const reqEmpDenied = new NextRequest(`http://localhost/api/v1/payment-methods/platform/${method.id}`, {
@@ -282,7 +284,7 @@ test('B4.3: Payment creation with platform payment method records platformPaymen
 
   assert.ok(order);
   const dbPayment = await prisma.payment.findFirst({
-    where: { order: { orderNumber: orders.parseOrderCode(order.id)! } },
+    where: { order: { storeId: ctx.store.id, orderNumber: orders.parseOrderCode(order.id)! } },
   });
   assert.ok(dbPayment);
   assert.equal(dbPayment.platformPaymentMethodId, cashMethod.id);
@@ -317,19 +319,3 @@ test('B4.3: Payment creation with platform payment method records platformPaymen
   assert.equal(aggregation[0]._sum.amount, 5000);
 });
 
-test('B4.4: Outlet-owned payments reject legacy store methods', async () => {
-  const ctx = await setupContext('b4-4');
-  await prisma.storePaymentMethod.create({
-    data: { storeId: ctx.store.id, name: 'Legacy Tender', active: true },
-  });
-
-  await assert.rejects(
-    () => orders.createOrder(ctx.store.id, {
-      idempotencyKey: 'idemp-legacy-outlet',
-      customerName: 'No legacy outlet payment', phone: '9876543210', dueDate: '2026-12-31',
-      entries: [{ productId: ctx.product.id, quantity: 1 }],
-      initialPayment: { amount: 5000, method: 'Legacy Tender' }, outletId: ctx.outlet.id,
-    }, ctx.owner.id),
-    (err: unknown) => err instanceof Error && err.message === 'That payment method is no longer available.',
-  );
-});

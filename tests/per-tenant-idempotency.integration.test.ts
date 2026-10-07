@@ -54,7 +54,7 @@ test('the same idempotency key creates independent order, expense and employee r
     expenseRows.push(expense);
     employeeRows.push(employee);
   }
-  assert.notEqual(orderRows[0].id, orderRows[1].id);
+  assert.equal(await prisma.order.count({ where: { idempotencyKey: 'shared-order' } }), 2);
   assert.notEqual(expenseRows[0].id, expenseRows[1].id);
   assert.notEqual(employeeRows[0].id, employeeRows[1].id);
   for (const { store } of stores) {

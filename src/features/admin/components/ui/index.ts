@@ -11,3 +11,4 @@ export * from './Pagination';
 export * from './Avatar';
 export * from './SectionNote';
 export * from './ListStates';
+export * from './RowActionsMenu';
