@@ -13,7 +13,7 @@ changes are deployed to production.
   the response (at most every 15 s). See MOBILE-API-CONTRACT.md.
 - Tests: `tests/app-update.integration.test.ts` (in the disposable-Postgres runner).
 
-## Mobile sync status and message templates (2026-10-07 working tree, uncommitted)
+## Mobile sync status and message templates (2026-10-07, merged to main)
 
 - New `GET /api/v1/message-templates` (any member, read-only, `allowRestricted: true`): all four statuses in order, built from `listOrganizationMessageTemplates`; inherited rows read the platform template live and report its `updatedAt` (new `defaultUpdatedAt` on the DTO). No migration.
 - `GET /api/v1/sync/status` adds `paymentMethodsUpdatedAt`, `messageTemplatesUpdatedAt`, `profileUpdatedAt` and the owner-only (null for employees) `expensesUpdatedAt`, `employeesUpdatedAt`, `invoicesUpdatedAt`; existing fields unchanged. `allowRestricted` covers billing restriction only, not a `LOCKED` or archived store (403).
@@ -21,7 +21,7 @@ changes are deployed to production.
 - Template copying: onboarding no longer copies; only `saveOrganizationMessageTemplates` writes an organization row, and only for a status that differs from the default, but that row then freezes all three fields (`body`, `enabled`, `attachment`), so a body-only override stops following later platform changes to enabled/attachment.
 - Tests: `tests/sync-status-templates.integration.test.ts` (in the runner). Contract: `.agents/MOBILE-API-CONTRACT.md`, "Sync status and message templates".
 
-## Payment stage lives only in the catalogue (2026-10-07 working tree, uncommitted)
+## Payment stage lives only in the catalogue (2026-10-07, merged to main and staging; production pending)
 
 - Migration `20261007100000_payment_stage_catalogue_only` (tested on disposable local PostgreSQL; **applied to the dev Neon database by the user**; stage and prod are intentionally ignored for now; hand `prisma migrate deploy` to the user): drops `organization_payment_methods.stage`. `PlatformPaymentMethod.defaultStage` keeps its name but is now the one authoritative stage. Before the change, 19 of 21 dev organization rows differed from the catalogue (all `BOTH`, the old default); `enabled` flags are untouched.
 - `effectiveStage()` (`platform-payment-methods.ts`) is the single reader: `listOrganizationPaymentMethods`, `setOrganizationPaymentMethodEnabled`, `resolveActivePaymentMethod` (the `?? 'BOTH'` fallback is gone), `GET /api/v1/payment-methods` (shape unchanged) and the web workspace all use it. `saveOrganizationPaymentConfig` takes only `{ platformPaymentMethodId, enabled }` and computes the "at least one post-order method" rule from catalogue stages; `applyOrganizationDefaults` no longer copies a stage.
