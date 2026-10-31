@@ -4,13 +4,13 @@ import { useRouter } from 'next/navigation';
 import { rangeFor } from '../admin.data';
 import { SESSION_KEY, clearClientCaches, watchSessionMirror } from '../client-cache';
 import { resolveUser } from '../admin.permissions';
-import { loginAction, logoutAction, getSessionStatusAction } from '@/server/auth/actions';
+import { loginAction, logoutAction, getSessionStatusAction, type OutletNotice } from '@/server/auth/actions';
 import type { AccessDeniedReason } from '@/server/auth/session';
 import type { DateRange, Session, AdminUser } from '../admin.types';
 
 export interface TrialStatus { endsAt: string; endingSoon: boolean }
 
-export interface PaymentWarning { paidThroughDate: string }
+export interface PaymentWarning { paidThroughDate: string; outletNotice?: OutletNotice }
 
 interface Context {
   period: string; setPeriod: Dispatch<SetStateAction<string>>;

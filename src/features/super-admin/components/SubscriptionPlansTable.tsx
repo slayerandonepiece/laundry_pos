@@ -25,15 +25,14 @@ export default function SubscriptionPlansTable({ plans, onEdit, onArchive, onDup
   return <>
     <div className="tablecard">
       <table>
-        <thead><tr><th>Plan</th><th className="right">Deposit</th><th className="right">Annual fee</th><th>Billing cycle</th><th>Organizations using it</th><th>Status</th><th className="right">Actions</th></tr></thead>
+        <thead><tr><th>Plan</th><th className="right">Amount</th><th>Type</th><th>Used by</th><th>Status</th><th className="right">Actions</th></tr></thead>
         <tbody>
           {plans.map(plan => (
             <tr key={plan.id}>
               <td><Link href={`/super-admin/subscriptions/${plan.id}`}><strong>{plan.name}</strong></Link>{plan.notes && <small>{plan.notes}</small>}</td>
-              <td className="right num">{plan.depositWaivedByDefault ? <span className="chip" style={{ color: 'var(--muted)' }}>Waived</span> : money(plan.depositAmount)}</td>
-              <td className="right num">{money(plan.annualFeeAmount)}</td>
-              <td>{CYCLE_LABEL[plan.billingCycle]}</td>
-              <td><span className="chip">{plan.storeCount} org{plan.storeCount === 1 ? '' : 's'}</span></td>
+              <td className="right num">{money(plan.amount)}</td>
+              <td>{plan.kind === 'ONE_TIME' ? 'One time' : `Recurring · ${CYCLE_LABEL[plan.billingCycle]}`}</td>
+              <td><span className="chip">{plan.storeCount} {plan.kind === 'ONE_TIME' ? `org${plan.storeCount === 1 ? '' : 's'}` : `outlet${plan.storeCount === 1 ? '' : 's'}`}</span></td>
               <td><span className={'badge ' + (plan.archivedAt ? 'gray' : 'good')}>{plan.archivedAt ? 'Archived' : 'Active'}</span></td>
               <td>
                 <div className="rowacts">
@@ -56,7 +55,7 @@ export default function SubscriptionPlansTable({ plans, onEdit, onArchive, onDup
     </div>
     <div className="notice" style={{ marginTop: 14 }}>
       <Icon name="check" size="s" />
-      <span>A plan sets the default deposit and fee. Choose custom terms at onboarding for negotiated pricing. A plan in use can be archived but not deleted until every organization is moved off it.</span>
+      <span>A one-time plan is charged once to an organization (the setup deposit); a recurring plan is charged every cycle for each outlet on it. Discounts and notes are set when it is charged. A plan in use can be archived but not deleted until every organization or outlet is moved off it.</span>
     </div>
   </>;
 }

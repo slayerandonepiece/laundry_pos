@@ -34,7 +34,7 @@ export default function StoreOutletsTab({
   const [open, setOpen] = useState(initialAddOpen);
 
   return <>
-    {!hasActiveAccess && <div className="notice warn" style={{ marginBottom: 16 }}><span><strong>Subscription required</strong><br />Set up a subscription or trial on the Subscription tab before adding outlets.</span></div>}
+    {!hasActiveAccess && <div className="notice warn" style={{ marginBottom: 16 }}><span><strong>Subscription required</strong><br />Set up a free trial or the setup deposit before adding outlets.</span></div>}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
       <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 480 }}>Physical branches for this organization. Super Admin assigns each permanent code.</p>
       <button type="button" className="btn" disabled={!hasActiveAccess} onClick={() => setOpen(true)}><Icon name="plus" size="s" />Add outlet</button>
@@ -75,7 +75,7 @@ export default function StoreOutletsTab({
     )}
 
     {open && (
-      <Dialog title="Add outlet" description="Assign the permanent branch code and contact details. Billing and due-date decisions remain manual." onClose={() => setOpen(false)} warnOnChanges>
+      <Dialog title="Add outlet" description="Assign the permanent branch code and contact details. Choose its plan and record its payment here; a free trial covers it until the trial ends." onClose={() => setOpen(false)} warnOnChanges>
         <AddOutletDialog storeId={storeId} onSaved={() => {
           setOpen(false);
           try {

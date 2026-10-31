@@ -1,6 +1,7 @@
 import 'server-only';
 import { revalidateTag } from 'next/cache';
 import { hasCurrentAccess } from '@/lib/subscriptionAccess';
+import { recordSubscriptionPayments } from '@/server/services/stores';
 import { isValidPhone } from '@/lib/contactValidation';
 import { todayIST, formatCalendarDate } from '@/server/dates';
 import { prisma } from '@/server/db';
@@ -29,6 +30,9 @@ export interface CreateOutletInput {
   address?: string;
   phone?: string;
   createdById?: string;
+  // The recurring plan the outlet is billed on, with an optional discount and note. During a free
+  // trial the outlet is free and a plan is optional; otherwise a plan is required.
+  billing?: { planId?: string; discountPercent?: number; note?: string; paymentReceived?: boolean; method?: 'CASH' | 'UPI'; reference?: string };
 }
 
 export async function createOutlet(input: CreateOutletInput): Promise<OutletDTO> {
@@ -39,14 +43,25 @@ export async function createOutlet(input: CreateOutletInput): Promise<OutletDTO>
 
   const subscription = await prisma.subscription.findUnique({ where: { storeId: input.storeId } });
   const date = (value: Date | null | undefined) => value ? formatCalendarDate(value) : undefined;
-  if (store.status === 'LOCKED' || !hasCurrentAccess(todayIST(), date(subscription?.paidThroughDate), date(subscription?.trialEndsAt), date(store.accessGrantedUntil))) {
-    throw new ValidationError('Set up an active subscription or trial before adding outlets.');
+  const today = todayIST();
+  // An organization can add outlets once it has a subscription (a trial, or its deposit); each outlet is then
+  // billed on its own plan, so a term is no longer needed first.
+  if (store.status === 'LOCKED' || !subscription) {
+    throw new ValidationError('Set up a trial or the setup deposit before adding outlets.');
   }
   if (input.phone && !isValidPhone(input.phone)) throw new ValidationError('Enter a valid phone number.');
 
   const existingCode = await prisma.outlet.findUnique({ where: { outletCode: input.outletCode } });
   if (existingCode) {
     throw new ValidationError('This outlet code is already in use. Choose another.');
+  }
+
+  const billing = input.billing;
+  const onTrial = hasCurrentAccess(today, undefined, date(subscription.trialEndsAt), undefined);
+  if (billing && !billing.planId && !onTrial) throw new ValidationError('Choose a plan for this outlet.');
+  if (billing?.planId) {
+    const plan = await prisma.subscriptionPlan.findUnique({ where: { id: billing.planId } });
+    if (!plan || plan.archivedAt || plan.kind !== 'RECURRING') throw new ValidationError('Choose a recurring plan for this outlet.');
   }
 
   const outlet = await prisma.outlet.create({
@@ -57,8 +72,21 @@ export async function createOutlet(input: CreateOutletInput): Promise<OutletDTO>
       address: input.address?.trim() ?? '',
       phone: input.phone?.trim() ?? '',
       createdById: input.createdById ?? null,
+      planId: billing?.planId ?? null,
     },
   });
+
+  if (billing?.paymentReceived && billing.planId) {
+    try {
+      await recordSubscriptionPayments(input.storeId, {
+        outlets: { outletIds: [outlet.id], planId: billing.planId, discountPercent: billing.discountPercent, note: billing.note },
+        method: billing.method ?? 'UPI', reference: billing.reference,
+      }, input.createdById);
+    } catch (error) {
+      await prisma.outlet.delete({ where: { id: outlet.id } });
+      throw error;
+    }
+  }
 
   revalidateTag('stores', { expire: 0 });
   return outlet;

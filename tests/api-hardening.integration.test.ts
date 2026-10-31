@@ -59,7 +59,7 @@ async function fixture() {
     data: { storeId: store.id, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: new Date('2100-01-01') },
   });
   const [outletA, outletB] = await Promise.all(
-    ['A', 'B'].map(n => prisma.outlet.create({ data: { storeId: store.id, outletCode: `HARD-${n}`, displayName: `Outlet ${n}`, status: OutletStatus.ACTIVE } })),
+    ['A', 'B'].map(n => prisma.outlet.create({ data: { storeId: store.id, outletCode: `HARD-${n}`, displayName: `Outlet ${n}`, status: OutletStatus.ACTIVE, paidThroughDate: new Date('2100-01-01') } })),
   );
   const hash = await hashPassword('password123');
   const user = (key: string) => prisma.user.create({ data: { name: key, phone: testPhone(`api_hardening_${key}`), passwordHash: hash } });

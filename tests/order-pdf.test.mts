@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { OrderSlipPdf } from '../src/features/admin/pdf/OrderSlipPdf';
 import { OrderInvoicePdf } from '../src/features/admin/pdf/OrderInvoicePdf';
+import { InvoicePdf } from '../src/features/super-admin/pdf/InvoicePdf';
+import type { StoreDetail, StoreInvoice } from '../src/features/super-admin/types';
 import type { OrderSlipData } from '../src/server/services/order-slips';
 import type { OrderInvoiceData } from '../src/server/services/order-invoices';
 
@@ -54,4 +56,19 @@ test('the invoice renders its single-line number, both payments and a zero balan
     assert.ok(text.includes(expected), `invoice should contain "${expected}": ${text}`);
   }
   assert.ok(text.includes('IN001/27/0000632'), 'the invoice number stays on one line');
+});
+
+test('a subscription invoice shows its plan, outlet, list price, discount percentage and the amount charged', async () => {
+  const subscription = {
+    invoiceSeq: 12, storeId: 's', storeName: 'UI Check Org', type: 'RENEWAL', amount: 450_000, listAmount: 500_000, discountPercent: 10,
+    planName: 'Standard Plan', outletName: 'First', method: 'UPI', paidAt: '2026-10-31', coversFrom: '2027-10-31', coversTo: '2028-10-31', notes: 'Loyalty discount', reference: '',
+  } as StoreInvoice;
+  const store = { id: 's', name: 'UI Check Org', ownerName: 'Owner', ownerPhone: '9876500002', paidThroughDate: '2028-10-31' } as unknown as StoreDetail;
+  const text = await pdfText(await renderToBuffer(createElement(InvoicePdf, { invoice: subscription, store }) as never));
+  for (const expected of ['Standard Plan - First', 'Rs. 5,000', 'Discount (10%)', 'Rs. 500', 'Rs. 4,500', 'Loyalty discount']) {
+    assert.ok(text.includes(expected), `subscription invoice should contain "${expected}": ${text}`);
+  }
+  const plain = await pdfText(await renderToBuffer(createElement(InvoicePdf, { invoice: { ...subscription, discountPercent: 0, listAmount: undefined, planName: undefined, outletName: undefined, amount: 500_000 } as StoreInvoice, store }) as never));
+  assert.equal(plain.includes('Discount'), false);
+  assert.ok(plain.includes('Annual maintenance'));
 });

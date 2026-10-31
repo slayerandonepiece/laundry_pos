@@ -35,3 +35,16 @@ export function formatDisplayDate(date: Date | string): string {
 }
 
 export { PAYMENT_STAGES, PAYMENT_STAGE_LABELS, allowedPaymentStages, type PaymentStageValue } from '@/lib/paymentStage';
+
+const CYCLE_UNIT = { ANNUAL: 'year', HALF_YEARLY: 'half-year', QUARTERLY: 'quarter', MONTHLY: 'month' } as const;
+
+/** The price of a plan as staff read it: "₹10,000 one time" or "₹5,000 / outlet / year". */
+export function planPriceLabel(plan: { kind: 'ONE_TIME' | 'RECURRING'; amount: number; billingCycle: keyof typeof CYCLE_UNIT }): string {
+  const amount = `₹${(plan.amount / 100).toLocaleString('en-IN')}`;
+  return plan.kind === 'ONE_TIME' ? `${amount} one time` : `${amount} / outlet / ${CYCLE_UNIT[plan.billingCycle]}`;
+}
+
+/** What is charged after a percentage discount, in paise (the same rounding the server uses). */
+export function discountedPaise(listAmount: number, percent: number): number {
+  return Math.round(listAmount * (100 - percent) / 100);
+}

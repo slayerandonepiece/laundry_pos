@@ -2,12 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
-import { grantTemporaryAccess, setStoreTrial, archiveStore, lookupOwnerByPhone, onboardStore, recordSubscriptionPayment, setStoreStatus, setStoreReviewDemo, updateStore } from '@/server/services/stores';
+import { grantTemporaryAccess, setStoreTrial, archiveStore, lookupOwnerByPhone, onboardStore, recordSubscriptionPayments, listOutletBilling, getPaymentContext, type OutletBillingRow, type PaymentContext, setStoreStatus, setStoreReviewDemo, updateStore } from '@/server/services/stores';
 import { ValidationError } from '@/server/errors';
 import { updateStoreNumbering, type StoreNumbering, type StoreNumberingInput } from '@/server/services/org-numbering';
 import { createOutlet, type OutletDTO } from '@/server/services/outlets';
 import { recordStoreActivity } from '@/server/services/activity';
-import type { OnboardStoreInput, OwnerLookupResult, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '../types';
+import { listPlans } from '@/server/services/subscription-plans';
+import { prisma } from '@/server/db';
+import { formatCalendarDate, todayIST } from '@/server/dates';
+import type { OnboardStoreInput, OwnerLookupResult, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, SubscriptionPlanListItem, UpdateStoreInput } from '../types';
 
 export interface OnboardStoreResult {
   ok: boolean;
@@ -122,22 +125,45 @@ export interface RecordSubscriptionPaymentResult {
   ok: boolean;
   error?: string;
   invoice?: StoreInvoice;
+  // A renewal of several outlets writes one invoice per outlet; `invoice` is the first.
+  invoices?: StoreInvoice[];
 }
 
 export async function recordSubscriptionPaymentAction(storeId: string, input: RecordSubscriptionPaymentInput): Promise<RecordSubscriptionPaymentResult> {
   const session = await requireSuperAdmin();
   try {
-    const invoice = await recordSubscriptionPayment(storeId, input, session.id);
-    await recordStoreActivity({ storeId, actorId: session.id, action: 'RECORD_SUBSCRIPTION_PAYMENT', entityType: 'SubscriptionPayment', entityId: String(invoice.invoiceSeq), after: { invoiceSeq: invoice.invoiceSeq, amount: invoice.amount, type: invoice.type, paidThroughDate: invoice.coversTo ?? null } });
+    const invoices = await recordSubscriptionPayments(storeId, input, session.id);
+    for (const invoice of invoices) {
+      await recordStoreActivity({ storeId, actorId: session.id, action: 'RECORD_SUBSCRIPTION_PAYMENT', entityType: 'SubscriptionPayment', entityId: String(invoice.invoiceSeq), after: { invoiceSeq: invoice.invoiceSeq, amount: invoice.amount, type: invoice.type, outlet: invoice.outletName ?? null, paidThroughDate: invoice.coversTo ?? null } });
+    }
     revalidatePath('/super-admin/stores');
     revalidatePath(`/super-admin/stores/${storeId}`);
     revalidatePath(`/super-admin/stores/${storeId}/subscription`);
     revalidatePath('/super-admin/subscriptions/billing');
-    return { ok: true, invoice };
+    return { ok: true, invoice: invoices[0], invoices };
   } catch (error) {
     if (error instanceof ValidationError) return { ok: false, error: error.message };
     throw error;
   }
+}
+
+/** What the Add outlet dialog needs: the recurring plans to pick from, and whether the organization is on a free trial. */
+export async function outletBillingContextAction(storeId: string): Promise<{ plans: SubscriptionPlanListItem[]; trialEndsAt?: string }> {
+  await requireSuperAdmin();
+  const [plans, subscription] = await Promise.all([listPlans(), prisma.subscription.findUnique({ where: { storeId }, select: { trialEndsAt: true } })]);
+  const trialEndsAt = subscription?.trialEndsAt ? formatCalendarDate(subscription.trialEndsAt) : undefined;
+  return { plans: plans.filter(plan => plan.kind === 'RECURRING' && !plan.archivedAt), trialEndsAt: trialEndsAt && trialEndsAt >= todayIST() ? trialEndsAt : undefined };
+}
+
+export async function paymentContextAction(storeId: string): Promise<PaymentContext & { plans: SubscriptionPlanListItem[] }> {
+  await requireSuperAdmin();
+  const [context, plans] = await Promise.all([getPaymentContext(storeId), listPlans()]);
+  return { ...context, plans: plans.filter(plan => !plan.archivedAt) };
+}
+
+export async function listOutletBillingAction(storeId: string): Promise<OutletBillingRow[]> {
+  await requireSuperAdmin();
+  return listOutletBilling(storeId);
 }
 
 export interface CreateOutletResult {
@@ -152,6 +178,7 @@ export async function createOutletAction(storeId: string, input: {
   displayName: string;
   address?: string;
   phone: string;
+  billing?: { planId?: string; discountPercent?: number; note?: string; paymentReceived?: boolean; method?: 'CASH' | 'UPI'; reference?: string };
 }): Promise<CreateOutletResult> {
   const session = await requireSuperAdmin();
   try {

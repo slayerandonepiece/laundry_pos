@@ -14,7 +14,10 @@ export interface StoreListItem {
   // store's own phone/email above.
   ownerEmail?: string;
   ownerPhone?: string;
+  // The recurring plan names of the organization's outlets.
   planName?: string;
+  // The one-time plan its setup deposit was charged on.
+  depositPlanName?: string;
   depositAmount: number;
   depositPaidAt?: string;
   annualFeeAmount: number;
@@ -84,8 +87,7 @@ export interface OnboardStoreInput {
     | { mode: 'new'; name: string; password: string; ownerPhone: string }
     | { mode: 'existing'; userId: string };
   subscription:
-    | { mode: 'plan'; planId: string; discountAmount: number; chargeDepositAnyway?: boolean }
-    | { mode: 'custom'; depositAmount: number; annualFeeAmount: number }
+    | { mode: 'plan'; planId: string; discountPercent?: number }
     | { mode: 'trial'; trialStartDate?: string; trialEndDate: string };
   markPaid: boolean;
   paymentMethod?: PaymentMethod;
@@ -95,9 +97,16 @@ export interface OnboardStoreInput {
 
 export type BillingCycle = 'ANNUAL' | 'HALF_YEARLY' | 'QUARTERLY' | 'MONTHLY';
 
+export type PlanKind = 'ONE_TIME' | 'RECURRING';
+
 export interface SubscriptionPlanListItem {
   id: string;
   name: string;
+  // One time: charged once to the organization (the setup deposit). Recurring: charged each
+  // billing cycle for every outlet it is attached to.
+  kind: PlanKind;
+  // The price: the deposit for a one-time plan, the fee per cycle for a recurring one.
+  amount: number;
   depositAmount: number;
   annualFeeAmount: number;
   billingCycle: BillingCycle;
@@ -106,6 +115,7 @@ export interface SubscriptionPlanListItem {
   notes: string;
   archivedAt?: string;
   createdAt: string;
+  // Organizations on a one-time plan, outlets on a recurring one.
   storeCount: number;
 }
 
@@ -116,12 +126,16 @@ export interface SubscriptionPlanDetail extends SubscriptionPlanListItem {
 
 export interface PlanInput {
   name: string;
-  depositAmount: number;
-  annualFeeAmount: number;
+  kind?: PlanKind;
+  amount?: number;
+  // Only meaningful for a recurring plan.
   billingCycle?: BillingCycle;
-  depositWaivedByDefault: boolean;
   defaultTrialDays?: number | null;
-  notes: string;
+  notes?: string;
+  // Older fields, still accepted by the service.
+  depositAmount?: number;
+  annualFeeAmount?: number;
+  depositWaivedByDefault?: boolean;
 }
 
 export type PaymentMethod = 'CASH' | 'UPI';
@@ -132,6 +146,12 @@ export interface StoreInvoice {
   storeName: string;
   type: 'DEPOSIT' | 'RENEWAL';
   amount: number;
+  outletId?: string;
+  outletName?: string;
+  // The plan charged, the price before discount and the discount given (the note is `notes`).
+  planName?: string;
+  listAmount?: number;
+  discountPercent: number;
   method?: PaymentMethod;
   paidAt: string;
   coversFrom?: string;
@@ -145,12 +165,21 @@ export interface StoreInvoice {
   recordedByName?: string;
 }
 
+// One pattern for everything charged: a plan, an optional discount percentage and an optional note.
+export interface PaymentLineInput {
+  planId?: string;
+  discountPercent?: number;
+  note?: string;
+  // A fixed price, only for an organization with no plan on file.
+  amount?: number;
+}
+
 export interface RecordSubscriptionPaymentInput {
-  type: 'DEPOSIT' | 'RENEWAL';
-  amount: number;
+  // The organization's one-time setup deposit; only while it is unpaid.
+  deposit?: PaymentLineInput;
+  // Renewals: every outlet ticked gets its own invoice. Omitted outletIds: every active outlet.
+  outlets?: PaymentLineInput & { outletIds?: string[] };
   method: PaymentMethod;
-  coversMonths?: number;
-  notes?: string;
   reference?: string;
 }
 

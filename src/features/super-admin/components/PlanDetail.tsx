@@ -68,16 +68,15 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
         <div className="card">
           <div className="card-head"><h2><Icon name="card" />Terms</h2></div>
           <div className="card-body" style={{ paddingTop: 6 }}>
-            <div className="kv"><span>One-time deposit</span><strong className="num">{plan.depositWaivedByDefault ? 'No deposit' : money(plan.depositAmount)}</strong></div>
-            <div className="kv"><span>Annual maintenance fee</span><strong className="num">{money(plan.annualFeeAmount)} / yr</strong></div>
-            <div className="kv"><span>Billing cycle</span><strong>Yearly</strong></div>
+            <div className="kv"><span>Amount</span><strong className="num">{money(plan.amount)}</strong></div>
+            <div className="kv"><span>Type</span><strong>{plan.kind === 'ONE_TIME' ? 'One time, per organization' : 'Recurring, per outlet'}</strong></div>
+            {plan.kind === 'RECURRING' && <div className="kv"><span>Billing cycle</span><strong>{plan.billingCycle === 'ANNUAL' ? 'Yearly' : plan.billingCycle === 'HALF_YEARLY' ? 'Half-yearly' : plan.billingCycle === 'QUARTERLY' ? 'Quarterly' : 'Monthly'}</strong></div>}
             <div className="kv"><span>Default trial period</span><strong>{plan.defaultTrialDays ? `${plan.defaultTrialDays} days` : 'None'}</strong></div>
-            <div className="kv"><span>Deposit waived by default</span><strong>{plan.depositWaivedByDefault ? 'Yes' : 'No'}</strong></div>
           </div>
         </div>
 
         <div className="card">
-          <div className="card-head"><div><h2><Icon name="store" />Organizations on this plan</h2><p>{plan.stores.length} organization{plan.stores.length === 1 ? '' : 's'} — deposit shown reflects any per-organization override</p></div></div>
+          <div className="card-head"><div><h2><Icon name="store" />Organizations on this plan</h2><p>{plan.stores.length} organization{plan.stores.length === 1 ? '' : 's'}</p></div></div>
           {!plan.stores.length ? (
             <div className="card-body"><div className="empty">
               <span className="ic l"><Icon name="store" size="l" /></span>
@@ -94,7 +93,7 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
                       <td><div className="who"><span className="av sq">{initials(store.name)}</span><Link href={`/super-admin/stores/${store.id}`}><strong>{store.name}</strong></Link></div></td>
                       <td>{store.ownerName}</td>
                       <td className="num">{dateLabel(store.onboardedAt)}</td>
-                      <td className="right num">{money(store.depositAmount)}{store.depositAmount !== plan.depositAmount && <small style={{ color: 'var(--muted)' }}> override</small>}</td>
+                      <td className="right num">{money(store.depositAmount)}</td>
                       <td><span className={'badge ' + (store.status === 'LOCKED' ? 'bad' : 'good')}>{store.status === 'LOCKED' ? 'Locked' : 'Active'}</span></td>
                     </tr>
                   ))}
@@ -111,7 +110,7 @@ export default function PlanDetail({ plan, otherPlans }: { plan: SubscriptionPla
           <div className="card-body">
             <div className="kv"><span>Organizations using it</span><strong className="num">{plan.stores.length}</strong></div>
             <div className="kv"><span>Deposits held</span><strong className="num">{money(depositsHeld)}</strong></div>
-            <div className="kv"><span>Annual revenue</span><strong className="num">{money(plan.annualFeeAmount * plan.stores.length)}</strong></div>
+            <div className="kv"><span>Annual revenue</span><strong className="num">{plan.kind === 'RECURRING' ? money(plan.amount * plan.storeCount) : '—'}</strong></div>
             <div className="kv"><span>Last used</span><strong className="num">{plan.lastUsedAt ? dateLabel(plan.lastUsedAt) : '—'}</strong></div>
           </div>
         </div>
