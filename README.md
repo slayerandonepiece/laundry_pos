@@ -74,5 +74,4 @@ local Postgres: `LC_ALL=C LANG=C npm run test:subscription-payments` (needs
 `initdb`/`pg_ctl`/`psql` on `PATH`; see `tests/README.md`).
 
 ## Project and agent documentation
-
 - [Shared agent guidance](.agents/README.md) 
