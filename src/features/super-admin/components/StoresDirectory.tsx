@@ -63,7 +63,7 @@ export default function StoresDirectory({ stores, search, onSearch, onEdit, onLo
         ['locked', 'Locked'],
         ['trial', 'Trial'],
         ['trial_ending', 'Trial ending'],
-        ['unset', 'Terms not set'],
+        ['unset', 'Awaiting payment'],
       ] as [Filter, string][]).map(([value, label]) => (
         <button key={value} type="button" className={'fpill' + (filter === value ? ' on' : '')} onClick={() => setFilter(value)} aria-pressed={filter === value}>{label} {counts[value]}</button>
       ))}
@@ -82,22 +82,31 @@ export default function StoresDirectory({ stores, search, onSearch, onEdit, onLo
     ) : (
       <div className="tablecard">
         <table>
-          <thead><tr><th>Organization</th><th>Owner</th><th className="right">Outlets</th><th className="right">Deposit</th><th className="right">Annual fee</th><th>Paid through</th><th>Status</th><th className="right">Actions</th></tr></thead>
+          <thead><tr><th>Organization</th><th>Owner</th><th className="right">Outlets</th><th>Plan</th><th className="right">Deposit</th><th className="right">Annual fee</th><th>Paid / ends</th><th>Status</th><th className="right">Actions</th></tr></thead>
           <tbody>
             {filtered.map(store => {
-              const badge = PAYMENT_STATE_BADGE[store.paymentState];
+              const onTrial = store.paymentState === 'trial' || store.paymentState === 'trial_ending';
+              const trialEnded = store.paymentState === 'unset' && !!store.trialEndsAt;
+              const badge = trialEnded ? { label: 'Trial ended', cls: 'warm' } : store.paymentState === 'unset' && store.annualFeeAmount === 0 && store.depositAmount === 0 ? { label: 'No plan', cls: 'gray' } : PAYMENT_STATE_BADGE[store.paymentState];
               return <tr key={store.id}>
                 <td>
                   <div className="who">
                     <span className="av sq">{initials(store.name)}</span>
-                    <span><Link href={`/super-admin/stores/${store.id}`}><strong>{store.name}</strong></Link>{store.address && <small>{store.address}</small>}</span>
+                    <span><Link href={`/super-admin/stores/${store.id}`}><strong>{store.name}</strong></Link>{store.address && <small className="org-addr" title={store.address}>{store.address}</small>}</span>
                   </div>
                 </td>
                 <td>{store.ownerName}<small>{store.ownerPhone}</small></td>
                 <td className="right num" style={store.outletCount === 0 ? { color: 'var(--bad-fg)' } : undefined}>{store.outletCount}</td>
-                <td className="right num"><strong>{money(store.depositAmount)}</strong><small style={{ color: store.depositPaidAt ? 'var(--good-fg)' : 'var(--bad-fg)' }}>{store.depositPaidAt ? `Paid ${dateLabel(store.depositPaidAt)}` : 'Not received'}</small></td>
-                <td className="right num">{money(store.annualFeeAmount)}</td>
-                <td className="num">{store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</td>
+                <td>{onTrial || trialEnded
+                  ? <><span className="badge info plain">Free trial</span></>
+                  : store.paidThroughDate
+                    ? <><strong>{store.planName ?? 'Annual plan'}</strong><small>Annual subscription</small></>
+                    : <span style={{ color: 'var(--muted)' }}>Not subscribed</span>}</td>
+                {onTrial && !store.depositPaidAt
+                  ? <td className="right num" style={{ color: 'var(--faint)' }}>—<small>No charge</small></td>
+                  : <td className="right num"><strong>{money(store.depositAmount)}</strong><small style={{ color: store.depositPaidAt ? 'var(--good-fg)' : 'var(--bad-fg)' }}>{store.depositPaidAt ? `Paid ${dateLabel(store.depositPaidAt)}` : 'Not received'}</small></td>}
+                <td className="right num" style={onTrial ? { color: 'var(--faint)' } : undefined}>{onTrial ? '—' : money(store.annualFeeAmount)}</td>
+                <td className="num">{onTrial && store.trialEndsAt ? <>{dateLabelFull(store.trialEndsAt)}<small>Trial ends</small></> : store.paidThroughDate ? dateLabelFull(store.paidThroughDate) : '—'}</td>
                 <td><span className={'badge ' + badge.cls}>{badge.label}</span></td>
                 <td>
                   <div className="rowacts">

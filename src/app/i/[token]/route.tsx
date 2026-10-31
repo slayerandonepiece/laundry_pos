@@ -10,5 +10,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const invoice = await getOrderInvoiceByToken(token);
   if (!invoice) return new Response('Not found', { status: 404 });
 
-  return invoicePdfResponse(<OrderInvoicePdf invoice={invoice} />, invoice.invoiceSeq, request.nextUrl.searchParams.get('download') === '1');
+  return invoicePdfResponse(<OrderInvoicePdf invoice={invoice} />, invoice.invoiceNumber, request.nextUrl.searchParams.get('download') === '1');
 }

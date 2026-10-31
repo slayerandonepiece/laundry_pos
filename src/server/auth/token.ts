@@ -1,5 +1,5 @@
 import 'server-only';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 // Reuses the exact same 32 random bytes encoded as base64url pattern as OrderInvoice.accessToken
 export function generateSessionToken(): string {
@@ -35,3 +35,26 @@ export function isValidSubscriptionInvoiceToken(invoiceSeq: number, token: strin
   return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
+
+// Shareable link reference for an owner's subscription invoice: the invoice
+// number is encrypted (AES-256-GCM), so the link reveals nothing, cannot be
+// altered, and cannot be guessed from a neighbouring invoice.
+const linkKey = () => createHash('sha256').update(`subscription-invoice-link:${invoiceSecret()}`).digest();
+
+export function encryptSubscriptionInvoiceRef(invoiceSeq: number): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', linkKey(), iv);
+  const body = Buffer.concat([cipher.update(String(invoiceSeq), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+}
+
+export function decryptSubscriptionInvoiceRef(ref: string): number | null {
+  try {
+    const raw = Buffer.from(ref, 'base64url');
+    if (raw.length < 29) return null;
+    const decipher = createDecipheriv('aes-256-gcm', linkKey(), raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    const seq = Number(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8'));
+    return Number.isInteger(seq) && seq > 0 ? seq : null;
+  } catch { return null; }
+}

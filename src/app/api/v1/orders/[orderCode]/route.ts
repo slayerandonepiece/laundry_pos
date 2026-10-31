@@ -34,20 +34,21 @@ export async function GET(
       orderNumber !== null
         ? await prisma.orderInvoice.findFirst({
             where: { storeId: session.storeId, order: { orderNumber } },
-            select: { invoiceSeq: true, accessToken: true, generatedAt: true },
+            select: { invoiceSeq: true, invoiceNumber: true, accessToken: true, generatedAt: true },
           })
         : null;
 
     const total = order.lines.reduce((s, l) => s + l.amount, 0);
     const paid = order.payments.reduce((s, p) => s + p.amount, 0);
     const isDeliveredOrCompleted = order.status === "Delivered";
-    const canGenerate = paid >= total && isDeliveredOrCompleted;
+    const canGenerate = paid >= total && isDeliveredOrCompleted && !order.imported;
 
     return jsonResponse({
       ...order,
       invoice: {
         exists: Boolean(existingInvoice),
         invoiceSeq: existingInvoice?.invoiceSeq,
+        invoiceNumber: existingInvoice?.invoiceNumber,
         accessToken: existingInvoice?.accessToken,
         generatedAt: existingInvoice ? existingInvoice.generatedAt.toISOString() : undefined,
         canGenerate,

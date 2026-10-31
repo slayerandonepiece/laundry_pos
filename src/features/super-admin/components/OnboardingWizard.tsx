@@ -15,6 +15,7 @@ const STEPS = ['Organization', 'Owner', 'Plan', 'Review'] as const;
 
 interface Draft {
   storeName: string;
+  orgCode: string;
   address: string;
   phone: string;
   ownerMode: 'new' | 'existing';
@@ -37,7 +38,7 @@ interface Draft {
 }
 
 const blank: Draft = {
-  storeName: '', address: '', phone: '',
+  storeName: '', orgCode: '', address: '', phone: '',
   ownerMode: 'new', ownerName: '', ownerPassword: '', ownerPhone: '',
   existingPhone: '', existingOwner: null,
   subscriptionMode: 'plan', trialStartDate: '', trialEndDate: '', depositAmount: '10000', annualFeeAmount: '5000', notes: '', markPaid: false, paymentMethod: 'UPI', paymentReference: '',
@@ -64,6 +65,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       if (!draft.storeName.trim()) return 'Enter an organization name.';
       if (draft.phone.trim() && !isValidPhone(draft.phone)) return 'Enter a valid phone number (8–15 digits).';
       if (!draft.phone.trim()) return 'Enter a contact phone number for this organization.';
+      if (draft.orgCode.trim() && !/^\d{3,5}$/.test(draft.orgCode.trim())) return 'Organization code must be 3 to 5 digits.';
     }
     if (step === 1) {
       if (draft.ownerMode === 'new') {
@@ -150,6 +152,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
     setBusy(true);
     onboardStoreAction({
       storeName: draft.storeName.trim(),
+      orgCode: draft.orgCode.trim() || undefined,
       address: draft.address.trim(),
       phone: draft.phone.trim(),
       owner,
@@ -215,6 +218,8 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       <label>Organization name<input value={draft.storeName} onChange={e => change({ storeName: e.target.value })} placeholder="e.g. Sunrise Laundromat" required /></label>
       <label>Address (optional)<textarea value={draft.address} onChange={e => change({ address: e.target.value })} placeholder="Street, city and postcode" /></label>
       <label>Phone *<input type="tel" required value={draft.phone} onChange={e => change({ phone: e.target.value })} placeholder="Contact number" /></label>
+      <label>Organization code (optional)<input inputMode="numeric" maxLength={5} value={draft.orgCode} onChange={e => change({ orgCode: e.target.value })} placeholder="Auto-assigned, e.g. 001" /></label>
+      <p className="ad-help">3 to 5 digits, used in invoice and receipt numbers. Leave blank for the next free code. It cannot change after the first order.</p>
     </>}
 
     {step === 1 && <>

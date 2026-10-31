@@ -27,6 +27,31 @@ async function main() {
   if (!isValidPhone(normalizedPhone)) throw new Error('SEED_OWNER_PHONE must contain 8–15 digits.');
   const passwordHash = await bcrypt.hash(password, 12);
 
+  const paymentDefaults = [
+    { code: "COD", name: "Cash on delivery", enabledByDefault: true, defaultStage: "PRE_ORDER" as const },
+    { code: "CASH", name: "Cash", enabledByDefault: true, defaultStage: "POST_ORDER" as const },
+    { code: "UPI", name: "UPI", enabledByDefault: true, defaultStage: "BOTH" as const },
+  ];
+  const messageDefaults = [
+    { statusKey: "PENDING" as const, body: "Hi {customer}, we received your order {orderNo} at {store}. Total: ₹{total}. Expected delivery: {dueDate}. Details: {link}", defaultEnabled: false, defaultAttachment: "NONE" as const },
+    { statusKey: "IN_PROGRESS" as const, body: "Hi {customer}, your order {orderNo} at {store} is being processed. We will let you know when it is ready.", defaultEnabled: false, defaultAttachment: "NONE" as const },
+    { statusKey: "READY" as const, body: "Hi {customer}, your laundry order {orderNo} at {store} is ready for delivery. Amount due: ₹{due}. Order details: {link}. Thank you.", defaultEnabled: true, defaultAttachment: "ORDER_SLIP_PDF" as const },
+    { statusKey: "DELIVERED" as const, body: "Hi {customer}, your order {orderNo} from {store} was delivered on {date}. Total paid: ₹{total} via {method}. Invoice {invoiceNo}: {link}. Thank you for choosing {store}.", defaultEnabled: true, defaultAttachment: "INVOICE_PDF" as const },
+  ];
+
+  await prisma.$transaction([
+    ...paymentDefaults.map(method => prisma.platformPaymentMethod.upsert({
+      where: { code: method.code },
+      update: { enabledByDefault: method.enabledByDefault, defaultStage: method.defaultStage },
+      create: method,
+    })),
+    ...messageDefaults.map(template => prisma.platformMessageTemplate.upsert({
+      where: { statusKey: template.statusKey },
+      update: {},
+      create: template,
+    })),
+  ]);
+
   const superAdmin = await prisma.user.upsert({
     where: { phone: normalizedPhone },
     update: {},
@@ -34,6 +59,7 @@ async function main() {
   });
 
   console.log(`Super Admin user ready: ${superAdmin.phone} (id: ${superAdmin.id})`);
+  console.log('Platform payment and message defaults ready.');
 }
 
 main()

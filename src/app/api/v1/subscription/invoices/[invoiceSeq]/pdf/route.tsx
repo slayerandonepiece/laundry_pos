@@ -1,3 +1,4 @@
+import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 import { NextRequest } from 'next/server';
 import { invoicePdfResponse } from '@/lib/pdf/response';
 import { handleApiRoute, requireApiStoreSession } from '@/server/api/handler';
@@ -20,6 +21,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ invo
     const store = await getStore(session.storeId);
     if (!store) return new Response('Not found', { status: 404 });
 
-    return invoicePdfResponse(<InvoicePdf invoice={invoice} store={store} />, invoice.invoiceSeq, req.nextUrl.searchParams.get('download') === '1');
+    return invoicePdfResponse(<InvoicePdf invoice={invoice} store={store} />, formatInvoiceNumber(invoice.invoiceSeq), req.nextUrl.searchParams.get('download') === '1');
   });
 }

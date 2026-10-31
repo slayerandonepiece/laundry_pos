@@ -9,8 +9,8 @@ const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 // Next dev preserves globals across hot reloads, including after Prisma generation.
-// Recreate a cached client that predates the announcement model.
-export const prisma = globalForPrisma.prisma?.workspaceAnnouncement
+// Recreate a cached client that predates the newest model (import batches).
+export const prisma = globalForPrisma.prisma?.importBatch
   ? globalForPrisma.prisma
   : new PrismaClient({ adapter });
 

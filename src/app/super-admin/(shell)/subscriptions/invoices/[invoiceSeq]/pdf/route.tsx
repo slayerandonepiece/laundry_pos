@@ -1,3 +1,4 @@
+import { formatInvoiceNumber } from '@/lib/invoiceNumber';
 import { NextRequest } from 'next/server';
 import { invoicePdfResponse } from '@/lib/pdf/response';
 import { requireSuperAdmin, AuthError } from '@/server/auth/session';
@@ -30,5 +31,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const store = await getStore(invoice.storeId);
   if (!store) return new Response('Not found', { status: 404 });
 
-  return invoicePdfResponse(<InvoicePdf invoice={invoice} store={store} />, invoice.invoiceSeq, request.nextUrl.searchParams.get('download') === '1');
+  return invoicePdfResponse(<InvoicePdf invoice={invoice} store={store} />, formatInvoiceNumber(invoice.invoiceSeq), request.nextUrl.searchParams.get('download') === '1');
 }

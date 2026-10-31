@@ -182,17 +182,29 @@ test('onboarding requires a separate phone for new owners', async () => {
   assert.equal(await prisma.user.count({ where: { phone: input.owner.ownerPhone } }), 0);
 });
 
-test('onboarding persists distinct organization and owner phones and enables only active payment methods', async () => {
+test('onboarding persists distinct organization and owner phones and applies only the default payment methods and message templates', async () => {
   const { adminId, input } = await onboardingFixture('persist_phones');
-  const active = await prisma.platformPaymentMethod.create({ data: { code: 'ONBOARD_ACTIVE_REGRESSION', name: 'Onboarding active', active: true } });
-  const inactive = await prisma.platformPaymentMethod.create({ data: { code: 'ONBOARD_INACTIVE_REGRESSION', name: 'Onboarding inactive', active: false } });
+  const defaultActive = await prisma.platformPaymentMethod.create({ data: { code: 'ONBOARD_DEFAULT_REGRESSION', name: 'Onboarding default', active: true, enabledByDefault: true, defaultStage: 'POST_ORDER' } });
+  const notDefault = await prisma.platformPaymentMethod.create({ data: { code: 'ONBOARD_OPTIONAL_REGRESSION', name: 'Onboarding optional', active: true } });
+  const inactiveDefault = await prisma.platformPaymentMethod.create({ data: { code: 'ONBOARD_INACTIVE_REGRESSION', name: 'Onboarding inactive', active: false, enabledByDefault: true } });
   const store = await onboardStore(input, adminId);
-  const organization = await prisma.store.findUniqueOrThrow({ where: { id: store.id }, include: { memberships: { include: { user: true } }, subscription: true, organizationPaymentMethods: true } });
+  const organization = await prisma.store.findUniqueOrThrow({ where: { id: store.id }, include: { memberships: { include: { user: true } }, subscription: true, organizationPaymentMethods: { include: { platformPaymentMethod: true } }, messageTemplates: true } });
   assert.equal(organization.phone, input.phone);
   assert.equal(organization.memberships[0].user.phone, input.owner.mode === 'new' ? input.owner.ownerPhone : '');
   assert.equal(store.ownerPhone, input.owner.mode === 'new' ? input.owner.ownerPhone : '');
-  assert.equal(organization.organizationPaymentMethods.find(method => method.platformPaymentMethodId === active.id)?.enabled, true);
-  assert.equal(organization.organizationPaymentMethods.some(method => method.platformPaymentMethodId === inactive.id), false);
+  const byCode = new Map(organization.organizationPaymentMethods.map(method => [method.platformPaymentMethod.code, method]));
+  assert.equal(byCode.get(defaultActive.code)?.enabled, true);
+  assert.equal(byCode.get(defaultActive.code)?.platformPaymentMethod.defaultStage, 'POST_ORDER');
+  assert.equal(byCode.has(notDefault.code), false);
+  assert.equal(byCode.has(inactiveDefault.code), false);
+  assert.deepEqual([byCode.get('COD')?.platformPaymentMethod.defaultStage, byCode.get('CASH')?.platformPaymentMethod.defaultStage, byCode.get('UPI')?.platformPaymentMethod.defaultStage], ['PRE_ORDER', 'POST_ORDER', 'BOTH']);
+  assert.equal(organization.messageTemplates.length, 0, 'message templates are inherited, not copied');
+  const { listOrganizationMessageTemplates } = await import('../src/server/services/message-templates');
+  const inherited = await listOrganizationMessageTemplates(store.id);
+  assert.deepEqual(inherited.map(template => template.statusKey).sort(), ['DELIVERED', 'IN_PROGRESS', 'PENDING', 'READY']);
+  assert.ok(inherited.every(template => template.inherited));
+  const enabled = new Map(inherited.map(template => [template.statusKey, template.enabled]));
+  assert.deepEqual([enabled.get('PENDING'), enabled.get('IN_PROGRESS'), enabled.get('READY'), enabled.get('DELIVERED')], [false, false, true, true]);
   assert.equal(organization.subscription?.paidThroughDate, null);
   assert.equal(await prisma.subscriptionPayment.count({ where: { storeId: store.id } }), 0);
 });
@@ -241,9 +253,11 @@ test('onboarding accepts discounts above the deposit and total, including waived
     if (input.subscription.mode !== 'plan') throw new Error('Expected plan fixture.');
     await prisma.subscriptionPlan.update({ where: { id: input.subscription.planId }, data: { depositWaivedByDefault: waived } });
     const store = await onboardStore({ ...input, subscription: { ...input.subscription, discountAmount: discount, chargeDepositAnyway: true }, markPaid: true }, adminId);
-    const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId: store.id } });
+    const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId: store.id }, include: { plan: true } });
+    const { effectiveSubscriptionTerms } = await import('../src/server/subscription-terms');
     assert.equal(subscription.discountAmount, discount);
-    assert.equal(subscription.depositAmount, waived ? 0 : 10000);
+    assert.equal(effectiveSubscriptionTerms(subscription).depositAmount, waived ? 0 : 10000, 'the plan price is read from the plan');
+    assert.equal(subscription.annualFeeAmount, null, 'the plan fee is not copied onto the subscription');
     const payments = await prisma.subscriptionPayment.findMany({ where: { storeId: store.id } });
     assert.equal(payments.find(payment => payment.type === 'DEPOSIT')?.amount ?? 0, expectedDeposit);
     assert.equal(payments.find(payment => payment.type === 'RENEWAL')?.amount ?? 0, expectedRenewal);

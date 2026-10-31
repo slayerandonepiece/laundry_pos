@@ -1,77 +1,45 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import type { OrganizationPaymentMethodDTO } from '@/server/services/platform-payment-methods';
-import { Card, CardHeading, Toggle } from '@/features/admin/components/ui';
-import ConfirmationDialog from '@/features/admin/components/ConfirmationDialog';
-import { setOrganizationPaymentMethodEnabledAction } from '../actions/payment-methods.actions';
+import { Badge, Card, CardHeading } from '@/features/admin/components/ui';
+import { methodAllowsPhase } from '@/lib/paymentStage';
 
-export default function PaymentMethodsSettings({ readOnly = false, methods }: { readOnly?: boolean; methods: OrganizationPaymentMethodDTO[] }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [pendingDisable, setPendingDisable] = useState<OrganizationPaymentMethodDTO | null>(null);
+const Mark = ({ on }: { on: boolean }) => on ? <Badge tone="on">Offered</Badge> : <span className="ad-pay-no">Not offered</span>;
 
-  async function handleToggle(methodId: string, enabled: boolean) {
-    setBusy(methodId);
-    try {
-      await setOrganizationPaymentMethodEnabledAction(methodId, enabled);
-      router.refresh();
-    } finally {
-      setBusy(null);
-    }
-  }
-
+// Payment methods and where each appears are set by the platform administrator.
+// Owners can see the configuration here but cannot change it.
+export default function PaymentMethodsSettings({ methods }: { methods: OrganizationPaymentMethodDTO[] }) {
+  const enabled = methods.filter(method => method.enabled);
   return (
-    <>
-      <Card>
-        <CardHeading 
-          title="Payment methods" 
-          subtitle="Choose what customers can use at this store." 
-        />
-        <div>
-          {methods.map(method => (
-            <div key={method.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-              <div>
-                <strong>{method.name}</strong>
-                <div style={{ fontSize: '12px', color: method.enabled ? 'var(--brand)' : 'var(--muted)', marginTop: '2px' }}>
-                  {method.enabled ? 'Enabled' : 'Disabled'}
-                </div>
-              </div>
-              <Toggle
-                checked={method.enabled}
-                onChange={(checked) => {
-                  if (!checked) {
-                    setPendingDisable(method);
-                  } else {
-                    handleToggle(method.id, true);
-                  }
-                }}
-                disabled={readOnly || busy === method.id}
-                aria-label={`${method.name} · ${method.enabled ? 'Enabled' : 'Disabled'}`}
-              />
-            </div>
-          ))}
-        </div>
-        <p style={{ marginTop: '16px', fontSize: '13px', color: 'var(--muted)' }}>
-          Changes take effect immediately across all organization outlets at checkout.
-        </p>
+    <div className="ad-profile-split">
+      <Card className="ad-table-card">
+        <CardHeading title="Payment methods" subtitle="What customers can pay with, and at which point staff can choose each one." />
+        {enabled.length === 0 ? (
+          <p className="ad-billing-empty">No payment methods are enabled yet. Contact support to set them up.</p>
+        ) : (
+          <div className="ad-table-wrap">
+            <table className="ad-table">
+              <thead><tr><th>Method</th><th>When placing an order</th><th>After the order</th></tr></thead>
+              <tbody>{enabled.map(method => (
+                <tr key={method.id}>
+                  <td><strong>{method.name}</strong></td>
+                  <td><Mark on={methodAllowsPhase(method, 'PRE_ORDER')} /></td>
+                  <td><Mark on={methodAllowsPhase(method, 'POST_ORDER')} /></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
       </Card>
-
-      {pendingDisable && (
-        <ConfirmationDialog
-          title={`Disable ${pendingDisable.name}?`}
-          description={`Customers will no longer be able to pay with ${pendingDisable.name} at checkout across all outlets.`}
-          confirmLabel="Disable method"
-          cancelLabel="Keep enabled"
-          onCancel={() => setPendingDisable(null)}
-          onConfirm={() => {
-            const m = pendingDisable;
-            setPendingDisable(null);
-            handleToggle(m.id, false);
-          }}
-        />
-      )}
-    </>
+      <Card>
+        <CardHeading title="What these columns mean" />
+        <dl className="ad-profile-details">
+          <div><dt>When placing an order</dt><dd>Shown on the New order screen when the customer pays up front, or chooses to pay on delivery.</dd></div>
+          <div><dt>After the order</dt><dd>Shown when staff record a payment on an existing order, or collect the balance at delivery.</dd></div>
+          <div><dt>Cash on delivery</dt><dd>A promise to pay, not money received, so it is only available when placing the order and is recorded as unpaid.</dd></div>
+        </dl>
+        <p className="ad-billing-empty">Contact support to change which methods are offered.</p>
+      </Card>
+    </div>
   );
 }

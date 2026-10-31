@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import Icon from './Icon';
 import RowMenu from './RowMenu';
 import type { PlatformPaymentMethodDTO } from '@/server/services/platform-payment-methods';
-import { formatDisplayDate } from '../utils';
+import { formatDisplayDate, PAYMENT_STAGE_LABELS } from '../utils';
 
 type Filter = 'all' | 'active' | 'inactive';
 
@@ -92,6 +92,7 @@ export default function PaymentMethodsTable({
               <th>Payment method</th>
               <th>Code</th>
               <th>Status</th>
+              <th>New organizations</th>
               <th>Created</th>
               <th className="right">Actions</th>
             </tr>
@@ -113,6 +114,7 @@ export default function PaymentMethodsTable({
                     {method.active ? 'Active' : 'Inactive'}
                   </span>
                 </td>
+                <td>{method.enabledByDefault ? <span className="chip">On · {PAYMENT_STAGE_LABELS[method.defaultStage]}</span> : <span style={{ color: 'var(--muted)' }}>Off</span>}</td>
                 <td className="num">{formatDisplayDate(method.createdAt)}</td>
                 <td>
                   <div className="rowacts">

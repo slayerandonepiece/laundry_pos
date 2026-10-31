@@ -4,8 +4,8 @@ import { useOrdersCache } from '../containers/useOrdersCache';
 import { useOrderMutation } from '../containers/useOrderMutation';
 import DateInput from './DateInput';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import type { Order, StorePaymentMethod, WorkStatus } from '../admin.types';
-import { dateLabel, money, paid, total, paymentStatus } from '../admin.data';
+import type { Order, PaymentMethodOption, WorkStatus } from '../admin.types';
+import { dateLabel, money, total, paymentStatus } from '../admin.data';
 import { MultiSelectDropdown, SingleSelectDropdown } from './ui/Dropdown';
 import { Pagination } from './ui/Pagination';
 import { Pill } from './ui/Pill';
@@ -13,7 +13,7 @@ import { Sentinel, EmptyState } from './ui/ListStates';
 import OrderDetails from './OrderDetails';
 import OrderDetailsHeader from './OrderDetailsHeader';
 import { Panel } from './Primitives';
-import { recordPaymentAction, updateOrderStatusAction } from '../actions/orders.actions';
+import { deliverOrderAction, recordPaymentAction, updateOrderStatusAction } from '../actions/orders.actions';
 import ConfirmationDialog, { type Confirmation } from './ConfirmationDialog';
 import { Badge as UIBadge, statusTone } from './ui/Badge';
 
@@ -29,6 +29,7 @@ export default function OrderTable({
   firstUseTitle,
   firstUseDescription,
   firstUseAction,
+  paginate = true,
 }: {
   orders: Order[];
   onSelect: (o: Order) => void;
@@ -40,9 +41,11 @@ export default function OrderTable({
   firstUseTitle?: string;
   firstUseDescription?: string;
   firstUseAction?: React.ReactNode;
+  /** False when the caller already passes one server page: show every row, no own paging. */
+  paginate?: boolean;
 }) {
   const [page, setPage] = useState(0);
-  const pageSize = compact ? 5 : 10;
+  const pageSize = !paginate ? Math.max(orders.length, 1) : compact ? 5 : 10;
   const last = Math.max(0, Math.ceil(orders.length / pageSize) - 1);
   const current = Math.min(page, last);
   const rows = orders.slice(current * pageSize, (current + 1) * pageSize);
@@ -181,7 +184,7 @@ export default function OrderTable({
            </div>
         </div>
       )}
-      {rows.length > 0 && (
+      {paginate && rows.length > 0 && (
         <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
             Showing {current * pageSize + 1}–{Math.min((current + 1) * pageSize, orders.length)} of {orders.length}
@@ -193,7 +196,7 @@ export default function OrderTable({
   );
 }
 
-export function OrdersClient({ storeId, serverOrders, paymentMethods, outlets }: { storeId: string; serverOrders: Order[]; paymentMethods: StorePaymentMethod[]; outlets: { id: string; name: string }[] }) {
+export function OrdersClient({ storeId, serverOrders, paymentMethods, outlets }: { storeId: string; serverOrders: Order[]; paymentMethods: PaymentMethodOption[]; outlets: { id: string; name: string }[] }) {
   const { user, sessionVerified } = useAdmin();
   const orders = useOrdersCache(storeId, sessionVerified && user?.role === 'owner' && user.storeId === storeId, serverOrders);
 
@@ -279,17 +282,23 @@ export function OrdersClient({ storeId, serverOrders, paymentMethods, outlets }:
 
   const handleStatusUpdate = (next: WorkStatus) => {
     if (!selectedOrder || next === selectedOrder.status) return;
+    // Delivery goes through the delivery dialog, which collects any balance first.
+    if (next === 'Delivered') return;
     const id = selectedOrder.id;
-    const balanceDue = total(selectedOrder) - paid(selectedOrder);
-    const deliverWithBalance = next === 'Delivered' && balanceDue > 0;
     setConfirmation({
       title: 'Update order status?',
-      description: deliverWithBalance ? `${id} still has ${money(balanceDue)} due. Mark it delivered anyway?` : `Change ${id} from ${selectedOrder.status} to ${next}.`,
-      confirmLabel: deliverWithBalance ? 'Deliver anyway' : 'Update status',
+      description: `Change ${id} from ${selectedOrder.status} to ${next}.`,
+      confirmLabel: 'Update status',
       onConfirm: () => {
         orderMutation.run(() => updateOrderStatusAction(id, next), 'Updating status…', 'Order status updated', 'Could not update the status. Try again.');
       }
     });
+  };
+
+  const handleDeliver = (method?: string) => {
+    if (!selectedOrder) return;
+    const id = selectedOrder.id;
+    orderMutation.run(() => deliverOrderAction(id, { method }), 'Delivering order…', 'Order delivered', 'Could not deliver the order. Try again.');
   };
 
   const handlePaymentRecord = (amount: number, method: string) => {
@@ -463,6 +472,8 @@ export function OrdersClient({ storeId, serverOrders, paymentMethods, outlets }:
             order={orderMutation.updatedOrder?.id === selectedOrder.id ? orderMutation.updatedOrder : selectedOrder}
             paymentMethods={paymentMethods}
             onStatus={handleStatusUpdate}
+            onDeliver={handleDeliver}
+            deliverBusy={orderMutation.pending}
             onPayment={handlePaymentRecord}
             error={error}
             onClose={() => setSelectedId(null)}

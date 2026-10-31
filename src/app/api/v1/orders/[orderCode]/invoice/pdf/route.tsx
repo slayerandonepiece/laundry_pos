@@ -15,6 +15,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
     // their own outlets' orders.
     await assertCanReadOrderInvoice(session, orderCode);
     const invoice = await getOrCreateOrderInvoice(session.storeId, orderCode);
-    return invoicePdfResponse(<OrderInvoicePdf invoice={invoice} />, invoice.invoiceSeq, req.nextUrl.searchParams.get('download') === '1');
+    return invoicePdfResponse(<OrderInvoicePdf invoice={invoice} />, invoice.invoiceNumber, req.nextUrl.searchParams.get('download') === '1');
   });
 }

@@ -61,9 +61,9 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
       </div>
     </div>
 
-    <div className="split">
-      <div>
-        <div className="card">
+    <div className="split dash-grid">
+      <div className="dash-col">
+        <div className="card d-status">
           <div className="card-head"><div><h2><Icon name="building" />Organization status</h2><p>Where every organization stands, right now</p></div></div>
           <div className="card-body">
             <div className="barh">
@@ -78,7 +78,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
           </div>
         </div>
 
-        <div className="card">
+        <div className="card d-attention">
           <div className="card-head">
             <div><h2><Icon name="alertTriangle" />Needs attention</h2><p>Organizations expiring soon or already locked</p></div>
             <Link href="/super-admin/stores" style={{ fontSize: 12.5, fontWeight: 600 }}>All organizations →</Link>
@@ -110,21 +110,21 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
         </div>
       </div>
 
-      <div>
-        <div className="card">
+      <div className="dash-col">
+        <div className="card d-setup">
           <div className="card-head"><h3><Icon name="alertTriangle" />Finish setting up</h3>{needsSetup.length > 0 && <span className="badge warm">{needsSetup.length}</span>}</div>
           {!needsSetup.length ? (
             <div className="card-body"><div className="empty" style={{ padding: '24px 12px' }}>
               <span className="ic l"><Icon name="check" size="l" /></span>
               <h3>All caught up</h3>
-              <p>Every organization has subscription terms set.</p>
+              <p>Every organization has started its subscription.</p>
             </div></div>
           ) : (
             <div className="card-body" style={{ paddingTop: 6 }}>
               {needsSetup.map(store => (
                 <div className="mini-row" key={store.id}>
                   <span className="av sq">{initials(store.name)}</span>
-                  <span className="grow"><b>{store.name}</b><small>Subscription terms not set</small></span>
+                  <span className="grow"><b>{store.name}</b><small>Awaiting first payment</small></span>
                   <Link className="btn outline sm" href={`/super-admin/stores/${store.id}/subscription`}>Set</Link>
                 </div>
               ))}
@@ -132,7 +132,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
           )}
         </div>
 
-        <div className="card">
+        <div className="card d-accounts">
           <div className="card-head"><h3><Icon name="users" />Accounts</h3></div>
           <div className="card-body">
             <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
@@ -148,7 +148,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
           </div>
         </div>
 
-        <div className="card">
+        <div className="card d-actions">
           <div className="card-head"><h3>Quick actions</h3></div>
           <div className="card-body stack" style={{ gap: 9 }}>
             <OnboardStoreAction plans={plans.filter(p => !p.archivedAt)} variant="block" />
@@ -157,7 +157,7 @@ export default function SuperAdminDashboard({ stats, stores, users, plans, today
           </div>
         </div>
 
-        <div className="card">
+        <div className="card d-activity">
           <div className="card-head">
             <h3><Icon name="history" />Recent activity</h3>
             <Link href="/super-admin/activity" style={{ fontSize: 12.5, fontWeight: 600 }}>All activity →</Link>

@@ -267,21 +267,52 @@
  .ad-root .ad-customer-lookup-note{max-width:100%;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 }
 
-.expense-row-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap}
-.expense-row-actions .btn{padding:6px 9px;font-size:12px;white-space:nowrap}
-.expense-row-actions .expense-delete{color:#b91c1c;border-color:#fecaca}
+/* Expenses: one toolbar inside the card, compact row actions, 8px spacing grid. */
+.ad-root .ad-screen-expenses .expenses-card{padding:16px;gap:16px}
+.expenses-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.expenses-toolbar .ad-dates{gap:8px 16px}
+.ad-root .expenses-summary{margin:0 0 0 auto;font-size:12px;color:var(--muted);white-space:nowrap}
+.expenses-summary-overdue{color:#a15c00;font-weight:700}
+.expenses-table-wrap{overflow-x:auto}
+.ad-root .expenses-table th{padding:8px 16px}
+.ad-root .expenses-table td{padding:12px 16px}
+.ad-root .expenses-table th:last-child,.ad-root .expenses-table td:last-child{width:1%;padding-left:8px}
+.expenses-table .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.expense-row,.expense-card{cursor:pointer}
+.ad-root .expense-title{border:0;background:none;padding:0;font-weight:700;color:var(--ink);text-align:left;overflow-wrap:anywhere}
+.ad-root .expense-title:hover{color:var(--brand);text-decoration:underline}
+.expense-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.expense-row-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.ad-root .expense-row-actions .expense-paid-btn{min-height:32px;padding:4px 12px;font-size:12px}
+.ad-root .row-actions-trigger{width:32px;height:32px;display:grid;place-items:center;padding:0;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-size:18px;line-height:1}
+.ad-root .row-actions-trigger:hover,.ad-root .row-actions-trigger[aria-expanded="true"]{background:#f4f6fa}
+.dropdown-menu.row-actions-menu{position:fixed;top:0;left:0;min-width:160px;z-index:60}
+.dropdown-menu .dropdown-radio-row.danger{color:#b91c1c}
+.dropdown-menu .dropdown-radio-row.danger:hover{background:#fef2f2}
 .expense-detail-facts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0}
 .expense-detail-facts dt{font-size:12px;color:var(--muted)}
 .expense-detail-facts dd{margin:4px 0 0;overflow-wrap:anywhere;font-weight:600}
 .expenses-cards{display:none}
 @media(max-width:768px){
- .expenses-table{display:none}
- .expenses-cards{display:flex;flex-direction:column;gap:10px;margin-top:12px}
- .expense-card{padding:14px;border:1px solid var(--border);border-radius:12px;background:white}
- .expense-card>.row{justify-content:space-between;gap:10px}
- .expense-card p{font-size:12px;margin:8px 0;color:var(--muted)}
- .expense-card .expense-row-actions{justify-content:flex-start;margin-top:12px}
- .expense-card .btn{min-height:40px}
+ .expenses-table-wrap{display:none}
+ .expenses-cards{display:flex;flex-direction:column;gap:8px}
+ .ad-root .expense-card{padding:12px 16px;border:1px solid var(--border);border-radius:12px;background:white}
+ .expense-card>.row{justify-content:space-between;align-items:flex-start;gap:8px}
+ .ad-root .expense-card p{font-size:12px;margin:4px 0;color:var(--muted)}
+ .expense-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+ .ad-root .expense-card .expense-row-actions .expense-paid-btn{min-height:44px;padding:8px 16px}
+ .ad-root .expense-card .row-actions-trigger{width:44px;height:44px}
+ .ad-root .expenses-summary{margin-left:0;white-space:normal}
+}
+@media(max-width:767px){
+ .ad-root .expenses-toolbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+ .ad-root .expenses-toolbar>.ad-dates{display:contents}
+ .ad-root .expenses-toolbar>.ad-dates>select{grid-column:1;grid-row:1;width:100%;min-width:0}
+ .ad-root .expenses-toolbar>.ad-dates>span{grid-column:1/-1;font-size:12px}
+ .ad-root .expenses-toolbar .ad-date-bound{min-width:0}
+ .ad-root .expenses-toolbar>.expenses-outlet-filter{grid-column:2;grid-row:1;min-width:0}
+ .ad-root .expenses-outlet-filter .switcher-trigger{width:100%;min-height:44px;justify-content:space-between}
+ .ad-root .expenses-toolbar>.expenses-summary{grid-column:1/-1;margin:0}
 }
 
 .ad-root .ad-details-invoice a.ad-button{color:white;font-size:12.5px}
@@ -324,14 +355,13 @@
 }
 
 /* Consistent workspace density, with touch targets retained. */
-.ad-root .ad-main{padding-top:16px;padding-bottom:0}
+.ad-root .ad-main{padding-top:16px;padding-bottom:28px}
 .ad-root .ad-page-heading{margin-bottom:12px;align-items:center}
 .ad-root .ad-filter-row{border:0;padding:0;margin-bottom:14px;gap:12px;align-items:center;flex-wrap:wrap}
-.ad-root .ad-screen-expenses .ad-filter-row>.ad-button{margin-left:auto}
 .ad-root .ad-screen-products .card,.ad-root .ad-screen-expenses .card,.ad-root .ad-screen-employees .card,.ad-root .ad-profile-grid .card{padding:17px}
 .ad-root .ad-employees-content{gap:12px!important}
 .ad-root .ad-employees-content>.row p{margin:0!important}
-.ad-root footer.ad-bottom{min-height:0;padding:0;gap:8px;line-height:1.5;font-size:11px;border-top:1px solid #dce2e9;flex-direction:row;align-items:center;margin-top:auto;padding:8px 0 max(16px,env(safe-area-inset-bottom))}
+.ad-root footer.ad-bottom{min-height:0;padding:0;gap:8px;line-height:1.5;font-size:11px;border-top:1px solid #dce2e9;flex-direction:row;align-items:center;margin-top:auto;padding:14px 28px max(14px,env(safe-area-inset-bottom))}
 .ad-root footer.ad-bottom>span{padding:0}
 .ad-root .ad-profile-details{display:grid;gap:10px;margin:0}
 .ad-root .ad-profile-details>div{min-width:0}
@@ -345,11 +375,11 @@
 .ad-root .ad-pdf-toolbar a.ad-button:not(.ad-secondary){color:white;font-size:13px}
 .ad-root .ad-dialog-loader{position:absolute;inset:0;z-index:100;background:rgba(255,255,255,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;border-radius:inherit;color:var(--ad-text);font-size:14px;pointer-events:auto}
 @media(max-width:767px){
- .ad-root .ad-main{padding-top:12px}
+ .ad-root .ad-main{padding-top:12px;padding-bottom:20px}
+ .ad-root footer.ad-bottom{padding-inline:16px}
  .ad-root .ad-page-heading{margin-bottom:10px;gap:8px}
  .ad-root .ad-screen-products .card,.ad-root .ad-screen-expenses .card,.ad-root .ad-screen-employees .card,.ad-root .ad-profile-grid .card{padding:15px}
- .ad-root .ad-screen-expenses .expense-card,.ad-root .ad-screen-employees .employee-card{padding:10px}
- .ad-root .ad-screen-expenses .expense-card p{margin:5px 0}
+ .ad-root .ad-screen-employees .employee-card{padding:10px}
  .ad-root .ad-screen-employees .employees-cards{gap:10px}
  .ad-root .ad-screen-sales .ad-sales-register{padding:15px}
  .ad-root .ad-screen-sales .ad-sales-register>.card-heading{margin-bottom:12px}
@@ -365,15 +395,6 @@
  .ad-root .dashboard-outlet-control .switcher-trigger{width:100%;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .ad-root .ad-topbar:has(.ad-store-switcher)>.ad-row:first-child{flex-basis:100%}
  .ad-root .ad-filter-row{gap:8px;margin-bottom:12px}
- .ad-root .ad-screen-expenses .ad-filter-row>.ad-button{min-height:44px}
-}
-@media(max-width:767px){
- .ad-root .ad-screen-expenses .ad-filter-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
- .ad-root .ad-screen-expenses .ad-filter-row>.ad-dates{display:contents}
- .ad-root .ad-screen-expenses .ad-filter-row>.ad-dates>select{grid-column:1;grid-row:1;min-width:0;width:100%}
- .ad-root .ad-screen-expenses .ad-filter-row>.ad-button{grid-column:2;grid-row:1;margin:0}
- .ad-root .ad-screen-expenses .ad-filter-row>.ad-dates>span{grid-column:1/-1;grid-row:2;font-size:11px}
- .ad-root .ad-screen-expenses .ad-filter-row .ad-date-bound{min-width:0}
 }
 .ad-root .ad-workspace{min-height:100dvh;display:flex;flex-direction:column}
 .ad-root .ad-topbar{flex-shrink:0}
@@ -418,3 +439,111 @@
  .ad-root .ad-order-pdf-actions { flex-wrap:wrap; flex-shrink:1; }
  .ad-root.ad-dialog-modal:has(.ad-order-pdf-heading)>header { align-items:flex-start; padding:14px; }
 }
+
+/* Order details: Share update and invoice actions sit at the right of the title row, beside the panel's close button. */
+.ad-root .ad-order-title-row:has(>.ad-details-actions){position:static;padding-right:52px}
+.ad-root .ad-order-title-row>.ad-details-actions{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
+.ad-root .ad-details-actions .ad-details-invoice{position:static;grid-column:auto;padding:0;background:none;border:0}
+.ad-root .ad-details-actions .ad-order-share{display:flex}
+.ad-root .ad-details-actions .ad-button{min-height:38px;font-size:12.5px}
+@media(max-width:600px){
+  .ad-root .ad-order-title-row>.ad-details-actions{flex:1 1 100%;margin-left:0;justify-content:flex-start;padding-right:0}
+}
+/* Order details footer: status on the left, Cancel order on the right, on every width. */
+.ad-root .ad-dialog-details .ad-detail-footer{flex-direction:row;align-items:flex-end;justify-content:space-between;flex-wrap:nowrap;gap:12px}
+.ad-root .ad-dialog-details .ad-detail-footer>label{flex:1 1 auto;width:auto;min-width:0;max-width:260px;flex-direction:column;align-items:stretch}
+.ad-root .ad-dialog-details .ad-detail-footer>label select{width:100%}
+.ad-root .ad-dialog-details .ad-detail-footer>.ad-button{width:auto;flex:0 0 auto}
+/* Sales custom dates: Apply sits beside To, full width under the pickers on phones. */
+.ad-root .ad-sales-head-actions .ad-date-apply{height:40px;min-height:40px}
+@media(max-width:600px){.ad-root .ad-sales-head-actions .ad-date-apply{grid-column:1/-1;width:100%}}
+/* Record payment: method and submit share a row. */
+.ad-root .ad-record-payment-method{display:flex;align-items:flex-end;gap:8px}
+.ad-root .ad-record-payment-method>label{flex:1 1 auto;min-width:0}
+.ad-root .ad-record-payment-method>.ad-button{flex:0 0 auto}
+@media(max-width:360px){.ad-root .ad-record-payment-method{flex-direction:column;align-items:stretch}}
+/* Light toast with a coloured status icon, top right (order share messages). */
+.ad-root .ad-toast.ad-toast-light{top:16px;right:16px;bottom:auto;display:flex;align-items:center;gap:10px;background:#fff;color:var(--ad-text);border:1px solid #dce2e9;border-left:4px solid var(--toast-accent);padding:12px 8px 12px 14px;font-size:13px;font-weight:500;box-shadow:0 8px 24px #061b3a26;max-width:min(380px,calc(100vw - 32px))}
+.ad-root .ad-toast-light .ad-toast-icon{flex:0 0 auto;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--toast-accent);color:#fff;font-size:12px;font-weight:700;line-height:1}
+.ad-root .ad-toast-light button{margin-left:auto;color:var(--ad-muted)}
+.ad-root .ad-toast-success{--toast-accent:#14865d}.ad-root .ad-toast-error{--toast-accent:#c62828}.ad-root .ad-toast-info{--toast-accent:#0758d6}
+.ad-root .ad-toast-light>span:not(.ad-toast-icon){color:#102039}
+/* Panel close button: larger target with a drawn icon and a visible border. */
+.ad-root .ad-dialog>header>.ad-icon-button{display:grid;place-items:center;flex:0 0 auto;width:48px;height:48px;min-width:48px;min-height:48px;padding:0;border:1.5px solid #c5cedb;border-radius:10px;color:var(--ad-text)}
+.ad-root .ad-dialog>header>.ad-icon-button:hover{background:#f2f6fc;border-color:#9aa8bd}
+/* Cancel order: larger, bordered, with an icon, in the destructive colour. */
+.ad-root .ad-dialog-details .ad-detail-footer>.ad-cancel-order{min-height:48px;padding:0 20px;gap:8px;font-size:15px;font-weight:700;color:#b42318;border:1.5px solid #e4a29b;background:#fff}
+.ad-root .ad-dialog-details .ad-detail-footer>.ad-cancel-order:hover{background:#fef3f2;border-color:#b42318}
+.ad-root .ad-dialog-details .ad-detail-footer select{min-height:48px}
+/* Order details actions: their own row under the title, left aligned, until the panel is wide enough to put them beside it. */
+.ad-root .ad-dialog-details .ad-details-header{container-type:inline-size}
+.ad-root .ad-order-title-row>.ad-details-actions{flex:1 1 100%;margin-left:0;justify-content:flex-start;padding-right:0;gap:8px}
+.ad-root .ad-details-actions .ad-order-invoice-actions{margin:0}
+@container (min-width: 720px){
+  .ad-root .ad-order-title-row>.ad-details-actions{flex:0 0 auto;margin-left:auto;justify-content:flex-end}
+}
+/* Order details drawer width: wider on mid-size screens so the header and footer keep their layout; phones stay full width. */
+@media(min-width:768px) and (max-width:1280px){.ad-root.ad-dialog-details{width:max(75vw,min(640px,100vw));max-width:100vw}}
+@media(min-width:1281px){.ad-root.ad-dialog-details{width:clamp(640px,50vw,900px);max-width:100vw}}
+
+/* Profile sections: in-page tabs */
+.ad-root .ad-profile-tabs{display:flex;gap:4px;overflow-x:auto;margin:0 0 20px;border-bottom:1px solid #e4e7ed}
+.ad-root .ad-profile-tabs a{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:6px 16px;margin-bottom:-1px;border-bottom:2px solid transparent;color:#3d4a60;font-size:13.5px;font-weight:500;text-decoration:none}
+.ad-root .ad-profile-tabs a:hover{color:var(--ad-blue)}.ad-root .ad-profile-tabs a.active{border-bottom-color:var(--ad-blue);color:var(--ad-blue);font-weight:700}
+
+/* Profile sections: layouts */
+.ad-root .ad-profile-stack{display:grid;gap:16px;min-width:0}
+.ad-root .ad-profile-split{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:start}
+.ad-root .ad-profile-split .card{padding:20px}
+.ad-root .ad-profile-stack>.card{padding:20px}
+.ad-root .ad-profile-dl2{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px}
+.ad-root .ad-profile-dl2 .wide{grid-column:1/-1}
+.ad-root .ad-profile-hero{display:flex;flex-direction:row;align-items:center;gap:18px;flex-wrap:wrap}
+.ad-root .ad-profile-hero .ad-button{margin-left:auto}
+.ad-root .ad-profile-avatar{width:64px;height:64px;border-radius:50%;background:#eaf1ff;color:var(--ad-blue);display:grid;place-items:center;font:700 26px var(--font-display);flex-shrink:0}
+.ad-root .ad-profile-hero-text{min-width:0}
+.ad-root .ad-profile-hero-text h2{font-size:20px}
+.ad-root .ad-profile-hero-text p{font-size:13px;color:var(--ad-muted);margin-top:3px}
+.ad-root .ad-profile-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px}
+.ad-root .ad-profile-section-title h2{font-size:16px}
+.ad-root .ad-outlet-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.ad-root .ad-outlet-cards .ad-profile-outlet{padding:18px}
+.ad-root .ad-outlet-cards .ad-profile-outlet h3{font-size:15px;margin:0}
+.ad-root .ad-outlet-cards .ad-profile-outlet .ad-row{justify-content:space-between;margin-bottom:12px;gap:10px}
+.ad-root .ad-danger-card{border-color:#efcccc;background:#fffafa}
+.ad-root .ad-danger-card .card-heading{margin-bottom:0}
+.ad-root .ad-billing-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.ad-root .ad-billing-tiles .card{padding:18px}
+.ad-root .ad-billing-tiles small{display:block;font-size:11px;color:var(--ad-muted)}
+.ad-root .ad-billing-tiles .card>span{display:block;font-size:12px;color:var(--ad-muted);margin-top:4px}
+.ad-root .ad-billing-value{font:600 18px var(--font-display);margin-top:8px}
+.ad-root .ad-billing-empty{font-size:13px;color:var(--ad-muted);margin:0}
+.ad-root .ad-billing-actions{display:flex;gap:14px}
+.ad-root .ad-billing-actions a,.ad-root .ad-billing-link{font-size:13px;font-weight:600;color:var(--ad-blue);text-decoration:none;border:0;background:none;padding:0;cursor:pointer}
+.ad-root .ad-pay-no{font-size:12px;color:var(--ad-muted)}
+.ad-root .ad-msg-summary{font-size:13px;color:var(--ad-muted);margin:0;max-width:900px;line-height:1.6}
+.ad-root .ad-msg-summary strong,.ad-root .ad-msg-summary b{color:var(--ad-text)}
+.ad-root .ad-msg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.ad-root .ad-msg-card{padding:18px}
+.ad-root .ad-msg-card.off{background:#fafbfc}
+.ad-root .ad-msg-card.off .ad-msg-bubble{opacity:.55}
+.ad-root .ad-msg-card .card-heading{margin-bottom:14px}
+.ad-root .ad-msg-bubble{background:#e7f6ec;border-radius:12px 12px 12px 3px;padding:12px 14px;font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:#14301f}
+.ad-root .ad-msg-meta{font-size:12px;color:var(--ad-muted);margin:10px 0 0}
+.ad-root .ad-msg-template{margin-top:8px;font-size:12px}
+.ad-root .ad-msg-template summary{cursor:pointer;color:var(--ad-blue);font-weight:600}
+.ad-root .ad-msg-template pre{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 var(--font-body);color:var(--ad-muted)}
+@media(max-width:1100px){.ad-root .ad-billing-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.ad-root .ad-profile-split,.ad-root .ad-msg-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.ad-root .ad-billing-tiles,.ad-root .ad-profile-dl2{grid-template-columns:1fr}.ad-root .ad-profile-hero .ad-button{margin-left:0}}
+.ad-root .ad-profile-stack>.card.ad-table-card,.ad-root .ad-profile-split>.card.ad-table-card{padding:0}
+.ad-root .ad-profile-stack>.card.ad-table-card>.card-heading,.ad-root .ad-profile-split>.card.ad-table-card>.card-heading{padding:20px 20px 0}
+.ad-root .ad-table-card>.ad-billing-empty{padding:0 20px 20px}
+
+/* Invoice preview: compact header, more room for the PDF */
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading){width:min(1100px,calc(100vw - 16px));max-width:min(1100px,calc(100vw - 16px));height:calc(100vh - 16px);max-height:calc(100vh - 16px)}
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading)>header{padding:8px 12px 8px 18px;min-height:0}
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading)>header .ad-icon-button{min-width:36px;min-height:36px;width:36px;height:36px;padding:0}
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading) .ad-order-pdf-heading h2{font-size:15px}
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading) .ad-order-pdf-actions .ad-button{min-height:34px;padding:6px 10px}
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading) .pdf-preview-pages{padding:8px 8px 16px;gap:8px}
+.ad-root.ad-dialog-modal:has(.ad-order-pdf-heading) .pdf-preview-pages canvas{max-width:1000px}

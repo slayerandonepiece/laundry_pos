@@ -13,7 +13,7 @@ export const PAYMENT_STATE_BADGE: Record<StoreListItem['paymentState'], { label:
   active:       { label: 'Active',       cls: 'good' },
   expiring:     { label: 'Expiring',     cls: 'warm' },
   locked:       { label: 'Locked',       cls: 'bad'  },
-  unset:        { label: 'Terms not set', cls: 'gray' },
+  unset:        { label: 'Awaiting payment', cls: 'warm' },
   trial:        { label: 'Trial',        cls: 'info' },
   trial_ending: { label: 'Trial ending', cls: 'warm' },
 };
@@ -33,3 +33,5 @@ export function formatDisplayDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date.includes('T') ? date : date + 'T12:00:00') : date;
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+export { PAYMENT_STAGES, PAYMENT_STAGE_LABELS, allowedPaymentStages, type PaymentStageValue } from '@/lib/paymentStage';

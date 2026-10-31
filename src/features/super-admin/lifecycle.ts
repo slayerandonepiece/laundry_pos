@@ -28,7 +28,7 @@ export function describeLifecycleState(state: OrgLifecycleState): LifecycleDescr
     case 'LOCKED':
       return { label: 'Locked', badgeClass: 'bad', description: 'Locked by Super Admin. The owner and every employee can still sign in — every data request returns 403 until it is unlocked.' };
     case 'TERMS_NOT_SET':
-      return { label: 'Terms not set', badgeClass: 'warm', description: 'Onboarded without a deposit or trial. Set subscription terms to start billing.' };
+      return { label: 'No plan', badgeClass: 'warm', description: 'Onboarded without a plan, deposit or trial. Choose a plan or start a trial to begin.' };
     case 'TRIAL':
       return { label: 'Trial', badgeClass: 'info', description: 'On a free trial.' };
     case 'TRIAL_ENDING':

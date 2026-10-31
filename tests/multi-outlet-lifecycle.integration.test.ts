@@ -176,7 +176,7 @@ test('Blue Wave: orders stay in their originating outlet and never leak across t
   // order code, every assertion below would compare undefined to undefined
   // and pass while isolation was broken.
   for (const order of [gchOrder, kphOrder, mdpOrder]) {
-    assert.match(order.id, /^EL-\d+$/, 'order DTO must carry a real order code');
+    assert.match(order.id, /^(EL-\d+|[1-9]\d{9})$/, 'order DTO must carry a real order code');
   }
 
   const gchList = await orders.listOrders(ctx.store.id, { outletId: ctx.gachibowli.id });
@@ -249,34 +249,18 @@ test('Blue Wave: owner all-outlet totals equal the sum of the individual outlets
 });
 
 /**
- * Regression: payment-method names are display labels, and the platform
- * catalogue is not tenant-scoped, so the name lookup can match a row owned by
- * a different organization. A tenant still on a legacy StorePaymentMethod must
- * keep working when an unrelated tenant happens to pick the same label — every
- * organization names one of its methods "Cash".
+ * Regression: payment-method names are display labels and the catalogue is not
+ * tenant-scoped, so a name lookup can match a method only another organization
+ * enabled. It must not resolve for this organization.
  */
-test('a platform method named "Cash" in one org must not break another org legacy "Cash"', async () => {
+test('a method named "Cash" enabled by one org is not usable by another org', async () => {
   const orgA = await prisma.store.create({ data: { id: 'store-xt-a', name: 'Cross Tenant A' } });
   const orgB = await prisma.store.create({ data: { id: 'store-xt-b', name: 'Cross Tenant B' } });
-
-  // Org B is a pre-outlet tenant: its only method is the legacy store row.
-  await prisma.storePaymentMethod.create({ data: { storeId: orgB.id, name: 'Cash', active: true } });
-
-  const before = await platformMethods.resolveActivePaymentMethod(orgB.id, 'Cash', { allowLegacy: true });
-  assert.equal(before.valid, true, 'baseline: Org B resolves its own legacy method');
-
-  // A different tenant enables a global method that happens to share the label.
   const cash = await platformMethods.createPlatformPaymentMethod({ code: 'CASH_XTENANT', name: 'Cash' });
   await platformMethods.setOrganizationPaymentMethodEnabled(orgA.id, cash.id, true);
 
-  const after = await platformMethods.resolveActivePaymentMethod(orgB.id, 'Cash', { allowLegacy: true });
-  assert.equal(after.valid, true, "another org's identically named method must not block Org B");
-  assert.equal(after.platformPaymentMethodId, null, 'Org B still resolves the legacy row, not Org A platform method');
-
-  // The outlet-owned path stays strict: legacy methods may not back new
-  // outlet payments, so allowLegacy: false must still refuse (B4.4).
-  const strict = await platformMethods.resolveActivePaymentMethod(orgB.id, 'Cash', { allowLegacy: false });
-  assert.equal(strict.valid, false, 'outlet-owned payments must still reject legacy methods');
+  assert.equal((await platformMethods.resolveActivePaymentMethod(orgA.id, 'Cash')).valid, true);
+  assert.equal((await platformMethods.resolveActivePaymentMethod(orgB.id, 'Cash')).valid, false, "another org's method must not resolve for Org B");
 });
 
 test('Blue Wave: expenses are owned by the outlet they were recorded against', async () => {

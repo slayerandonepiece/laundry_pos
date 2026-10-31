@@ -5,6 +5,8 @@ import Icon from './Icon';
 import RowMenu from './RowMenu';
 import type { PlatformUserListItem } from '../types';
 import { initials } from '../utils';
+import Pager from './Pager';
+import { usePaged } from '../usePaged';
 
 function OrgsCell({ memberships }: { memberships: PlatformUserListItem['memberships'] }) {
   if (!memberships.length) return <span className="muted">No organization access</span>;
@@ -40,6 +42,7 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
     if (search.trim() && !(u.name + ' ' + u.phone).toLowerCase().includes(search.trim().toLowerCase())) return false;
     return true;
   });
+  const paged = usePaged(filtered, `${role}|${status}|${search.trim().toLowerCase()}`);
   const hasActiveFilter = role !== 'all' || status !== 'all' || search.trim().length > 0;
 
   if (!users.length) return <div className="card"><div className="empty">
@@ -91,7 +94,7 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
         <table>
           <thead><tr><th>User</th><th>Phone number</th><th>Role</th><th>Organizations</th><th>Status</th><th className="right">Actions</th></tr></thead>
           <tbody>
-            {filtered.map(user => {
+            {paged.rows.map(user => {
               const primaryRole = user.memberships.some(m => m.role === 'OWNER') ? 'OWNER' : user.memberships[0]?.role;
               return <tr key={user.id}>
                 <td><div className="who"><span className="av">{initials(user.name)}</span><strong onClick={() => router.push(`/super-admin/users/${user.id}`)} style={{ cursor: 'pointer' }}>{user.name}</strong></div></td>
@@ -112,6 +115,7 @@ export default function UsersList({ users, search, onSearch, onReset, onDeactiva
             })}
           </tbody>
         </table>
+        <Pager page={paged.page} pageSize={paged.size} total={paged.total} onPage={paged.setPage} onSize={paged.setSize} />
       </div>
     )}
   </>;

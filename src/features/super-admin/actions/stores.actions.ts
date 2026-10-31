@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/server/auth/session';
 import { grantTemporaryAccess, setStoreTrial, archiveStore, lookupOwnerByPhone, onboardStore, recordSubscriptionPayment, setStoreStatus, setStoreReviewDemo, updateStore } from '@/server/services/stores';
 import { ValidationError } from '@/server/errors';
+import { updateStoreNumbering, type StoreNumbering, type StoreNumberingInput } from '@/server/services/org-numbering';
 import { createOutlet, type OutletDTO } from '@/server/services/outlets';
 import { recordStoreActivity } from '@/server/services/activity';
 import type { OnboardStoreInput, OwnerLookupResult, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '../types';
@@ -185,3 +186,24 @@ async function updateAccessDate(storeId: string, date: string, temporary: boolea
 export async function setTrialDatesAction(storeId: string, trialEndDate: string, trialStartDate?: string) { return updateAccessDate(storeId, trialEndDate, false, trialStartDate); }
 export async function setTrialEndsAtAction(storeId: string, trialEndDate: string) { return updateAccessDate(storeId, trialEndDate, false); }
 export async function grantTemporaryAccessAction(storeId: string, untilDate: string) { return updateAccessDate(storeId, untilDate, true); }
+
+export interface UpdateStoreNumberingResult {
+  ok: boolean;
+  error?: string;
+  numbering?: StoreNumbering;
+}
+
+export async function updateStoreNumberingAction(storeId: string, input: StoreNumberingInput): Promise<UpdateStoreNumberingResult> {
+  const session = await requireSuperAdmin();
+  try {
+    const numbering = await updateStoreNumbering(storeId, input);
+    await recordStoreActivity({ storeId, actorId: session.id, action: 'UPDATE_ORGANIZATION_NUMBERING', entityType: 'Store', entityId: storeId, after: { orgCode: numbering.orgCode, orderSeqBase: numbering.orderSeqBase } });
+    revalidatePath('/super-admin/stores');
+    revalidatePath(`/super-admin/stores/${storeId}`);
+    revalidatePath(`/super-admin/stores/${storeId}/edit`);
+    return { ok: true, numbering };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
+}

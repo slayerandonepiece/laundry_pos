@@ -200,9 +200,8 @@ test('Task B6: transactional rollups on order creation, status update, and payme
   });
   assert.equal(summaryAfterDelivery?.ordersCompletedCount, 1);
 
-  // Re-opening a delivered order must reverse the completion counter on the
-  // original completion business date.
-  await orders.updateOrderStatus(env.store.id, order1.id, 'Ready', env.owner.id);
+  // Delivered is final: re-opening is rejected and the completion counter is untouched.
+  await assert.rejects(orders.updateOrderStatus(env.store.id, order1.id, 'Ready', env.owner.id), /final/);
   const summaryAfterReopen = await prisma.dailyOutletSummary.findUnique({
     where: {
       storeId_outletId_businessDate: {
@@ -212,7 +211,7 @@ test('Task B6: transactional rollups on order creation, status update, and payme
       },
     },
   });
-  assert.equal(summaryAfterReopen?.ordersCompletedCount, 0);
+  assert.equal(summaryAfterReopen?.ordersCompletedCount, 1);
 });
 
 test('Task B6: service order count is distinct per order and service', async () => {
@@ -404,7 +403,8 @@ test('Task B6: retries and idempotent flows do not double count or inflate total
   });
   assert.equal(summary?.paymentsCollectedAmount, 150);
 
-  // 3. Replay status Delivered
+  // 3. Replay status Delivered once the balance is paid
+  await orders.recordPayment(env.store.id, order.id, 50, 'Cash', 'client-action-retry-2');
   await orders.updateOrderStatus(env.store.id, order.id, 'Delivered', env.owner.id);
   await orders.updateOrderStatus(env.store.id, order.id, 'Delivered', env.owner.id);
 

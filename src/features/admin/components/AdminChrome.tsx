@@ -3,7 +3,7 @@ import Link from 'next/link';
 import WorkspaceNotice from '@/components/WorkspaceNotice';
 import WorkspaceAnnouncements from '@/components/WorkspaceAnnouncements';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useAdmin } from '../containers/AdminProvider';
 import type { Role, Screen } from '../admin.types';
 import type { StoreOption } from '@/server/auth/session';
@@ -13,6 +13,7 @@ import { selectStoreAction, selectDashboardAllStoresAction } from '@/server/auth
 import StoreSwitcher from './StoreSwitcher';
 import ConfirmationDialog, { type Confirmation } from './ConfirmationDialog';
 import Icon, { type IconName } from '@/features/super-admin/components/Icon';
+import { initials } from '@/features/super-admin/utils';
 
 const links: [Screen, IconName, string][] = [
   ['dashboard', 'dashboard', 'Dashboard'],
@@ -25,6 +26,12 @@ const links: [Screen, IconName, string][] = [
   ['profile', 'key', 'Profile'],
 ];
 
+// Desktop sidebar collapse, remembered per browser (same pattern as SuperAdminChrome).
+const SIDE_KEY = 'el-side';
+const SIDE_EVENT = 'el-side-change';
+const subscribeSide = (notify: () => void) => { window.addEventListener(SIDE_EVENT, notify); window.addEventListener('storage', notify); return () => { window.removeEventListener(SIDE_EVENT, notify); window.removeEventListener('storage', notify); }; };
+const readSide = () => { try { return localStorage.getItem(SIDE_KEY) === 'rail'; } catch { return false; } };
+
 function screenFromPathname(pathname: string): Screen {
   if (pathname === '/') return 'dashboard';
   const segment = pathname.split('/')[2];
@@ -32,7 +39,7 @@ function screenFromPathname(pathname: string): Screen {
   return (known as string[]).includes(segment) ? (segment as Screen) : 'dashboard';
 }
 
-function Navigation({ screen, role, brandName, storeName, multiStore, onNavigate, onLogout }: { screen: Screen; role: Role | undefined; brandName: string; storeName: string; multiStore: boolean; onNavigate?: () => void; onLogout: () => void }) {
+function Navigation({ screen, role, name, brandName, storeName, multiStore, onNavigate, onLogout, rail = false }: { screen: Screen; role: Role | undefined; name: string; brandName: string; storeName: string; multiStore: boolean; onNavigate?: () => void; onLogout: () => void; rail?: boolean }) {
   return <>
     <Link className="ad-logo" href={role ? homeFor(role) : '/'} onClick={onNavigate}>
       <span className="ad-logo-mark"><Icon name="logo" size="l" /></span>
@@ -40,13 +47,17 @@ function Navigation({ screen, role, brandName, storeName, multiStore, onNavigate
     </Link>
     <p className="ad-nav-label" style={{ fontSize: '11px', letterSpacing: '0.12em' }}>WORKSPACE</p>
     <nav aria-label="Admin navigation">
-      {role && links.filter(([id]) => role === 'owner' || ['sales', 'orders'].includes(id)).map(([id, icon, label]) => (
-        <Link key={id} aria-current={screen === id ? 'page' : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}>
-          <Icon name={icon} />{label}
+      {role && links.filter(([id]) => role === 'owner' || ['sales', 'orders', 'profile'].includes(id)).map(([id, icon, label]) => (
+        <Link key={id} aria-current={screen === id ? 'page' : undefined} aria-label={rail ? label : undefined} title={rail ? label : undefined} className={screen === id ? 'active' : ''} href={id === 'dashboard' ? '/' : '/admin/' + id} onClick={onNavigate}>
+          <Icon name={icon} />{rail ? <span className="ad-side-short">{label}</span> : label}
         </Link>
       ))}
     </nav>
-    <div className="ad-sidebar-bottom"><div className="ad-store-note"><span className="ad-live-dot"/>{storeName}<small>{multiStore ? 'Switch stores from the header above.' : 'Organization workspace'}</small></div><button onClick={onLogout}>Log out &rarr;</button></div>
+    <div className="ad-sidebar-bottom">
+      <span className="ad-side-av" title={rail ? name : undefined} aria-hidden="true">{initials(name || '?')}</span>
+      <span className="ad-side-who"><b>{name}</b><small><span className="ad-live-dot"/>{role === 'owner' ? 'Owner' : role === 'employee' ? 'Employee' : ''}{storeName ? ' · ' + storeName : ''}</small>{multiStore && <small>Switch stores from the header.</small>}</span>
+      <button type="button" className="ad-side-logout" onClick={onLogout} aria-label="Log out" title="Log out"><Icon name="logout" /></button>
+    </div>
   </>;
 }
 
@@ -82,6 +93,8 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
   const pathname = usePathname();
   const [menu, setMenu] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const collapsed = useSyncExternalStore(subscribeSide, readSide, () => false);
+  const toggleSide = () => { try { localStorage.setItem(SIDE_KEY, collapsed ? 'open' : 'rail'); } catch {} window.dispatchEvent(new Event(SIDE_EVENT)); };
   const screen = screenFromPathname(pathname);
   const role = user?.role;
   const name = user?.name ?? '';
@@ -99,12 +112,11 @@ export default function AdminChrome({ storeName, storeOptions, selectedStoreId, 
     selectDashboardAllStoresAction().then(result => { if (result.ok) { window.dispatchEvent(new Event('el-store-changed')); router.refresh(); } });
   }
 
-  return <div className={"ad-root ad-app" + (screen === "dashboard" ? " ad-dashboard-shell" : "") + (screen === "orders" ? " ad-counter" : "")}>
-    {screen !== 'orders' && <aside className="ad-sidebar ad-desktop-sidebar"><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout}/></aside>}
-    {menu && <MobileNavigation onClose={() => setMenu(false)}><Navigation screen={screen} role={role} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onNavigate={() => setMenu(false)} onLogout={() => { setMenu(false); confirmLogout(); }}/></MobileNavigation>}
+  return <div className={"ad-root ad-app" + (screen === "dashboard" ? " ad-dashboard-shell" : "") + (screen === "orders" ? " ad-counter" : "") + (collapsed ? " ad-side-rail" : "")}>
+    <aside className={'ad-sidebar ad-desktop-sidebar' + (collapsed ? ' rail' : '')}><Navigation screen={screen} role={role} name={name} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onLogout={confirmLogout} rail={collapsed}/></aside>
+    {menu && <MobileNavigation onClose={() => setMenu(false)}><Navigation screen={screen} role={role} name={name} brandName={brandName} storeName={effectiveStoreName} multiStore={multiStore} onNavigate={() => setMenu(false)} onLogout={() => { setMenu(false); confirmLogout(); }}/></MobileNavigation>}
     <div className="ad-workspace">
-      <header className="ad-topbar"><div className="ad-row"><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">{screen === 'orders' ? brandName : 'Workspace'} <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span><Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link></div></header>
-      {screen === 'orders' && <nav className="ad-counter-topnav" aria-label="Workspace navigation">{role && links.filter(([id]) => role === 'owner' || ['orders','sales','profile'].includes(id)).map(([id,,label]) => <Link key={id} href={id === 'dashboard' ? '/' : '/admin/' + id} aria-current={screen === id ? 'page' : undefined}>{label}</Link>)}<button type="button" onClick={confirmLogout}>Log out</button></nav>}
+      <header className="ad-topbar"><div className="ad-row"><button type="button" className="ad-collapse-toggle ad-icon-button" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={toggleSide}><Icon name="hamburger" /></button><button className="ad-menu-toggle ad-icon-button" aria-label="Open navigation" aria-expanded={menu} onClick={() => setMenu(true)}>☰</button><span className="ad-breadcrumb">Workspace <span>/</span> {screen}</span>{multiStore && <StoreSwitcher options={storeOptions!} selectedStoreId={selectedStoreId} allStoresSelected={allStoresSelected} showAllStoresOption={screen === 'dashboard'} onSelectStore={selectStore} onSelectAllStores={selectAllStores}/>}</div><div className="ad-row">{screen === 'dashboard' && role === 'owner' && <div id="dashboard-outlet-control" />}<span className="ad-user-role">{name}{role && <> · {role === 'owner' ? 'Owner' : 'Employee'}</>}</span><Link href="/admin/profile" className="ad-avatar" aria-label={'Profile: ' + name}>{name.slice(0, 1)}</Link></div></header>
       {sessionVerified && blockedReason === 'store_locked' && <WorkspaceNotice label="Store access" tone="warning"><strong>Store locked · Read-only</strong> · You can view your records. Changes are disabled; contact your platform administrator to restore access.</WorkspaceNotice>}
       {sessionVerified && blockedReason !== 'store_locked' && trial && <WorkspaceNotice label="Subscription status" tone={trial.endingSoon ? 'warning' : 'info'} action={role === 'owner' ? { href: '/admin/profile', label: 'Subscription details →' } : undefined}>
         <strong>Free trial</strong> · Ends {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(trial.endsAt + 'T00:00:00+05:30'))}

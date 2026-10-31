@@ -7,6 +7,8 @@ import { listOutletsForStore, listOutletsForStoreAdmin, listOutletMembershipsFor
 import { getOrgLifecycleFacts, type OrgLifecycleFacts } from '@/server/services/store-lifecycle';
 import { listStoreActivity } from '@/server/services/activity';
 import { listPlans } from '@/server/services/subscription-plans';
+import { listOrganizationPaymentMethods, type OrganizationPaymentMethodDTO } from '@/server/services/platform-payment-methods';
+import { listOrganizationMessageTemplates, type OrganizationMessageTemplateDTO } from '@/server/services/message-templates';
 import { prisma } from '@/server/db';
 import { formatCalendarDate } from '@/server/dates';
 import type { ActivityEntry, OutletListItem, PlatformActivityEntry, StoreInvoice, SubscriptionPlanListItem } from '../types';
@@ -30,6 +32,14 @@ export interface SubscriptionTabData {
   plans: SubscriptionPlanListItem[];
   hasSubscription: boolean;
   trialEndsAt?: string;
+}
+
+export interface PaymentsTabData {
+  methods: OrganizationPaymentMethodDTO[];
+}
+
+export interface MessagesTabData {
+  templates: OrganizationMessageTemplateDTO[];
 }
 
 export interface ActivityTabData {
@@ -85,4 +95,14 @@ export async function fetchStoreActivityDataAction(storeId: string): Promise<Act
   await requireSuperAdmin();
   const entries = await listStoreActivity(storeId);
   return { entries };
+}
+
+export async function fetchStorePaymentsDataAction(storeId: string): Promise<PaymentsTabData> {
+  await requireSuperAdmin();
+  return { methods: await listOrganizationPaymentMethods(storeId) };
+}
+
+export async function fetchStoreMessagesDataAction(storeId: string): Promise<MessagesTabData> {
+  await requireSuperAdmin();
+  return { templates: await listOrganizationMessageTemplates(storeId) };
 }

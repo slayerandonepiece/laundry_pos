@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/features/admin/components/Primitives';
-import { updateStoreAction, setReviewDemoAction } from '../actions/stores.actions';
+import { updateStoreAction, setReviewDemoAction, updateStoreNumberingAction } from '../actions/stores.actions';
 import Icon from './Icon';
 import LockStoreDialog from './LockStoreDialog';
 import DeleteStoreDialog from './DeleteStoreDialog';
@@ -26,6 +26,10 @@ export default function StoreEditFull({ store, lifecycle, eligibility }: {
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [demoBusy, setDemoBusy] = useState(false);
+  const [orgCode, setOrgCode] = useState(store.orgCode);
+  const [orderBase, setOrderBase] = useState(String(store.orderSeqBase));
+  const [numberingError, setNumberingError] = useState('');
+  const [numberingBusy, setNumberingBusy] = useState(false);
 
   function toggleReviewDemo() {
     setDemoBusy(true);
@@ -39,6 +43,24 @@ export default function StoreEditFull({ store, lifecycle, eligibility }: {
         setTimeout(() => setNotice(''), 4000);
       })
       .catch(() => { setDemoBusy(false); setError('Could not update this setting. Try again.'); });
+  }
+
+  function saveNumbering() {
+    const base = Number(orderBase.replace(/\s/g, ''));
+    setNumberingError('');
+    setNumberingBusy(true);
+    updateStoreNumberingAction(store.id, {
+      ...(orgCode.trim() !== store.orgCode ? { orgCode: orgCode.trim() } : {}),
+      ...(Number.isFinite(base) && base !== store.orderSeqBase ? { orderSeqBase: base } : {}),
+    })
+      .then(result => {
+        setNumberingBusy(false);
+        if (!result.ok) { setNumberingError(result.error || 'Could not save numbering. Try again.'); return; }
+        setNotice('Numbering saved');
+        router.refresh();
+        setTimeout(() => setNotice(''), 4000);
+      })
+      .catch(() => { setNumberingBusy(false); setNumberingError('Could not save numbering. Try again.'); });
   }
 
   function submit() {
@@ -82,6 +104,30 @@ export default function StoreEditFull({ store, lifecycle, eligibility }: {
           )}
         </div>
       </div>
+
+
+      {!archived && (
+        <div className="card">
+          <div className="card-head"><h2><Icon name="building" />Document numbering</h2></div>
+          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="field">
+              <label htmlFor="organization-code">Organization code</label>
+              <input id="organization-code" type="text" inputMode="numeric" value={orgCode} onChange={e => setOrgCode(e.target.value)} disabled={store.numberingLocked} maxLength={5} />
+              <p className="ad-help">{store.numberingLocked ? 'Locked because documents have been issued.' : '3 to 5 digits. Appears in invoice and receipt numbers and cannot change after the first order.'}</p>
+            </div>
+            <div className="field">
+              <label htmlFor="order-base">Next order number starts at</label>
+              <input id="order-base" type="text" inputMode="numeric" value={orderBase} onChange={e => setOrderBase(e.target.value)} />
+              <p className="ad-help">Whole number from 1000000001. It can only be raised.</p>
+            </div>
+            <p className="ad-help">Examples: invoice IN{orgCode || '001'}/27/0000001, receipt RC{orgCode || '001'}/27/0000001.</p>
+            {numberingError && <p className="ad-error" role="alert">{numberingError}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button type="button" onClick={saveNumbering} disabled={numberingBusy}>{numberingBusy ? 'Saving…' : 'Save numbering'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!archived && (
         <div className="card">
