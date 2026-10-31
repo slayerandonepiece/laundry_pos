@@ -2,7 +2,7 @@
 
 import { normalizePhone, isValidPhone } from '@/lib/contactValidation';
 import { revalidatePath } from 'next/cache';
-import { requireOutletSession, requireStoreSession, resolveOutletSelection, resolveStoreSelection } from '@/server/auth/session';
+import { AuthError, requireOutletSession, requireStoreSession, resolveOutletSelection, resolveStoreSelection } from '@/server/auth/session';
 import { cancelOrder, createOrder, deliverOrderWithPayment, findCustomerNameByPhone, parseOrderCode, recordPayment, updateOrderStatus, type CreateOrderInput } from '@/server/services/orders';
 import { buildOrderMessage, type OrderMessage } from '@/server/services/order-messages';
 import { ValidationError } from '@/server/errors';
@@ -33,6 +33,8 @@ export async function createOrderAction(input: CreateOrderInput, outletId?: stri
 /** A failure the user should read: the server explains it (e.g. a balance is still due). */
 export type OrderActionError = { ok: false; error: string };
 
+const BLOCKED_OUTLET_MESSAGE = 'This outlet is blocked until its subscription is paid.';
+
 // Owners act across every outlet of their store; employees stay in the selected one.
 async function assertOrderInSelectedOutlet(session: Awaited<ReturnType<typeof requireStoreSession>>, orderCode: string) {
   const outlet = await resolveOutletSelection(session);
@@ -50,6 +52,7 @@ export async function updateOrderStatusAction(orderCode: string, nextStatus: Wor
     return updated;
   } catch (error) {
     if (error instanceof ValidationError) return { ok: false, error: error.message };
+    if (error instanceof AuthError && error.reason === 'payment_lapsed') return { ok: false, error: BLOCKED_OUTLET_MESSAGE };
     throw error;
   }
 }
@@ -65,6 +68,7 @@ export async function deliverOrderAction(orderCode: string, input: { method?: st
     return updated;
   } catch (error) {
     if (error instanceof ValidationError) return { ok: false, error: error.message };
+    if (error instanceof AuthError && error.reason === 'payment_lapsed') return { ok: false, error: BLOCKED_OUTLET_MESSAGE };
     throw error;
   }
 }

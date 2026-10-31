@@ -57,7 +57,7 @@ const today = todayIST();
 async function setupOrg(key: string) {
   const store = await prisma.store.create({ data: { id: `store-flow-${key}`, name: `Flow ${key}`, address: '1 Test Road', phone: '9876500000' } });
   await prisma.subscription.create({ data: { storeId: store.id, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: new Date('2100-01-01') } });
-  const outlet = await prisma.outlet.create({ data: { outletCode: `FLOW${key}`.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), storeId: store.id, displayName: `Outlet ${key}`, phone: '9876511111' } });
+  const outlet = await prisma.outlet.create({ data: { outletCode: `FLOW${key}`.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), storeId: store.id, displayName: `Outlet ${key}`, phone: '9876511111', paidThroughDate: new Date('2100-01-01') } });
   const product = await prisma.product.create({ data: { storeId: store.id, name: 'Wash', category: 'Laundry', type: 'ITEM', price: 10000, active: true } });
   const make = async (role: string) => prisma.user.create({ data: { name: `${role} ${key}`, phone: testPhone(`flow_${role}_${key}`), passwordHash: await hashPassword('password123') } });
   const [owner, employee, outsider] = await Promise.all([make('owner'), make('employee'), make('outsider')]);

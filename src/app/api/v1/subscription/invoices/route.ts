@@ -30,6 +30,13 @@ export async function GET(req: NextRequest) {
         paidAt: invoice.paidAt,
         coversFrom: invoice.coversFrom ?? null,
         coversTo: invoice.coversTo ?? null,
+        // Per-outlet billing (additive): which outlet and plan this invoice charged, the list price before
+        // discount (paise), the discount percentage and the owner-visible note. null when not applicable.
+        outletName: invoice.outletName ?? null,
+        planName: invoice.planName ?? null,
+        listAmount: invoice.listAmount ?? null,
+        discountPercent: invoice.discountPercent,
+        note: invoice.notes || null,
       })),
     });
   });

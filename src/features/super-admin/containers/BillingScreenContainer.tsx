@@ -16,12 +16,11 @@ export default function BillingScreenContainer({ stores, collectedThisYear }: { 
     {notice && <div className="ad-toast" role="status">✓ {notice}</div>}
     <SubscriptionsBillingTable stores={stores} collectedThisYear={collectedThisYear} search={search} onSearch={setSearch} onRecordPayment={setPayingStore} />
     {payingStore && (
-      <Dialog title="Record a payment" description={`Add a deposit or renewal payment for ${payingStore.name}.`} onClose={() => setPayingStore(null)} warnOnChanges>
+      <Dialog title="Record a payment" size="wide" description={`Add a deposit or renewal payment for ${payingStore.name}.`} onClose={() => setPayingStore(null)} warnOnChanges>
         <RecordPaymentDialog
           storeId={payingStore.id}
-          storeName={payingStore.name}
-          store={payingStore}
-          onSaved={() => { setPayingStore(null); setNotice('Payment recorded'); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
+         
+          onSaved={saved => { setPayingStore(null); setNotice(saved.length > 1 ? `Payment recorded for ${saved.length} outlets` : 'Payment recorded'); router.refresh(); setTimeout(() => setNotice(''), 4000); }}
         />
       </Dialog>
     )}

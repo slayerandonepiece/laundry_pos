@@ -4,7 +4,7 @@ import { prisma } from '@/server/db';
 import { parseCalendarDate, formatCalendarDate, todayIST } from '@/server/dates';
 import type { Expense } from '@/features/admin/admin.types';
 import type { Prisma } from '@/generated/prisma/client';
-import { assertStoreWritable } from '@/server/auth/session';
+import { assertOutletWritable, assertStoreWritable } from '@/server/auth/session';
 import { ValidationError } from '@/server/errors';
 import { applyExpensePaidRollup } from '@/server/services/dashboard-rollups';
 
@@ -156,6 +156,8 @@ export async function createExpense(
     if (!outlet || outlet.storeId !== storeId || outlet.status !== 'ACTIVE') {
       throw new Error('Invalid outlet.');
     }
+    // An outlet whose own billing term has ended cannot take new expenses.
+    await assertOutletWritable(storeId, outletId);
   }
 
   let row: ExpenseRow;
@@ -251,6 +253,7 @@ export async function markExpensePaid(storeId: string, id: string, paidDate = to
     if (existing.paidAt) {
       return tx.expense.findUniqueOrThrow({ where: { id } });
     }
+    if (existing.outletId) await assertOutletWritable(storeId, existing.outletId);
 
     const updated = await tx.expense.update({
       where: { id },

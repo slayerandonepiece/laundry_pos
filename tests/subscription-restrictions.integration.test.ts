@@ -296,8 +296,7 @@ test('B5.3: Renewal payment restores full write access across all outlets immedi
 
   // Super admin records renewal payment
   const invoice = await stores.recordSubscriptionPayment(ctx.store.id, {
-    type: 'RENEWAL',
-    amount: 1200000,
+    outlets: { amount: 1200000 },
     method: 'UPI',
   });
   assert.ok(invoice);
@@ -397,21 +396,22 @@ test('temporary access restores auth and writes, expires, and never overrides lo
   }
 });
 
-test('trial extension restores an expired paid term consistently and gates outlet creation', async () => {
+test('trial extension restores an expired paid term consistently; outlets need a subscription, not a current term', async () => {
   const { todayIST, addDays } = await import('../src/server/dates');
   const { createOutlet } = await import('../src/server/services/outlets');
   const fixture = await setupOrg('trial_extension', { paidThroughDate: new Date('2020-01-01'), trialEndsAt: new Date('2020-02-01') });
   const storeId = fixture.store.id;
   const owner = await prisma.storeMembership.findFirstOrThrow({ where: { storeId, role: 'OWNER' } });
   const input = { storeId, outletCode: 'TRIAL-EXTENSION-REGRESSION', displayName: 'Trial outlet', phone: '+91 98765 43210' };
-  await assert.rejects(createOutlet(input), /active subscription or trial/);
+  // Outlets are billed on their own, so an expired organization can still add one (it stays blocked until paid).
+  assert.ok(await createOutlet({ ...input, outletCode: 'TRIAL-EXTENSION-EXPIRED' }));
   await assert.rejects(stores.setStoreTrial(storeId, '2026-02-31'), /valid calendar/);
   await stores.setStoreTrial(storeId, addDays(todayIST(), 30));
   await sessionMod.assertStoreWritable(storeId);
   assert.equal((await sessionMod.getStoreAccessStatus(owner.userId, storeId))?.blockedReason, undefined);
   assert.ok(await createOutlet(input));
   const unset = await setupOrg('unset_outlet');
-  await assert.rejects(createOutlet({ ...input, storeId: unset.store.id, outletCode: 'UNSET-OUTLET-REGRESSION' }), /active subscription or trial/);
+  await assert.rejects(createOutlet({ ...input, storeId: unset.store.id, outletCode: 'UNSET-OUTLET-REGRESSION' }), /trial or the setup deposit/);
 });
 
 test('employee phone validation rejects invalid create/update and accepts formatted phone', async () => {

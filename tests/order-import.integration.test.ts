@@ -54,7 +54,7 @@ const slug = (key: string) => key.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 async function setupOrg(key: string) {
   const store = await prisma.store.create({ data: { id: `store-imp-${key}`, name: `Import ${key}` } });
   await prisma.subscription.create({ data: { storeId: store.id, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: new Date('2100-01-01') } });
-  const outlet = await prisma.outlet.create({ data: { outletCode: `IMP${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `Outlet ${key}` } });
+  const outlet = await prisma.outlet.create({ data: { outletCode: `IMP${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `Outlet ${key}`, paidThroughDate: new Date('2100-01-01') } });
   const wash = await prisma.product.create({ data: { storeId: store.id, name: 'Wash & Fold', category: 'Laundry', type: 'WEIGHT', price: 0, active: true } });
   const iron = await prisma.product.create({ data: { storeId: store.id, name: 'Shirt iron', category: 'Laundry', type: 'ITEM', price: 1000, active: true } });
   const retired = await prisma.product.create({ data: { storeId: store.id, name: 'Old service', category: 'Laundry', type: 'ITEM', price: 500, active: false } });

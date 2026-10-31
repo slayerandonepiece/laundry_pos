@@ -51,8 +51,8 @@ async function fixture() {
   await prisma.subscription.createMany({ data: [store.id, other.id].map(storeId => ({
     storeId, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: parseCalendarDate('2100-01-01'),
   })) });
-  const a = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-A', displayName: 'A' } });
-  const b = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-B', displayName: 'B' } });
+  const a = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-A', displayName: 'A', paidThroughDate: new Date('2100-01-01') } });
+  const b = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-B', displayName: 'B', paidThroughDate: new Date('2100-01-01') } });
   const owner = await user('owner');
   const employee = await user('employee');
   const otherOwner = await user('other_owner');

@@ -63,7 +63,7 @@ test('changing plan stores a price only when it differs from the plan; a paid de
   row = await prisma.subscription.findUniqueOrThrow({ where: { storeId: id } });
   assert.deepEqual([row.depositAmount, row.annualFeeAmount], [null, 4_000], 'a different fee is a negotiated override');
 
-  await stores.recordSubscriptionPayment(id, { type: 'DEPOSIT', amount: 10_000, method: 'CASH' } as never);
+  await stores.recordSubscriptionPayment(id, { deposit: {}, method: 'CASH' });
   row = await prisma.subscription.findUniqueOrThrow({ where: { storeId: id } });
   assert.equal(row.depositAmount, 10_000, 'paying the deposit freezes its amount');
   await plans.updatePlan(plan.id, { name: plan.name, depositAmount: 99_000, annualFeeAmount: 5_000, depositWaivedByDefault: false } as never);

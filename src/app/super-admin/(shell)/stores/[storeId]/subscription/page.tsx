@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
 import { requireSuperAdmin, AuthError } from '@/server/auth/session';
-import { getStore, listStoreInvoices } from '@/server/services/stores';
+import { getStore, listStoreInvoices, listOutletBilling } from '@/server/services/stores';
 import { listPlans } from '@/server/services/subscription-plans';
 import { listStoreMembers } from '@/server/services/platform-users';
 import { prisma } from '@/server/db';
@@ -19,8 +19,9 @@ export default async function Page({ params }: { params: Promise<{ storeId: stri
   }
   const store = await getStore(storeId);
   if (!store) notFound();
-  const [invoices, plans, members, subscriptionRow, lifecycle] = await Promise.all([
+  const [invoices, outlets, plans, members, subscriptionRow, lifecycle] = await Promise.all([
     listStoreInvoices(storeId),
+    listOutletBilling(storeId),
     listPlans(),
     listStoreMembers(storeId),
     prisma.subscription.findUnique({ where: { storeId }, select: { trialEndsAt: true } }),
@@ -35,6 +36,7 @@ export default async function Page({ params }: { params: Promise<{ storeId: stri
       initialTab="subscription"
       initialSubscription={{
         invoices,
+        outlets,
         plans: (plans as SubscriptionPlanListItem[]).filter((p) => !p.archivedAt),
         hasSubscription: subscriptionRow !== null,
         trialEndsAt: subscriptionRow?.trialEndsAt ? formatCalendarDate(subscriptionRow.trialEndsAt) : undefined,

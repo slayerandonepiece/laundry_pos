@@ -17,6 +17,9 @@ export default function PlanArchiveDialog({ plan, otherPlans, onDone, onDeleted,
   const [choice, setChoice] = useState<'detach' | string>('detach');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const recurring = plan.kind === 'RECURRING';
+  const unit = recurring ? 'outlet' : 'organization';
+  const targets = otherPlans.filter(other => other.kind === plan.kind);
   const [stores, setStores] = useState<{ id: string; name: string; ownerName: string }[] | null>(null);
 
   useEffect(() => {
@@ -54,10 +57,10 @@ export default function PlanArchiveDialog({ plan, otherPlans, onDone, onDeleted,
   return <dialog ref={ref} className="ad-root ad-confirm-dialog" aria-labelledby={id} aria-describedby={id + '-description'} onCancel={event => { event.preventDefault(); onCancel(); }}>
     <h2 id={id}>Archive {plan.name}?</h2>
     <p id={id + '-description'}>
-      Archiving is safe and reversible — it only removes the plan from the &quot;select a plan&quot; list for new onboardings. Nothing changes for organizations already using it.
+      Archiving is safe and reversible — it only removes the plan from the &quot;select a plan&quot; list for new onboardings. Nothing changes for {recurring ? 'outlets' : 'organizations'} already using it.
     </p>
     {plan.storeCount > 0 && <>
-      <p>Currently used by {plan.storeCount} organization{plan.storeCount === 1 ? '' : 's'}:</p>
+      <p>Currently used by {plan.storeCount} {unit}{plan.storeCount === 1 ? '' : 's'}{recurring ? ' in:' : ':'}</p>
       {stores === null ? <p className="ad-help">Loading…</p> : (
         <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 13 }}>
           {stores.map(s => <li key={s.id}>{s.name} — {s.ownerName}</li>)}
@@ -65,8 +68,8 @@ export default function PlanArchiveDialog({ plan, otherPlans, onDone, onDeleted,
       )}
       <p>Choose what happens to them:</p>
       <div className="ad-form-grid">
-        <label className="ad-checkbox"><input type="radio" name="choice" checked={choice === 'detach'} onChange={() => setChoice('detach')} />Leave as custom terms (detach)</label>
-        {otherPlans.map(other => (
+        <label className="ad-checkbox"><input type="radio" name="choice" checked={choice === 'detach'} onChange={() => setChoice('detach')} />{recurring ? 'Leave without a plan (choose one when paying)' : 'Leave as custom terms (detach)'}</label>
+        {targets.map(other => (
           <label key={other.id} className="ad-checkbox"><input type="radio" name="choice" checked={choice === other.id} onChange={() => setChoice(other.id)} />Move to {other.name}</label>
         ))}
       </div>
@@ -74,12 +77,12 @@ export default function PlanArchiveDialog({ plan, otherPlans, onDone, onDeleted,
     {error && <p className="ad-error" role="alert">{error}</p>}
     <div className="ad-confirm-actions" style={{ justifyContent: 'space-between' }}>
       {plan.storeCount === 0 ? (
-        <button className="ad-order-link danger" onClick={confirmDelete} disabled={busy} title="Only possible once zero organizations reference this plan">
+        <button className="ad-order-link danger" onClick={confirmDelete} disabled={busy} title="Only possible once nothing references this plan">
           Delete plan instead
         </button>
       ) : (
-        <span className="ad-help" style={{ margin: 0 }} title="Delete is only possible once zero organizations reference this plan">
-          Delete needs 0 organizations attached (move the {plan.storeCount} above first)
+        <span className="ad-help" style={{ margin: 0 }} title="Delete is only possible once nothing references this plan">
+          Delete needs 0 {unit}s attached (move the {plan.storeCount} above first)
         </span>
       )}
       <div style={{ display: 'flex', gap: 10 }}>
