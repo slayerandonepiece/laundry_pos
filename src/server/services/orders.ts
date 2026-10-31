@@ -10,7 +10,7 @@ import {
 import type { Order, WorkStatus } from "@/features/admin/admin.types";
 import { Prisma } from "@/generated/prisma/client";
 import { isCashOnDeliveryCode, resolveActivePaymentMethod } from "@/server/services/platform-payment-methods";
-import { assertStoreWritable } from "@/server/auth/session";
+import { assertOutletWritable, assertStoreWritable } from "@/server/auth/session";
 import { ValidationError } from "@/server/errors";
 import { allocateOrderNumber, allocateReceiptNumber } from "@/server/numbering";
 import { publicErrorMessage } from "@/server/api/public-errors";
@@ -419,6 +419,8 @@ export async function createOrder(
   const requestedOutletId = explicitOutletId ?? data.outletId;
   const existing = await findExistingOrder(storeId, data, requestedOutletId);
   if (existing) return existing;
+  // Each outlet is billed on its own: an outlet past its term takes no new orders, whoever places them.
+  if (requestedOutletId) await assertOutletWritable(storeId, requestedOutletId);
 
   if (
     new Set(data.entries.map((e) => e.productId)).size !== data.entries.length
@@ -658,6 +660,13 @@ async function markDelivered(
   }
 }
 
+// An order on an outlet past its billing term cannot move or be paid. Checked before the transaction opens,
+// so it never holds a second connection while the order row is locked.
+async function assertOrderOutletWritable(storeId: string, orderNumber: bigint | number): Promise<void> {
+  const order = await prisma.order.findUnique({ where: { storeId_orderNumber: { storeId, orderNumber } }, select: { outletId: true, status: true } });
+  if (order?.outletId && order.status !== "DELIVERED") await assertOutletWritable(storeId, order.outletId);
+}
+
 export async function updateOrderStatus(
   storeId: string,
   orderCode: string,
@@ -669,6 +678,7 @@ export async function updateOrderStatus(
   if (orderNumber === null) throw new Error("Order not found.");
   const dbStatus = STATUS_TO_DB[nextStatus];
   if (!dbStatus) throw new Error("Invalid status.");
+  await assertOrderOutletWritable(storeId, orderNumber);
 
   const row = await prisma.$transaction(async (tx) => {
     // Serialize concurrent transitions on the same order (as recordPayment
@@ -736,6 +746,7 @@ export async function deliverOrderWithPayment(
   const method = input.method === undefined ? undefined : z.string().trim().min(1).max(40).parse(input.method);
   if (input.amount !== undefined && (!Number.isInteger(input.amount) || input.amount <= 0))
     throw new Error("Payment must be a positive amount.");
+  await assertOrderOutletWritable(storeId, orderNumber);
 
   const row = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM orders WHERE "storeId" = ${storeId} AND "orderNumber" = ${orderNumber} FOR UPDATE`;
@@ -1227,6 +1238,7 @@ export async function recordPayment(
   if (!Number.isInteger(amount) || amount <= 0)
     throw new Error("Payment must be a positive amount.");
   const method = z.string().trim().min(1).max(40).parse(methodInput);
+  await assertOrderOutletWritable(storeId, orderNumber);
 
   const row = await prisma.$transaction(async (tx) => {
     // Lock the order row first so a concurrent payment can't read the same

@@ -1,5 +1,8 @@
 import type { AccessDeniedReason } from '@/server/auth/session';
+import Link from 'next/link';
 import RestoreDeletionButton from './RestoreDeletionButton';
+import { dateLabelFull } from '../admin.data';
+import type { OutletNotice } from '@/server/auth/actions';
 
 // Reuses the same "server withholds data, client explains why" pattern the
 // explicit-admin-lock check already used (see AdminScreenContainer's former
@@ -68,7 +71,27 @@ export function AccessBlockedScreen({ reason, isOwner, paidThroughDate }: { reas
 // Non-blocking pre-expiry banner (7 days before paidThroughDate — see
 // PAYMENT_WARNING_DAYS in session.ts). Owners get the exact date and a way
 // to act; employees get a generic heads-up with no financial specifics.
-export function PaymentWarningBanner({ isOwner, paidThroughDate }: { isOwner: boolean; paidThroughDate: string }) {
+export function PaymentWarningBanner({ isOwner, paidThroughDate, outlet }: { isOwner: boolean; paidThroughDate: string; outlet?: OutletNotice }) {
+  // Outlets are billed individually: one banner names the most urgent outlet and counts the rest,
+  // however many there are. Employees only ever see their own outlets, without dates or amounts.
+  if (outlet) {
+    const others = outlet.count - 1;
+    const more = others > 0 ? ` ${others} more outlet${others === 1 ? ' is' : 's are'} due soon.` : '';
+    const date = outlet.paidThroughDate ? dateLabelFull(outlet.paidThroughDate) : '';
+    const days = outlet.daysLeft === undefined ? '' : outlet.daysLeft === 0 ? ' today' : ` in ${outlet.daysLeft} day${outlet.daysLeft === 1 ? '' : 's'}`;
+    const text = outlet.blocked
+      ? (isOwner
+        ? `${outlet.name} is blocked${date ? ` since ${date}` : ' until it is paid'}.${more}`
+        : `${outlet.name} is blocked. Please check with your store owner.`)
+      : (isOwner
+        ? `${outlet.name} is due for renewal on ${date}${days}.${more}`
+        : `Billing is due soon for ${outlet.name}. Please check with your store owner.`);
+    return (
+      <div className="ad-error" role="alert" style={{ marginBottom: 20 }}>
+        {text}{isOwner && <> <Link href="/admin/profile/billing">View details</Link></>}
+      </div>
+    );
+  }
   return (
     <div className="ad-error" role="alert" style={{ marginBottom: 20 }}>
       {isOwner

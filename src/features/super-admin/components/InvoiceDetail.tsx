@@ -57,10 +57,15 @@ export default function InvoiceDetail({ invoice, store }: { invoice: StoreInvoic
         <thead><tr><th>Description</th><th>Period</th><th className="right">Amount</th></tr></thead>
         <tbody>
           <tr>
-            <td><strong>{invoice.type === 'DEPOSIT' ? 'Subscription deposit' : 'Annual maintenance'}</strong><small>StoreOps platform subscription</small></td>
+            <td><strong>{invoice.planName ?? (invoice.type === 'DEPOSIT' ? 'Subscription deposit' : 'Annual maintenance')}</strong><small>{invoice.outletName ? `Outlet: ${invoice.outletName}` : 'StoreOps platform subscription'}</small></td>
             <td className="num">{invoice.coversFrom && invoice.coversTo ? `${dateLabelFull(invoice.coversFrom)} – ${dateLabelFull(invoice.coversTo)}` : '—'}</td>
-            <td className="right num"><strong>{money(invoice.amount)}</strong></td>
+            <td className="right num"><strong>{money(invoice.listAmount ?? invoice.amount)}</strong></td>
           </tr>
+          {invoice.discountPercent > 0 && invoice.listAmount !== undefined && <tr>
+            <td><strong>Discount ({invoice.discountPercent}%)</strong>{invoice.notes && <small>{invoice.notes}</small>}</td>
+            <td />
+            <td className="right num"><strong>− {money(invoice.listAmount - invoice.amount)}</strong></td>
+          </tr>}
         </tbody>
       </table>
     </div>

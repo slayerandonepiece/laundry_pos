@@ -71,8 +71,8 @@ test('two overlapping renewal calls grant two consecutive terms and two invoices
   // Before the fix both calls read the old date, then block on UPDATE.
   // After the fix both block on SELECT FOR UPDATE, before reading the date.
   const pending = Promise.allSettled([
-    recordSubscriptionPayment(storeId, { type: 'RENEWAL', amount: 50_000, method: 'UPI', notes: 'First concurrent payment' }),
-    recordSubscriptionPayment(storeId, { type: 'RENEWAL', amount: 50_000, method: 'CASH', notes: 'Second concurrent payment' }),
+    recordSubscriptionPayment(storeId, { outlets: { amount: 50_000, note: 'First concurrent payment' }, method: 'UPI' }),
+    recordSubscriptionPayment(storeId, { outlets: { amount: 50_000, note: 'Second concurrent payment' }, method: 'CASH' }),
   ]);
   let barrierError: unknown;
   try {
@@ -108,7 +108,7 @@ test('two overlapping renewal calls grant two consecutive terms and two invoices
 test('deposit records an invoice without advancing the renewal date', async () => {
   const storeId = 'deposit-only';
   await fixture(storeId);
-  const invoice = await recordSubscriptionPayment(storeId, { type: 'DEPOSIT', amount: 100_000, method: 'CASH' });
+  const invoice = await recordSubscriptionPayment(storeId, { deposit: { amount: 100_000 }, method: 'CASH' });
   const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId } });
   assert.equal(iso(subscription.paidThroughDate), iso(initialDate));
   assert.equal(iso(subscription.depositPaidAt), invoice.paidAt);
@@ -120,7 +120,7 @@ test('deposit records an invoice without advancing the renewal date', async () =
 test('missing subscription rejects without creating any invoice', async () => {
   const storeId = 'without-subscription';
   await fixture(storeId, false);
-  await assert.rejects(recordSubscriptionPayment(storeId, { type: 'RENEWAL', amount: 50_000, method: 'UPI' }), /no subscription yet/);
+  await assert.rejects(recordSubscriptionPayment(storeId, { outlets: { amount: 50_000 }, method: 'UPI' }), /no subscription yet/);
   assert.equal(await prisma.subscriptionPayment.count({ where: { storeId } }), 0);
 });
 
@@ -138,7 +138,7 @@ test('invoice write failure rolls back the paid-through update', async () => {
       FOR EACH ROW EXECUTE FUNCTION reject_test_invoice();
   `);
   try {
-    await assert.rejects(recordSubscriptionPayment(storeId, { type: 'RENEWAL', amount: 50_000, method: 'UPI' }), /test invoice rejected/);
+    await assert.rejects(recordSubscriptionPayment(storeId, { outlets: { amount: 50_000 }, method: 'UPI' }), /test invoice rejected/);
     const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId } });
     assert.equal(iso(subscription.paidThroughDate), iso(initialDate));
     assert.equal(await prisma.subscriptionPayment.count({ where: { storeId } }), 0);
@@ -150,13 +150,13 @@ test('invoice write failure rolls back the paid-through update', async () => {
 
 async function onboardingFixture(suffix: string): Promise<{ adminId: string; input: OnboardStoreInput }> {
   const admin = await prisma.user.create({ data: { name: 'Onboarding admin', phone: testPhone(`onboard_admin_${suffix}`), passwordHash: 'unused-test-hash', isSuperAdmin: true } });
-  const plan = await prisma.subscriptionPlan.create({ data: { name: `Onboarding plan ${suffix}`, depositAmount: 10_000, annualFeeAmount: 5_000 } });
+  const plan = await prisma.subscriptionPlan.create({ data: { name: `Onboarding plan ${suffix}`, kind: 'ONE_TIME', depositAmount: 10_000, annualFeeAmount: 0 } });
   return {
     adminId: admin.id,
     input: {
       storeName: `Onboarding regression ${suffix}`, address: '', phone: '+91 80000 00001',
       owner: { mode: 'new', name: 'New owner', password: 'temporary-password1', ownerPhone: testPhone(`onboard_owner_${suffix}`) },
-      subscription: { mode: 'plan', planId: plan.id, discountAmount: 0 }, markPaid: false,
+      subscription: { mode: 'plan', planId: plan.id, discountPercent: 0 }, markPaid: false,
     },
   };
 }
@@ -243,27 +243,6 @@ test('payment enablement failure rolls back new organization and owner atomicall
 });
 
 
-test('onboarding accepts discounts above the deposit and total, including waived deposits', async () => {
-  for (const [suffix, waived, discount, expectedDeposit, expectedRenewal] of [
-    ['discount_fee', false, 12000, 0, 3000],
-    ['discount_all', false, 20000, 0, 0],
-    ['discount_waived', true, 3000, 0, 2000],
-  ] as const) {
-    const { adminId, input } = await onboardingFixture(suffix);
-    if (input.subscription.mode !== 'plan') throw new Error('Expected plan fixture.');
-    await prisma.subscriptionPlan.update({ where: { id: input.subscription.planId }, data: { depositWaivedByDefault: waived } });
-    const store = await onboardStore({ ...input, subscription: { ...input.subscription, discountAmount: discount, chargeDepositAnyway: true }, markPaid: true }, adminId);
-    const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId: store.id }, include: { plan: true } });
-    const { effectiveSubscriptionTerms } = await import('../src/server/subscription-terms');
-    assert.equal(subscription.discountAmount, discount);
-    assert.equal(effectiveSubscriptionTerms(subscription).depositAmount, waived ? 0 : 10000, 'the plan price is read from the plan');
-    assert.equal(subscription.annualFeeAmount, null, 'the plan fee is not copied onto the subscription');
-    const payments = await prisma.subscriptionPayment.findMany({ where: { storeId: store.id } });
-    assert.equal(payments.find(payment => payment.type === 'DEPOSIT')?.amount ?? 0, expectedDeposit);
-    assert.equal(payments.find(payment => payment.type === 'RENEWAL')?.amount ?? 0, expectedRenewal);
-  }
-});
-
 test('trial onboarding validates real future dates and creates no paid term or invoice', async () => {
   const { todayIST, addDays } = await import('../src/server/dates');
   const { adminId, input } = await onboardingFixture('free_trial');
@@ -280,27 +259,42 @@ test('trial onboarding validates real future dates and creates no paid term or i
   assert.equal(await prisma.subscriptionPayment.count({ where: { storeId: store.id } }), 0);
 });
 
-test('custom onboarding preserves negotiated terms and optional payment metadata', async () => {
-  const { adminId, input } = await onboardingFixture('custom_terms');
-  const store = await onboardStore({ ...input, subscription: { mode: 'custom', depositAmount: 23400, annualFeeAmount: 56700 }, markPaid: true, paymentMethod: 'CASH', paymentReference: 'custom-reference', notes: 'Negotiated' }, adminId);
+test('onboarding charges the deposit plan once, with the discount percentage and note recorded', async () => {
+  const { adminId, input } = await onboardingFixture('discounted_deposit');
+  if (input.subscription.mode !== 'plan') throw new Error('Expected a plan.');
+  const store = await onboardStore({ ...input, subscription: { ...input.subscription, discountPercent: 20 }, markPaid: true, paymentMethod: 'CASH', paymentReference: 'ref-1', notes: 'Referral' }, adminId);
   const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId: store.id } });
-  assert.equal(subscription.depositAmount, 23400);
-  assert.equal(subscription.annualFeeAmount, 56700);
-  assert.equal(subscription.notes, 'Negotiated');
-  assert.ok(subscription.paidThroughDate);
-  const invoices = await prisma.subscriptionPayment.findMany({ where: { storeId: store.id } });
-  assert.equal(invoices.length, 2);
-  assert.equal(invoices.reduce((sum, invoice) => sum + invoice.amount, 0), 80100);
-  assert.ok(invoices.every(invoice => invoice.method === 'CASH' && invoice.reference === 'custom-reference' && invoice.recordedById === adminId));
+  assert.ok(subscription.depositPaidAt);
+  assert.equal(subscription.depositAmount, 10_000, 'the list price is frozen once settled');
+  assert.equal(subscription.paidThroughDate, null, 'no outlet term until an outlet is paid');
+  const [invoice] = await prisma.subscriptionPayment.findMany({ where: { storeId: store.id } });
+  assert.deepEqual([invoice.type, invoice.amount, invoice.listAmount, invoice.discountPercent, invoice.notes, invoice.method, invoice.reference, invoice.recordedById], ['DEPOSIT', 8_000, 10_000, 20, 'Referral', 'CASH', 'ref-1', adminId]);
+  assert.ok(invoice.planName.startsWith('Onboarding plan'));
 });
 
-test('plan onboarding records UPI invoices atomically and leaves unpaid mode unchanged', async () => {
-  const { adminId, input } = await onboardingFixture('paid_plan');
-  const store = await onboardStore({ ...input, markPaid: true, paymentMethod: 'UPI', paymentReference: 'upi-reference' }, adminId);
-  const invoices = await prisma.subscriptionPayment.findMany({ where: { storeId: store.id } });
-  assert.equal(invoices.length, 2);
-  assert.ok(invoices.every(invoice => invoice.method === 'UPI' && invoice.reference === 'upi-reference' && invoice.recordedById === adminId));
-  assert.ok(invoices.find(invoice => invoice.type === 'RENEWAL')?.coversTo);
+test('a 100% discount waives the deposit: recorded as settled with nothing collected', async () => {
+  const { adminId, input } = await onboardingFixture('waived_deposit');
+  if (input.subscription.mode !== 'plan') throw new Error('Expected a plan.');
+  const store = await onboardStore({ ...input, subscription: { ...input.subscription, discountPercent: 100 }, markPaid: false, notes: 'Founding customer' }, adminId);
+  const subscription = await prisma.subscription.findUniqueOrThrow({ where: { storeId: store.id } });
+  assert.ok(subscription.depositPaidAt);
+  const [invoice] = await prisma.subscriptionPayment.findMany({ where: { storeId: store.id } });
+  assert.deepEqual([invoice.amount, invoice.discountPercent, invoice.notes], [0, 100, 'Founding customer']);
+});
+
+test('onboarding with an unpaid deposit leaves it due and records nothing', async () => {
+  const { adminId, input } = await onboardingFixture('unpaid_deposit');
+  const store = await onboardStore(input, adminId);
+  const subscription = await prisma.subscriptionPayment.count({ where: { storeId: store.id } });
+  assert.equal(subscription, 0);
+  assert.equal((await prisma.subscription.findUniqueOrThrow({ where: { storeId: store.id } })).depositPaidAt, null);
+});
+
+test('only a one-time plan can be the organization deposit', async () => {
+  const { adminId, input } = await onboardingFixture('wrong_kind');
+  const recurring = await prisma.subscriptionPlan.create({ data: { name: 'Recurring only', kind: 'RECURRING', depositAmount: 0, annualFeeAmount: 5_000 } });
+  await assert.rejects(onboardStore({ ...input, subscription: { mode: 'plan', planId: recurring.id, discountPercent: 0 } }, adminId), /one-time plan/);
+  await assert.rejects(onboardStore({ ...input, subscription: { mode: 'plan', planId: recurring.id, discountPercent: 150 } }, adminId), /between 0 and 100/);
 });
 
 test('onboarding contact/name/password validation accepts formatted phones and rejects invalid input', async () => {

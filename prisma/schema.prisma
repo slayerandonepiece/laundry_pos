@@ -67,6 +67,13 @@ enum PaymentMethod {
   UPI
 }
 
+// One-time plans are charged once to the organization (the setup deposit); recurring plans are
+// charged every billing cycle for each outlet they are attached to.
+enum PlanKind {
+  ONE_TIME
+  RECURRING
+}
+
 enum BillingCycle {
   ANNUAL
   HALF_YEARLY
@@ -232,6 +239,8 @@ model StoreMembership {
 model SubscriptionPlan {
   id                     String       @id @default(cuid())
   name                   String
+  kind                   PlanKind     @default(RECURRING)
+  // The price: depositAmount for a one-time plan, annualFeeAmount for a recurring one (the other is 0).
   depositAmount          Int // paise
   annualFeeAmount        Int // paise
   billingCycle           BillingCycle @default(ANNUAL)
@@ -246,6 +255,8 @@ model SubscriptionPlan {
   updatedAt              DateTime     @updatedAt
 
   subscriptions Subscription[]
+  outlets       Outlet[]
+  payments      SubscriptionPayment[]
 
   @@map("subscription_plans")
 }
@@ -300,9 +311,21 @@ model SubscriptionPayment {
   // since payments recorded before this column existed have no known actor.
   recordedById String?
   recordedBy   User?                   @relation("SubscriptionPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  // The outlet a renewal covers. Empty for deposits and for renewals recorded
+  // before outlets were billed individually.
+  outletId     String?
+  outlet       Outlet?                 @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  // The plan charged, a snapshot of its name, the price before discount, and the discount given.
+  // `amount` is what was charged; `notes` carries the optional note, e.g. the reason for a discount.
+  planId       String?
+  plan         SubscriptionPlan?       @relation(fields: [planId], references: [id], onDelete: SetNull)
+  planName     String                  @default("")
+  listAmount   Int?
+  discountPercent Int                  @default(0)
   createdAt    DateTime                @default(now())
 
   @@index([storeId])
+  @@index([outletId])
   @@map("subscription_payments")
 }
 
@@ -545,9 +568,16 @@ model Outlet {
   createdBy   User?        @relation("OutletCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   openedAt    DateTime     @default(now())
   closedAt    DateTime?
+  // Each outlet is billed on its own: access for this outlet runs to this date.
+  // The organization's Subscription.paidThroughDate follows the latest of its outlets.
+  paidThroughDate DateTime? @db.Date
+  // The recurring plan this outlet is billed on; chosen when the outlet is added or first paid.
+  planId      String?
+  plan        SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
+  subscriptionPayments   SubscriptionPayment[]
   memberships            OutletMembership[]
   auditLogs              AuditLog[]
   orders                 Order[]

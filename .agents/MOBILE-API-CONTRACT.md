@@ -173,8 +173,15 @@ When an organization has neither `trialEndsAt` nor `paidThroughDate` (created bu
 `allowedOutlets[]`:
 
 ```jsonc
-{ "id", "outletCode", "displayName", "isDefault", "status": "ACTIVE" }
+{ "id", "outletCode", "displayName", "isDefault", "status": "ACTIVE",
+  "billing": { "state": "active|ending|trial|blocked|awaiting", "blocked": false,
+               "paidThroughDate"?: "yyyy-MM-dd", "daysLeft"?: 0 } }
 ```
+
+`billing` (additive, 2026-10-31) is that one outlet's own standing. `blocked: true` means orders, payments,
+status changes, delivery and expenses on that outlet return 403 `payment_lapsed` (owners too); reads still work and
+the organization and its other outlets are unaffected. `daysLeft` is set only while a paid term is current;
+`ending` means 30 days or fewer. `isDefault`/`defaultOutletId` skip a blocked outlet while another is open.
 
 - **OWNER** — every `ACTIVE` outlet, oldest first. `isDefault` is just
   "first in the list", not a stored preference.
@@ -577,8 +584,10 @@ Read-only, OWNER only, available while the store is locked or lapsed
 
 - `GET /api/v1/subscription/invoices` → `{ invoices: [{ invoiceSeq, number,
   type: 'DEPOSIT' | 'RENEWAL', amount (paise), method | null, paidAt (yyyy-MM-dd),
-  coversFrom | null, coversTo | null }] }`, newest first. No internal fields
-  (recorder, free-text reference).
+  coversFrom | null, coversTo | null, outletName | null, planName | null, listAmount | null (paise, price
+  before discount), discountPercent (0-100), note | null }] }`, newest first. The last five are per-outlet
+  billing (additive, 2026-10-31): a deposit has no outlet; an old invoice has null plan and list price.
+  No internal fields (recorder, free-text reference).
 - The same response carries a top-level `plan` (added 2026-10-07, additive):
   `{ planName: string | null, annualFeeAmount: number, depositAmount: number }`. Amounts are
   **paise** (same unit as `invoices[].amount`; the web divides by 100). They are the organization's

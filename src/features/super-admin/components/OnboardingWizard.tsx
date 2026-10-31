@@ -6,6 +6,8 @@ import { isValidPhone, isValidNewPassword } from '@/lib/contactValidation';
 import { dateLabelFull, money, today } from '@/features/admin/admin.data';
 import { lookupOwnerByPhoneAction, onboardStoreAction } from '../actions/stores.actions';
 import PlanPickerCards from './PlanPickerCards';
+import PlanDiscountFields from './PlanDiscountFields';
+import { discountedPaise } from '../utils';
 import PlanEditor from './PlanEditor';
 import Dialog, { useDialogClose, DialogFooter } from './Dialog';
 import Icon from './Icon';
@@ -24,25 +26,23 @@ interface Draft {
   ownerPhone: string;
   existingPhone: string;
   existingOwner: OwnerLookupResult | null;
-  subscriptionMode: 'plan' | 'trial' | 'custom';
+  subscriptionMode: 'plan' | 'trial';
   trialStartDate: string;
   trialEndDate: string;
-  depositAmount: string;
-  annualFeeAmount: string;
   notes: string;
   markPaid: boolean;
   paymentMethod: 'UPI' | 'CASH';
   paymentReference: string;
   planId: string;
-  discountAmount: string;
+  discountPercent: string;
 }
 
 const blank: Draft = {
   storeName: '', orgCode: '', address: '', phone: '',
   ownerMode: 'new', ownerName: '', ownerPassword: '', ownerPhone: '',
   existingPhone: '', existingOwner: null,
-  subscriptionMode: 'plan', trialStartDate: '', trialEndDate: '', depositAmount: '10000', annualFeeAmount: '5000', notes: '', markPaid: false, paymentMethod: 'UPI', paymentReference: '',
-  planId: '', discountAmount: '0',
+  subscriptionMode: 'plan', trialStartDate: '', trialEndDate: '', notes: '', markPaid: false, paymentMethod: 'UPI', paymentReference: '',
+  planId: '', discountPercent: '0',
 };
 
 export default function OnboardingWizard({ plans: initialPlans, onSaved }: { plans: SubscriptionPlanListItem[]; onSaved: (store: StoreListItem) => void }) {
@@ -59,6 +59,8 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
 
   const change = (patch: Partial<Draft>) => { setDraft(prev => ({ ...prev, ...patch })); setError(''); };
   const selectedPlan = plans.find(p => p.id === draft.planId);
+  // The organization pays a one-time plan (its setup deposit); recurring plans are chosen per outlet.
+  const depositPlans = plans.filter(p => p.kind === 'ONE_TIME');
 
   function validateStep(): string | null {
     if (step === 0) {
@@ -81,8 +83,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       if (draft.subscriptionMode === 'plan' && !draft.planId) return 'Choose a plan.';
       if (draft.subscriptionMode === 'trial' && (!draft.trialEndDate || draft.trialEndDate <= today())) return 'Choose a trial end date after today.';
       if (draft.subscriptionMode === 'trial' && draft.trialStartDate && draft.trialStartDate >= draft.trialEndDate) return 'Trial start date must be before the end date.';
-      if (draft.subscriptionMode === 'custom' && [draft.depositAmount, draft.annualFeeAmount].some(value => !value.trim() || !Number.isFinite(Number(value)) || Number(value) < 0)) return 'Enter valid deposit and annual fee amounts.';
-      if (!Number.isFinite(Number(draft.discountAmount)) || Number(draft.discountAmount) < 0) return 'Enter a valid discount amount.';
+      if (!Number.isFinite(Number(draft.discountPercent)) || Number(draft.discountPercent) < 0 || Number(draft.discountPercent) > 100) return 'Enter a discount between 0 and 100.';
     }
     return null;
   }
@@ -145,9 +146,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
     if (busy) return;
     const subscription: OnboardStoreInput['subscription'] = draft.subscriptionMode === 'trial'
       ? { mode: 'trial', trialStartDate: draft.trialStartDate || undefined, trialEndDate: draft.trialEndDate }
-      : draft.subscriptionMode === 'custom'
-      ? { mode: 'custom', depositAmount: Math.round(Number(draft.depositAmount) * 100), annualFeeAmount: Math.round(Number(draft.annualFeeAmount) * 100) }
-      : { mode: 'plan', planId: draft.planId, discountAmount: Math.round(Number(draft.discountAmount) * 100) };
+      : { mode: 'plan', planId: draft.planId, discountPercent: Math.round(Number(draft.discountPercent) || 0) };
 
     setBusy(true);
     onboardStoreAction({
@@ -171,11 +170,11 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       .catch(() => { setError('Could not onboard this organization. Try again.'); setBusy(false); });
   }
 
-  const discountPaise = draft.subscriptionMode === 'plan' ? Math.round((Number(draft.discountAmount) || 0) * 100) : 0;
-  const depositPaise = draft.subscriptionMode === 'custom' ? Math.round(Number(draft.depositAmount) * 100) : draft.subscriptionMode === 'plan' && selectedPlan ? (selectedPlan.depositWaivedByDefault ? 0 : selectedPlan.depositAmount) : 0;
-  const annualPaise = draft.subscriptionMode === 'custom' ? Math.round(Number(draft.annualFeeAmount) * 100) : draft.subscriptionMode === 'plan' ? selectedPlan?.annualFeeAmount ?? 0 : 0;
-  const amountDuePaise = Math.max(depositPaise + annualPaise - discountPaise, 0);
-  const recordPayment = draft.subscriptionMode !== 'trial' && amountDuePaise > 0 && draft.markPaid;
+  const percent = draft.subscriptionMode === 'plan' ? Math.min(Math.max(Number(draft.discountPercent) || 0, 0), 100) : 0;
+  const listPaise = draft.subscriptionMode === 'plan' ? selectedPlan?.amount ?? 0 : 0;
+  const amountDuePaise = discountedPaise(listPaise, percent);
+  // A 100% discount waives the deposit: nothing is collected, but it is recorded as settled.
+  const recordPayment = draft.subscriptionMode === 'plan' && !!selectedPlan && (draft.markPaid || percent === 100);
   const dateAfterDays = (days: number) => new Date(new Date(today() + 'T00:00:00Z').getTime() + days * 86400000).toISOString().slice(0, 10);
 
   if (createdStore) {
@@ -341,7 +340,7 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
 
       <fieldset className="subscription-mode">
         <legend>Subscription</legend>
-        {([['plan', 'Use a plan', 'Select reusable pricing terms'], ['trial', 'Free trial', 'Set an end date, no payment'], ['custom', 'Custom terms', 'Enter deposit and annual fee']] as const).map(([mode, label, help]) => <label className="ad-checkbox" key={mode}>
+        {([['plan', 'Setup deposit plan', 'Select the one-time plan this organization pays'], ['trial', 'Free trial', 'Set an end date, no payment']] as const).map(([mode, label, help]) => <label className="ad-checkbox" key={mode}>
           <input type="radio" name="subscription-mode" checked={draft.subscriptionMode === mode} onChange={() => change({ subscriptionMode: mode, markPaid: false, ...(mode === 'trial' && selectedPlan?.defaultTrialDays ? { trialEndDate: dateAfterDays(selectedPlan.defaultTrialDays) } : {}) })} />
           <span><strong>{label}</strong><small>{help}</small></span>
         </label>)}
@@ -354,55 +353,27 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
         <div className="ad-row">{[7, 14, 30, 60, 90].map(days => <button type="button" className="btn outline sm" key={days} onClick={() => change({ trialEndDate: dateAfterDays(days) })}>{days} days</button>)}</div>
         <p className="ad-help">Nothing due today. No payment or invoice is created.</p>
       </>}
-      {draft.subscriptionMode === 'custom' && <div className="ad-form-grid">
-        <label>Deposit (₹)<input type="number" min="0" step="0.01" value={draft.depositAmount} onChange={e => change({ depositAmount: e.target.value })} /></label>
-        <label>Annual maintenance fee (₹)<input type="number" min="0" step="0.01" value={draft.annualFeeAmount} onChange={e => change({ annualFeeAmount: e.target.value })} /></label>
-      </div>}
       {draft.subscriptionMode === 'plan' && <>
-      {plans.length > 0 && <PlanPickerCards plans={plans} value={draft.planId} onChange={selectPlan} />}
+      {depositPlans.length > 0 ? <PlanPickerCards plans={depositPlans} value={draft.planId} onChange={selectPlan} /> : <p className="ad-help">No one-time plan yet. Create one, such as an onboarding deposit.</p>}
       <div style={{ margin: '6px 0 12px' }}>
         <button type="button" className="ad-order-link" onClick={() => setCreatingPlan(true)}>
           <Icon name="plus" size="s" /> Create a new template plan
         </button>
       </div>
-
-      <label>Discount, optional (₹)<input type="number" min="0" step="0.01" value={draft.discountAmount} onChange={e => change({ discountAmount: e.target.value })} /></label>
-
-      </>}
-      {draft.subscriptionMode !== 'trial' && <label>Notes (optional)<textarea value={draft.notes} onChange={e => change({ notes: e.target.value })} /></label>}
-
-      {draft.subscriptionMode !== 'trial' && (selectedPlan || draft.subscriptionMode === 'custom') && (
-        <div style={{ background: '#f8fafc', border: '1px solid var(--line-2)', borderRadius: 10, padding: '14px 16px', marginTop: 8 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--muted)' }}>Deposit:</span>
-              <strong className="num">{draft.subscriptionMode === 'plan' && selectedPlan?.depositWaivedByDefault ? '₹0 (Waived)' : money(depositPaise)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--muted)' }}>Annual maintenance (1st year):</span>
-              <strong className="num">{money(annualPaise)}</strong>
-            </div>
-            {discountPaise > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669' }}>
-                <span>Discount applied:</span>
-                <strong className="num">− {money(discountPaise)}</strong>
-              </div>
-            )}
-            <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 14 }}>
-              <span>Total after discount:</span>
-              <span className="badge good" style={{ fontSize: 13, padding: '4px 10px' }}>{money(amountDuePaise)}</span>
-            </div>
-          </div>
+      {selectedPlan && <PlanDiscountFields listAmount={listPaise} discount={draft.discountPercent} note={draft.notes} onDiscount={value => change({ discountPercent: value })} onNote={value => change({ notes: value })} />}
+      {selectedPlan && <div style={{ background: '#f8fafc', border: '1px solid var(--line-2)', borderRadius: 10, padding: '14px 16px', marginTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 14 }}>
+          <span>Amount due:</span>
+          <span className="badge good" style={{ fontSize: 13, padding: '4px 10px' }}>{money(amountDuePaise)}</span>
         </div>
-      )}
-      {draft.subscriptionMode !== 'trial' && amountDuePaise === 0 && <p className="ad-help">Nothing due today.</p>}
-      {draft.subscriptionMode !== 'trial' && amountDuePaise > 0 && <>
-        <label className="ad-checkbox"><input type="checkbox" checked={draft.markPaid} onChange={e => change({ markPaid: e.target.checked })} />Payment received — record it now and generate invoices</label>
+      </div>}
+      {selectedPlan && percent < 100 && <>
+        <label className="ad-checkbox"><input type="checkbox" checked={draft.markPaid} onChange={e => change({ markPaid: e.target.checked })} />Payment received — record it now and generate the invoice</label>
         {draft.markPaid && <div className="ad-form-grid">
           <label>Payment method<select value={draft.paymentMethod} onChange={e => change({ paymentMethod: e.target.value as 'UPI' | 'CASH' })}><option value="UPI">UPI</option><option value="CASH">Cash</option></select></label>
           <label>Reference (optional)<input value={draft.paymentReference} onChange={e => change({ paymentReference: e.target.value })} placeholder="UPI transaction ID" /></label>
         </div>}
+      </>}
       </>}
     </>}
 
@@ -411,16 +382,15 @@ export default function OnboardingWizard({ plans: initialPlans, onSaved }: { pla
       <ul className="ad-review-list">
         <li><span>Organization</span><b>{draft.storeName || '—'} <button type="button" className="ad-order-link" onClick={() => jump(0)} disabled={busy}>Edit</button></b></li>
         <li><span>Owner</span><b>{draft.ownerMode === 'new' ? `${draft.ownerName} (new, ${draft.ownerPhone})` : `${draft.existingOwner?.name} (${draft.existingOwner?.phone})`} <button type="button" className="ad-order-link" onClick={() => jump(1)} disabled={busy}>Edit</button></b></li>
-        <li><span>Plan</span><b>{draft.subscriptionMode === 'trial' ? 'Free trial' : draft.subscriptionMode === 'custom' ? 'Custom terms' : selectedPlan?.name ?? '—'} <button type="button" className="ad-order-link" onClick={() => jump(2)} disabled={busy}>Edit</button></b></li>
+        <li><span>Plan</span><b>{draft.subscriptionMode === 'trial' ? 'Free trial' : selectedPlan?.name ?? '—'} <button type="button" className="ad-order-link" onClick={() => jump(2)} disabled={busy}>Edit</button></b></li>
         {draft.subscriptionMode === 'trial' ? <>
         <li><span>Trial starts</span><b>{draft.trialStartDate ? dateLabelFull(draft.trialStartDate) : 'Immediately'}</b></li>
         <li><span>Trial ends</span><b>{dateLabelFull(draft.trialEndDate)}</b></li>
         </> : <>
-        <li><span>Deposit</span><b>{money(depositPaise)}</b></li>
-        <li><span>Annual fee</span><b>{money(annualPaise)}</b></li>
-        <li><span>Discount</span><b>{money(discountPaise)}</b></li>
-        <li><span>Total after discount</span><b>{money(amountDuePaise)}</b></li>
-        <li><span>Payment</span><b>{recordPayment ? `Recorded — ${draft.paymentMethod}` : 'Not yet received'}</b></li>
+        <li><span>Setup deposit</span><b>{money(listPaise)}</b></li>
+        <li><span>Discount</span><b>{percent}%{draft.notes.trim() ? ` · ${draft.notes.trim()}` : ''}</b></li>
+        <li><span>Amount due</span><b>{money(amountDuePaise)}</b></li>
+        <li><span>Payment</span><b>{recordPayment ? (percent === 100 ? 'Waived' : `Recorded — ${draft.paymentMethod}`) : 'Not yet received'}</b></li>
         </>}
       </ul>
 

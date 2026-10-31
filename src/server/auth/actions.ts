@@ -88,6 +88,17 @@ export async function logoutAction(): Promise<void> {
   }
 }
 
+/** One banner for any number of outlets: the most urgent one, plus how many others need attention. */
+export interface OutletNotice {
+  name: string;
+  blocked: boolean;
+  paidThroughDate?: string;
+  daysLeft?: number;
+  /** Outlets that are blocked or due soon, including the one named. */
+  count: number;
+  blockedCount: number;
+}
+
 export interface SessionStatusResult {
   // Present only when a valid server session exists — used to hydrate the
   // client-side session mirror on mount (a new tab has no sessionStorage of
@@ -110,7 +121,9 @@ export interface SessionStatusResult {
   // banner in this case. exactDate is only meant to be shown to owners;
   // employees get a generic "billing is due" message instead (decided by
   // the UI component, not here, since role is already known client-side).
-  paymentWarning?: { paidThroughDate: string } | null;
+  // With outlets, one summary for the most urgent of them (see OutletNotice) instead of an
+  // organization-wide date.
+  paymentWarning?: { paidThroughDate: string; outletNotice?: OutletNotice } | null;
   trial?: { endsAt: string; endingSoon: boolean } | null;
 }
 
@@ -129,8 +142,18 @@ export async function getSessionStatusAction(): Promise<SessionStatusResult> {
   if (!status) return { user };
 
   const warningCutoff = addDays(todayIST(), PAYMENT_WARNING_DAYS);
-  const paymentWarning =
-    !status.blockedReason && status.paidThroughDate && status.paidThroughDate <= warningCutoff ? { paidThroughDate: status.paidThroughDate } : null;
+  // With outlets, each is billed on its own, so the reminder names the most urgent outlet
+  // (blocked first, then soonest to end) rather than the organization's latest date.
+  const attention = (status.outlets ?? []).filter(outlet => outlet.billing.blocked || outlet.billing.state === 'ending')
+    .sort((a, b) => Number(b.billing.blocked) - Number(a.billing.blocked) || (a.billing.paidThroughDate ?? '').localeCompare(b.billing.paidThroughDate ?? ''));
+  const first = attention[0];
+  const paymentWarning = status.blockedReason ? null
+    : status.outlets?.length
+      ? first ? {
+        paidThroughDate: first.billing.paidThroughDate ?? '',
+        outletNotice: { name: first.name, blocked: first.billing.blocked, paidThroughDate: first.billing.paidThroughDate, daysLeft: first.billing.daysLeft, count: attention.length, blockedCount: attention.filter(outlet => outlet.billing.blocked).length },
+      } : null
+      : status.paidThroughDate && status.paidThroughDate <= warningCutoff ? { paidThroughDate: status.paidThroughDate } : null;
 
   return {
     user,

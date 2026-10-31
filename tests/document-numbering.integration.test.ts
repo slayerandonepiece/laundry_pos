@@ -214,7 +214,7 @@ test('onboarding assigns the next free code or a valid custom one and rejects du
   const input = (name: string, phoneKey: string, orgCode?: string) => ({
     storeName: name, ...(orgCode !== undefined ? { orgCode } : {}), address: '', phone: '9876543210',
     owner: { mode: 'new' as const, name: 'New Owner', password: 'password123', ownerPhone: testPhone(phoneKey) },
-    subscription: { mode: 'custom' as const, depositAmount: 0, annualFeeAmount: 0 }, markPaid: false,
+    subscription: { mode: 'trial' as const, trialEndDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) }, markPaid: false,
   });
   const custom = await storesService.onboardStore(input('Custom code org', 'numbering_owner_1', '04321'), admin.id);
   assert.equal(custom.orgCode, '04321');

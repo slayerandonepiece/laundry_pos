@@ -5,11 +5,11 @@ import { unstable_cache, revalidateTag } from 'next/cache';
 import { prisma } from '@/server/db';
 import { hashPassword } from '@/server/auth/password';
 import { parseCalendarDate, formatCalendarDate, todayIST } from '@/server/dates';
-import { hasCurrentAccess } from '@/lib/subscriptionAccess';
+import { outletBilling, type OutletBillingState } from '@/lib/subscriptionAccess';
 import { isValidNewPassword } from '@/lib/contactValidation';
 import { ValidationError } from '@/server/errors';
 import { nextFreeOrgCode } from '@/server/numbering';
-import { effectiveSubscriptionTerms, planDepositAmount } from '@/server/subscription-terms';
+import { effectiveSubscriptionTerms } from '@/server/subscription-terms';
 import { applyOrganizationDefaults } from '@/server/services/org-defaults';
 import { assertOrgCodeFree, isNumberingLocked, parseOrgCode } from '@/server/services/org-numbering';
 import type { CollectedThisYearStats, DashboardStats, OnboardStoreInput, OwnerLookupResult, PaymentState, RecordSubscriptionPaymentInput, StoreDetail, StoreInvoice, StoreListItem, UpdateStoreInput } from '@/features/super-admin/types';
@@ -26,6 +26,7 @@ function findAllStores() {
       subscription: { include: { plan: true } },
       memberships: { where: { role: 'OWNER' }, select: { user: { select: { id: true, name: true, phone: true, email: true } } }, orderBy: { createdAt: 'asc' } },
       _count: { select: { outlets: true } },
+      outlets: { where: { status: 'ACTIVE' }, select: { plan: { select: { name: true, annualFeeAmount: true } } } },
     },
     orderBy: { onboardedAt: 'desc' },
   });
@@ -71,8 +72,9 @@ function paymentStateFor(
   trialEndsAt: string | undefined,
   today: string,
 ): PaymentState {
-  // Active trial takes precedence over a missing/expired paidThroughDate
-  if (trialEndsAt && trialEndsAt >= today) {
+  // A current paid term wins over the trial; otherwise an active trial covers a missing or expired term.
+  const paidCurrent = !!paidThroughDate && paidThroughDate >= today;
+  if (!paidCurrent && trialEndsAt && trialEndsAt >= today) {
     return trialEndsAt <= addDays(today, TRIAL_ENDING_DAYS) ? 'trial_ending' : 'trial';
   }
   if (!paidThroughDate) return 'unset';
@@ -84,6 +86,7 @@ function paymentStateFor(
 function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number; paidAt: Date }): StoreListItem {
   const owner = row.memberships[0]?.user;
   const terms = effectiveSubscriptionTerms(row.subscription);
+  const outletPlans = row.outlets.flatMap(outlet => outlet.plan ? [outlet.plan] : []);
   const paidThroughDate = row.subscription?.paidThroughDate ? formatCalendarDate(row.subscription.paidThroughDate) : undefined;
   const trialEndsAt = row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined;
   return {
@@ -97,10 +100,12 @@ function toDTO(row: StoreRow, today: string, lastInvoice?: { invoiceSeq: number;
     ownerName: owner?.name ?? '—',
     ownerEmail: owner?.email ?? undefined,
     ownerPhone: owner?.phone ?? undefined,
-    planName: row.subscription?.plan?.name,
+    // Plans are per outlet now: the names of the recurring plans its outlets are on.
+    planName: outletPlans.map(plan => plan.name).filter((name, index, all) => all.indexOf(name) === index).join(', ') || (row.subscription?.plan?.kind === 'RECURRING' ? row.subscription.plan.name : undefined),
+    depositPlanName: row.subscription?.plan?.kind === 'ONE_TIME' ? row.subscription.plan.name : undefined,
     depositAmount: terms.depositAmount,
     depositPaidAt: row.subscription?.depositPaidAt ? formatCalendarDate(row.subscription.depositPaidAt) : undefined,
-    annualFeeAmount: terms.annualFeeAmount,
+    annualFeeAmount: outletPlans[0]?.annualFeeAmount ?? terms.annualFeeAmount,
     paidThroughDate,
     trialEndsAt,
     paymentState: row.status === 'LOCKED' ? 'locked' : paymentStateFor(paidThroughDate, trialEndsAt, today),
@@ -131,6 +136,80 @@ export const listStores = unstable_cache(async (): Promise<StoreListItem[]> => {
   return rows.map(row => toDTO(row, today, lastInvoiceByStore.get(row.id)));
 }, ['stores'], { tags: ['stores'], revalidate: 60 });
 
+export interface OutletBillingRow {
+  id: string;
+  outletCode: string;
+  name: string;
+  planId?: string;
+  planName?: string;
+  paidThroughDate?: string;
+  paymentCount: number;
+  lastPaidAt?: string;
+  // The discount and note on this outlet's latest payment.
+  discountPercent: number;
+  note?: string;
+  state: OutletBillingState;
+  blocked: boolean;
+  daysLeft?: number;
+}
+
+/** Each active outlet of an organization with its own plan, term, payment count and standing. */
+export async function listOutletBilling(storeId: string): Promise<OutletBillingRow[]> {
+  const today = todayIST();
+  const [store, outlets, payments] = await Promise.all([
+    prisma.store.findUnique({ where: { id: storeId }, select: { accessGrantedUntil: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true, depositPaidAt: true } } } }),
+    prisma.outlet.findMany({ where: { storeId, status: 'ACTIVE' }, orderBy: { createdAt: 'asc' }, include: { plan: { select: { id: true, name: true } } } }),
+    prisma.subscriptionPayment.findMany({ where: { storeId, type: 'RENEWAL', outletId: { not: null } }, orderBy: [{ paidAt: 'desc' }, { invoiceSeq: 'desc' }], select: { outletId: true, paidAt: true, discountPercent: true, notes: true } }),
+  ]);
+  const stats = new Map<string, { count: number; latest: (typeof payments)[number] }>();
+  for (const payment of payments) {
+    const entry = stats.get(payment.outletId!);
+    if (entry) entry.count += 1;
+    else stats.set(payment.outletId!, { count: 1, latest: payment });
+  }
+  const orgPaidThrough = store?.subscription?.paidThroughDate ? formatCalendarDate(store.subscription.paidThroughDate) : undefined;
+  const trialEndsAt = store?.subscription?.trialEndsAt ? formatCalendarDate(store.subscription.trialEndsAt) : undefined;
+  const overrideUntil = store?.accessGrantedUntil ? formatCalendarDate(store.accessGrantedUntil) : undefined;
+  return outlets.map(outlet => {
+    const billing = outletBilling({ today, outletPaidThrough: outlet.paidThroughDate ? formatCalendarDate(outlet.paidThroughDate) : undefined, orgPaidThrough, trialEndsAt, overrideUntil, depositSettled: !!store?.subscription?.depositPaidAt, warnDays: EXPIRING_SOON_DAYS });
+    const stat = stats.get(outlet.id);
+    return {
+      id: outlet.id, outletCode: outlet.outletCode, name: outlet.displayName,
+      planId: outlet.plan?.id, planName: outlet.plan?.name,
+      paidThroughDate: billing.paidThroughDate, paymentCount: stat?.count ?? 0,
+      lastPaidAt: stat ? formatCalendarDate(stat.latest.paidAt) : undefined,
+      discountPercent: stat?.latest.discountPercent ?? 0, note: stat?.latest.notes || undefined,
+      state: billing.state, blocked: billing.blocked, daysLeft: billing.daysLeft,
+    };
+  });
+}
+
+export interface PaymentContext {
+  deposit: { paid: boolean; paidAt?: string; planId?: string; planName?: string; paidAmount?: number; discountPercent?: number; note?: string };
+  outlets: OutletBillingRow[];
+  trialEndsAt?: string;
+}
+
+/** What the Record payment dialog needs: the state of the deposit and of every outlet. */
+export async function getPaymentContext(storeId: string): Promise<PaymentContext> {
+  const [subscription, outlets, depositPayment] = await Promise.all([
+    prisma.subscription.findUnique({ where: { storeId }, include: { plan: { select: { id: true, name: true, kind: true } } } }),
+    listOutletBilling(storeId),
+    prisma.subscriptionPayment.findFirst({ where: { storeId, type: 'DEPOSIT' }, orderBy: { invoiceSeq: 'desc' }, select: { amount: true, discountPercent: true, notes: true, planName: true } }),
+  ]);
+  const depositPlan = subscription?.plan?.kind === 'ONE_TIME' ? subscription.plan : undefined;
+  return {
+    deposit: {
+      paid: !!subscription?.depositPaidAt,
+      paidAt: subscription?.depositPaidAt ? formatCalendarDate(subscription.depositPaidAt) : undefined,
+      planId: depositPlan?.id, planName: depositPayment?.planName || depositPlan?.name,
+      paidAmount: depositPayment?.amount, discountPercent: depositPayment?.discountPercent, note: depositPayment?.notes || undefined,
+    },
+    outlets,
+    trialEndsAt: subscription?.trialEndsAt ? formatCalendarDate(subscription.trialEndsAt) : undefined,
+  };
+}
+
 export async function getStore(storeId: string): Promise<StoreDetail | null> {
   const today = todayIST();
   const row = await prisma.store.findUnique({
@@ -139,6 +218,7 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
       subscription: { include: { plan: true } },
       memberships: { where: { role: 'OWNER' }, select: { user: { select: { id: true, name: true, phone: true, email: true } } }, orderBy: { createdAt: 'asc' } },
       _count: { select: { outlets: true } },
+      outlets: { where: { status: 'ACTIVE' }, select: { plan: { select: { name: true, annualFeeAmount: true } } } },
     },
   });
   if (!row) return null;
@@ -149,15 +229,12 @@ export async function getStore(storeId: string): Promise<StoreDetail | null> {
     numberingLocked,
     onboardedAt: formatCalendarDate(row.onboardedAt),
     planId: row.subscription?.planId ?? undefined,
-    planName: row.subscription?.plan?.name,
     discountAmount: row.subscription?.discountAmount ?? 0,
     trialStartsAt: row.subscription?.trialStartsAt ? formatCalendarDate(row.subscription.trialStartsAt) : undefined,
     trialEndsAt: row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined,
     accessGrantedUntil: row.accessGrantedUntil ? formatCalendarDate(row.accessGrantedUntil) : undefined,
-    hasActiveAccess: row.status === 'ACTIVE' && !row.deletedAt && hasCurrentAccess(today,
-      row.subscription?.paidThroughDate ? formatCalendarDate(row.subscription.paidThroughDate) : undefined,
-      row.subscription?.trialEndsAt ? formatCalendarDate(row.subscription.trialEndsAt) : undefined,
-      row.accessGrantedUntil ? formatCalendarDate(row.accessGrantedUntil) : undefined),
+    // Outlets can be added once the organization has a subscription (a trial, or its setup deposit); each outlet is billed on its own.
+    hasActiveAccess: row.status === 'ACTIVE' && !row.deletedAt && !!row.subscription,
   };
 }
 
@@ -230,6 +307,13 @@ export async function lookupOwnerByPhone(phone: string): Promise<OwnerLookupResu
   return { id: user.id, name: user.name, phone: user.phone, storeCount: user.memberships.length, storeNames: user.memberships.map(m => m.store.name) };
 }
 
+const discountPercentSchema = z.number().int().min(0, 'Discount must be between 0 and 100.').max(100, 'Discount must be between 0 and 100.').default(0);
+
+/** The price after a percentage discount, in paise, rounded to the nearest paisa. */
+export function discountedAmount(listAmount: number, percent: number): number {
+  return Math.round(listAmount * (100 - percent) / 100);
+}
+
 const onboardSchema = z.object({
   storeName: z.string().trim().min(1),
   orgCode: z.string().trim().optional(),
@@ -239,10 +323,11 @@ const onboardSchema = z.object({
     z.object({ mode: z.literal('new'), name: z.string().trim().min(2, 'Name must be at least 2 characters.').max(100), password: z.string().refine(isValidNewPassword, 'Use at least 8 characters with a letter and a number.'), ownerPhone: z.string().transform(normalizePhone).refine(value => !!value, "Enter the owner's phone number.").refine(isValidPhone, 'Enter a valid phone number (8–15 digits).') }),
     z.object({ mode: z.literal('existing'), userId: z.string().min(1) }),
   ]),
+  // An organization starts on a free trial, or pays its one-time setup deposit (a one-time plan,
+  // optionally discounted). Outlets are added afterwards and billed on their own recurring plan.
   subscription: z.discriminatedUnion('mode', [
-    z.object({ mode: z.literal('plan'), planId: z.string().min(1), discountAmount: z.number().int().nonnegative().default(0), chargeDepositAnyway: z.boolean().default(false) }),
+    z.object({ mode: z.literal('plan'), planId: z.string().min(1), discountPercent: discountPercentSchema }),
     z.object({ mode: z.literal('trial'), trialStartDate: z.string().optional(), trialEndDate: z.string() }),
-    z.object({ mode: z.literal('custom'), depositAmount: z.number().int().nonnegative(), annualFeeAmount: z.number().int().nonnegative() }),
   ]),
   markPaid: z.boolean(),
   paymentMethod: z.enum(['UPI', 'CASH']).optional(),
@@ -302,59 +387,43 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
 
     await tx.storeMembership.create({ data: { storeId: store.id, userId: ownerId, role: 'OWNER' } });
 
-    let depositAmount = 0;
-    let annualFeeAmount = 0;
     let planId: string | null = null;
-    let discountAmount = 0;
-
+    let listAmount = 0;
+    let planName = '';
+    const discountPercent = data.subscription.mode === 'plan' ? data.subscription.discountPercent : 0;
     if (data.subscription.mode === 'plan') {
       const plan = await tx.subscriptionPlan.findUnique({ where: { id: data.subscription.planId } });
       if (!plan || plan.archivedAt) throw new ValidationError('Plan not found.');
-      depositAmount = planDepositAmount(plan);
-      annualFeeAmount = plan.annualFeeAmount;
+      if (plan.kind !== 'ONE_TIME') throw new ValidationError('Choose a one-time plan for the organization deposit.');
       planId = plan.id;
-      discountAmount = data.subscription.discountAmount;
-    } else if (data.subscription.mode === 'custom') {
-      depositAmount = data.subscription.depositAmount;
-      annualFeeAmount = data.subscription.annualFeeAmount;
+      listAmount = plan.depositAmount;
+      planName = plan.name;
     }
 
-    const amountDue = Math.max(depositAmount + annualFeeAmount - discountAmount, 0);
-    const recordPayment = data.markPaid && data.subscription.mode !== 'trial' && amountDue > 0;
-    const paidThroughDate = recordPayment ? parseCalendarDate(addYears(today, 1)) : null;
+    // A deposit at 100% discount is waived: nothing is collected, but it is recorded as settled.
+    const settled = data.subscription.mode === 'plan' && (data.markPaid || discountPercent === 100);
     await tx.subscription.create({
       data: {
         storeId: store.id,
         planId,
-        // A plan's price is read from the plan, never copied; only custom terms (and a deposit frozen
-        // at the moment it was paid) are stored on the subscription.
-        depositAmount: planId ? (recordPayment ? depositAmount : null) : depositAmount,
-        depositPaidAt: recordPayment ? parseCalendarDate(today) : null,
-        annualFeeAmount: planId ? null : annualFeeAmount,
-        discountAmount,
-        paidThroughDate,
+        // The deposit price is frozen once it is settled; before that it follows the plan.
+        depositAmount: settled ? listAmount : null,
+        depositPaidAt: settled ? parseCalendarDate(today) : null,
+        annualFeeAmount: null,
+        discountAmount: 0,
+        paidThroughDate: null,
         trialStartsAt: data.subscription.mode === 'trial' && data.subscription.trialStartDate ? parseCalendarDate(data.subscription.trialStartDate) : null,
         trialEndsAt: data.subscription.mode === 'trial' ? parseCalendarDate(data.subscription.trialEndDate) : null,
-        notes: data.notes ?? '',
+        notes: '',
       },
     });
 
-    if (recordPayment) {
-      const depositDue = Math.max(depositAmount - discountAmount, 0);
-      const annualDue = Math.max(annualFeeAmount - Math.max(discountAmount - depositAmount, 0), 0);
-      if (depositDue > 0) await tx.subscriptionPayment.create({
-        data: { storeId: store.id, type: 'DEPOSIT', amount: depositDue, paidAt: parseCalendarDate(today), notes: 'Onboarding deposit', method: data.paymentMethod ?? 'UPI', reference: data.paymentReference ?? '', recordedById: superAdminId },
-      });
-      if (annualDue > 0) await tx.subscriptionPayment.create({
+    if (settled) {
+      await tx.subscriptionPayment.create({
         data: {
-          storeId: store.id,
-          type: 'RENEWAL',
-          amount: annualDue,
-          paidAt: parseCalendarDate(today),
-          coversFrom: parseCalendarDate(today),
-          coversTo: paidThroughDate,
-          notes: 'First year, included at onboarding',
-          method: data.paymentMethod ?? 'UPI', reference: data.paymentReference ?? '', recordedById: superAdminId,
+          storeId: store.id, type: 'DEPOSIT', amount: discountedAmount(listAmount, discountPercent), listAmount, discountPercent,
+          planId, planName, paidAt: parseCalendarDate(today), method: data.paymentMethod ?? 'UPI',
+          reference: data.paymentReference ?? '', notes: data.notes ?? '', recordedById: superAdminId,
         },
       });
     }
@@ -370,26 +439,41 @@ export async function onboardStore(input: OnboardStoreInput, superAdminId: strin
   return toDTO(row, today);
 }
 
+const paymentLineSchema = z.object({
+  planId: z.string().min(1).optional(),
+  discountPercent: discountPercentSchema,
+  note: z.string().trim().default(''),
+  amount: z.number().int().nonnegative().optional(),
+});
+
 const recordSubscriptionPaymentSchema = z.object({
-  type: z.enum(['DEPOSIT', 'RENEWAL']),
-  amount: z.number().int().positive(),
+  deposit: paymentLineSchema.optional(),
+  outlets: paymentLineSchema.extend({ outletIds: z.array(z.string().min(1)).optional() }).optional(),
   method: z.enum(['CASH', 'UPI']),
-  notes: z.string().trim().default(''),
   reference: z.string().trim().default(''),
 });
 
-// Renewal payments extend paidThroughDate by one year from whichever is
-// later — today, or the current paidThroughDate (so renewing early doesn't
-// shorten the store's remaining term). Deposit payments don't move the date.
+const invoiceInclude = { store: { select: { name: true } }, recordedBy: { select: { name: true } }, outlet: { select: { displayName: true } } } as const;
+
+// Everything charged follows one pattern: a plan, an optional discount percentage and an optional note.
+// The deposit is paid once per organization and moves no date. A renewal extends each chosen outlet by
+// one billing cycle from whichever is later — today, or that outlet's current paid-through date (so
+// renewing early never shortens its term), and writes one invoice per outlet. The organization's own
+// paidThroughDate then follows its latest outlet, which keeps the organization-level checks working:
+// it lapses only when every outlet has. An organization with no outlets yet keeps one
+// organization-level term.
 // recordedById captures which Super Admin was logged in (from the calling
 // Server Action's requireSuperAdmin() session) — nullable on the schema so
 // historical payments recorded before this column existed stay valid.
-export async function recordSubscriptionPayment(storeId: string, input: RecordSubscriptionPaymentInput, recordedById?: string): Promise<StoreInvoice> {
-  const data = recordSubscriptionPaymentSchema.parse(input);
+export async function recordSubscriptionPayments(storeId: string, input: RecordSubscriptionPaymentInput, recordedById?: string): Promise<StoreInvoice[]> {
+  const parsed = recordSubscriptionPaymentSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  const data = parsed.data;
+  if (!data.deposit && !data.outlets) throw new ValidationError('Choose what to record a payment for.');
   const today = todayIST();
   const paidAt = parseCalendarDate(today);
 
-  const result = await prisma.$transaction(async tx => {
+  const results = await prisma.$transaction(async tx => {
     // Lock before reading the current term. A concurrent payment must see
     // the preceding payment's committed expiry, not grant the same term twice.
     const locked = await tx.$queryRaw<{ id: string }[]>`
@@ -397,53 +481,96 @@ export async function recordSubscriptionPayment(storeId: string, input: RecordSu
     `;
     if (!locked.length) throw new ValidationError('This store has no subscription yet.');
     const subscription = await tx.subscription.findUniqueOrThrow({ where: { storeId }, include: { plan: true } });
+    const created = [];
 
-    let coversFrom: Date | undefined;
-    let coversTo: Date | undefined;
+    const loadPlan = async (planId: string, kind: 'ONE_TIME' | 'RECURRING') => {
+      const plan = await tx.subscriptionPlan.findUnique({ where: { id: planId } });
+      if (!plan || plan.archivedAt) throw new ValidationError('Plan not found.');
+      if (plan.kind !== kind) throw new ValidationError(kind === 'ONE_TIME' ? 'Choose a one-time plan for the deposit.' : 'Choose a recurring plan for outlets.');
+      return plan;
+    };
 
-    if (data.type === 'RENEWAL') {
-      const billingCycle = subscription.plan?.billingCycle ?? 'ANNUAL';
-      const currentPaidThrough = subscription.paidThroughDate ? formatCalendarDate(subscription.paidThroughDate) : undefined;
-      const base = currentPaidThrough && currentPaidThrough > today ? currentPaidThrough : today;
-      coversFrom = parseCalendarDate(base);
-      coversTo = parseCalendarDate(addBillingCycle(base, billingCycle));
-      await tx.subscription.update({ where: { storeId }, data: { paidThroughDate: coversTo } });
-    } else {
+    if (data.deposit) {
+      if (subscription.depositPaidAt) throw new ValidationError('The setup deposit is already paid for this organization.');
+      const line = data.deposit;
+      const plan = line.planId ? await loadPlan(line.planId, 'ONE_TIME') : subscription.plan?.kind === 'ONE_TIME' ? subscription.plan : null;
+      const listAmount = plan ? plan.depositAmount : line.amount ?? effectiveSubscriptionTerms(subscription).depositAmount;
+      if (!plan && !listAmount) throw new ValidationError('Choose the deposit plan.');
       // The deposit is a historical fact once paid: freeze the amount so a later plan edit cannot rewrite it.
-      await tx.subscription.update({ where: { storeId }, data: { depositPaidAt: paidAt, depositAmount: effectiveSubscriptionTerms(subscription).depositAmount } });
+      await tx.subscription.update({ where: { storeId }, data: { depositPaidAt: paidAt, depositAmount: listAmount, ...(plan ? { planId: plan.id } : {}) } });
+      created.push(await tx.subscriptionPayment.create({
+        data: { storeId, type: 'DEPOSIT', amount: discountedAmount(listAmount, line.discountPercent), listAmount, discountPercent: line.discountPercent, planId: plan?.id, planName: plan?.name ?? '', method: data.method, paidAt, notes: line.note, reference: data.reference, recordedById },
+        include: invoiceInclude,
+      }));
     }
 
-    return tx.subscriptionPayment.create({
-      data: { storeId, type: data.type, amount: data.amount, method: data.method, paidAt, coversFrom, coversTo, notes: data.notes, reference: data.reference, recordedById },
-      include: { store: { select: { name: true } }, recordedBy: { select: { name: true } } },
-    });
+    if (data.outlets) {
+      const line = data.outlets;
+      const outlets = await tx.outlet.findMany({ where: { storeId, status: 'ACTIVE' }, orderBy: { createdAt: 'asc' }, include: { plan: true } });
+      const chosen = line.planId ? await loadPlan(line.planId, 'RECURRING') : null;
+
+      if (!outlets.length) {
+        // No outlets yet: one organization-level term, as before.
+        const plan = chosen ?? (subscription.plan?.kind === 'RECURRING' ? subscription.plan : null);
+        const listAmount = plan ? plan.annualFeeAmount : line.amount ?? effectiveSubscriptionTerms(subscription).annualFeeAmount;
+        if (!plan && !listAmount) throw new ValidationError('Choose a plan to renew.');
+        const currentPaidThrough = subscription.paidThroughDate ? formatCalendarDate(subscription.paidThroughDate) : undefined;
+        const base = currentPaidThrough && currentPaidThrough > today ? currentPaidThrough : today;
+        const coversTo = parseCalendarDate(addBillingCycle(base, plan?.billingCycle ?? 'ANNUAL'));
+        await tx.subscription.update({ where: { storeId }, data: { paidThroughDate: coversTo } });
+        created.push(await tx.subscriptionPayment.create({
+          data: { storeId, type: 'RENEWAL', amount: discountedAmount(listAmount, line.discountPercent), listAmount, discountPercent: line.discountPercent, planId: plan?.id, planName: plan?.name ?? '', method: data.method, paidAt, coversFrom: parseCalendarDate(base), coversTo, notes: line.note, reference: data.reference, recordedById },
+          include: invoiceInclude,
+        }));
+      } else {
+        const wanted = line.outletIds ? [...new Set(line.outletIds)] : outlets.map(outlet => outlet.id);
+        if (!wanted.length) throw new ValidationError('Choose at least one outlet to renew.');
+        const targets = wanted.map(id => outlets.find(outlet => outlet.id === id));
+        if (targets.some(outlet => !outlet)) throw new ValidationError('One of the chosen outlets is not an active outlet of this organization.');
+
+        const latest = new Map(outlets.map(outlet => [outlet.id, outlet.paidThroughDate ? formatCalendarDate(outlet.paidThroughDate) : undefined]));
+        for (const outlet of targets as typeof outlets) {
+          const plan = chosen ?? outlet.plan;
+          const listAmount = plan ? plan.annualFeeAmount : line.amount ?? effectiveSubscriptionTerms(subscription).annualFeeAmount;
+          if (!plan && !listAmount) throw new ValidationError(`Choose a plan for ${outlet.displayName}.`);
+          const current = latest.get(outlet.id);
+          const base = current && current > today ? current : today;
+          const coversTo = addBillingCycle(base, plan?.billingCycle ?? subscription.plan?.billingCycle ?? 'ANNUAL');
+          latest.set(outlet.id, coversTo);
+          await tx.outlet.update({ where: { id: outlet.id }, data: { paidThroughDate: parseCalendarDate(coversTo), ...(chosen ? { planId: chosen.id } : {}) } });
+          created.push(await tx.subscriptionPayment.create({
+            data: { storeId, type: 'RENEWAL', amount: discountedAmount(listAmount, line.discountPercent), listAmount, discountPercent: line.discountPercent, planId: plan?.id, planName: plan?.name ?? '', outletId: outlet.id, method: data.method, paidAt, coversFrom: parseCalendarDate(base), coversTo: parseCalendarDate(coversTo), notes: line.note, reference: data.reference, recordedById },
+            include: invoiceInclude,
+          }));
+        }
+        const newest = [...latest.values()].filter((date): date is string => !!date).sort().at(-1);
+        if (newest) await tx.subscription.update({ where: { storeId }, data: { paidThroughDate: parseCalendarDate(newest) } });
+      }
+    }
+    return created;
   });
 
   revalidateTag('stores', { expire: 0 });
-  return {
-    invoiceSeq: result.invoiceSeq,
-    storeId,
-    storeName: result.store.name,
-    type: result.type,
-    amount: result.amount,
-    method: result.method ?? undefined,
-    paidAt: formatCalendarDate(result.paidAt),
-    coversFrom: result.coversFrom ? formatCalendarDate(result.coversFrom) : undefined,
-    coversTo: result.coversTo ? formatCalendarDate(result.coversTo) : undefined,
-    notes: result.notes,
-    reference: result.reference,
-    recordedById: result.recordedById ?? undefined,
-    recordedByName: result.recordedBy?.name,
-  };
+  return results.map(invoiceToDTO);
 }
 
-function invoiceToDTO(row: { invoiceSeq: number; storeId: string; store: { name: string }; type: 'DEPOSIT' | 'RENEWAL'; amount: number; method: 'CASH' | 'UPI' | null; paidAt: Date; coversFrom: Date | null; coversTo: Date | null; notes: string; reference: string; recordedById: string | null; recordedBy: { name: string } | null }): StoreInvoice {
+export async function recordSubscriptionPayment(storeId: string, input: RecordSubscriptionPaymentInput, recordedById?: string): Promise<StoreInvoice> {
+  const [first] = await recordSubscriptionPayments(storeId, input, recordedById);
+  return first;
+}
+
+function invoiceToDTO(row: { invoiceSeq: number; storeId: string; store: { name: string }; outletId: string | null; outlet: { displayName: string } | null; planName: string; listAmount: number | null; discountPercent: number; type: 'DEPOSIT' | 'RENEWAL'; amount: number; method: 'CASH' | 'UPI' | null; paidAt: Date; coversFrom: Date | null; coversTo: Date | null; notes: string; reference: string; recordedById: string | null; recordedBy: { name: string } | null }): StoreInvoice {
   return {
     invoiceSeq: row.invoiceSeq,
     storeId: row.storeId,
     storeName: row.store.name,
     type: row.type,
     amount: row.amount,
+    outletId: row.outletId ?? undefined,
+    outletName: row.outlet?.displayName,
+    planName: row.planName || undefined,
+    listAmount: row.listAmount ?? undefined,
+    discountPercent: row.discountPercent,
     method: row.method ?? undefined,
     paidAt: formatCalendarDate(row.paidAt),
     coversFrom: row.coversFrom ? formatCalendarDate(row.coversFrom) : undefined,
@@ -456,12 +583,12 @@ function invoiceToDTO(row: { invoiceSeq: number; storeId: string; store: { name:
 }
 
 export async function listStoreInvoices(storeId: string): Promise<StoreInvoice[]> {
-  const rows = await prisma.subscriptionPayment.findMany({ where: { storeId }, include: { store: true, recordedBy: { select: { name: true } } }, orderBy: { paidAt: 'desc' } });
+  const rows = await prisma.subscriptionPayment.findMany({ where: { storeId }, include: { store: true, recordedBy: { select: { name: true } }, outlet: { select: { displayName: true } } }, orderBy: [{ paidAt: 'desc' }, { invoiceSeq: 'desc' }] });
   return rows.map(invoiceToDTO);
 }
 
 export async function getInvoice(invoiceSeq: number): Promise<StoreInvoice | null> {
-  const row = await prisma.subscriptionPayment.findUnique({ where: { invoiceSeq }, include: { store: true, recordedBy: { select: { name: true } } } });
+  const row = await prisma.subscriptionPayment.findUnique({ where: { invoiceSeq }, include: { store: true, recordedBy: { select: { name: true } }, outlet: { select: { displayName: true } } } });
   return row ? invoiceToDTO(row) : null;
 }
 

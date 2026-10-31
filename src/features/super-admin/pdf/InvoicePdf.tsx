@@ -43,10 +43,17 @@ export function InvoicePdf({ invoice, store }: { invoice: StoreInvoice; store: S
             <Text style={[styles.th, styles.colAmount]}>Amount</Text>
           </View>
           <View style={styles.tableRow}>
-            <Text style={[{ fontWeight: 700 }, styles.colDesc]}>{invoice.type === 'DEPOSIT' ? 'Subscription deposit' : 'Annual maintenance'}</Text>
+            <Text style={[{ fontWeight: 700 }, styles.colDesc]}>{[invoice.planName ?? (invoice.type === 'DEPOSIT' ? 'Subscription deposit' : 'Annual maintenance'), invoice.outletName].filter(Boolean).join(' - ')}</Text>
             <Text style={styles.colPeriod}>{period}</Text>
-            <Text style={[{ fontWeight: 700 }, styles.colAmount]}>{pdfMoney(invoice.amount)}</Text>
+            <Text style={[{ fontWeight: 700 }, styles.colAmount]}>{pdfMoney(invoice.listAmount ?? invoice.amount)}</Text>
           </View>
+          {invoice.discountPercent > 0 && invoice.listAmount !== undefined && (
+            <View style={styles.tableRow}>
+              <Text style={styles.colDesc}>Discount ({invoice.discountPercent}%)</Text>
+              <Text style={styles.colPeriod} />
+              <Text style={styles.colAmount}>- {pdfMoney(invoice.listAmount - invoice.amount)}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.total}>

@@ -54,6 +54,7 @@ try {
     'tests/order-corrections.integration.test.ts',
     'tests/sales-search.integration.test.ts',
     'tests/subscription-terms.integration.test.ts',
+    'tests/outlet-billing.integration.test.ts',
     'tests/sync-status-templates.integration.test.ts',
     'tests/subscription-plan-mobile.integration.test.ts',
   ], {

@@ -56,6 +56,15 @@ test('owner reads plan name, annual fee and deposit (paise); existing invoices f
   assert.ok(Array.isArray(body.invoices));
 });
 
+test('invoices carry outlet, plan, list price, discount and note, and still hide the reference', async () => {
+  const org = await setup('inv', { depositAmount: 0, annualFeeAmount: 0, paidThroughDate: new Date('2100-01-01') });
+  const outlet = await prisma.outlet.create({ data: { storeId: org.store.id, outletCode: 'PLANMINV01', displayName: 'Inv Outlet', paidThroughDate: new Date('2100-01-01') } });
+  await prisma.subscriptionPayment.create({ data: { storeId: org.store.id, outletId: outlet.id, type: 'RENEWAL', amount: 4_500, listAmount: 5_000, discountPercent: 10, planName: 'Std', notes: 'Referral', reference: 'SECRET-REF', method: 'UPI', paidAt: new Date('2099-01-01'), coversFrom: new Date('2099-01-01'), coversTo: new Date('2100-01-01') } as never });
+  const [row] = (await (await billing(org.owner)).json()).invoices;
+  assert.deepEqual([row.outletName, row.planName, row.listAmount, row.discountPercent, row.note, row.amount], ['Inv Outlet', 'Std', 5_000, 10, 'Referral', 4_500]);
+  assert.equal('reference' in row, false);
+});
+
 test('custom terms return planName null with the stored amounts; a waived plan deposit is 0', async () => {
   const custom = await setup('custom', { depositAmount: 700, annualFeeAmount: 900, paidThroughDate: new Date('2100-01-01') });
   assert.deepEqual(await planOf(custom.owner), { planName: null, annualFeeAmount: 900, depositAmount: 700 });
