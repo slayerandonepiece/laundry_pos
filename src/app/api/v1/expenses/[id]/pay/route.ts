@@ -9,8 +9,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return handleApiRoute(async () => {
     const session = await requireApiStoreSession(req, 'OWNER');
     const { id } = await params;
-    const body = z.object({ paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(await req.json().catch(() => ({})));
-    const expense = await markExpensePaid(session.storeId, id, body.paidDate);
+    const body = z.object({ paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), amount: z.number().int().positive().optional() }).parse(await req.json().catch(() => ({})));
+    const expense = await markExpensePaid(session.storeId, id, body.paidDate, body.amount);
     return jsonResponse(expense);
   });
 }

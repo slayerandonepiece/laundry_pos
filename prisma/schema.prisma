@@ -505,6 +505,8 @@ model RecurringExpenseSeries {
   category  String
   amount    Int // paise
   dueDay    Int
+  // false: the amount changes every month and is entered when the bill is paid.
+  fixedAmount Boolean @default(true)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   outletId  String?
