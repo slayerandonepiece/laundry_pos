@@ -29,7 +29,9 @@ async function lockExpenses(tx: Prisma.TransactionClient, storeId: string): Prom
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ 'expenses:' + storeId }, 0))`;
 }
 
-type ExpenseRow = Awaited<ReturnType<typeof prisma.expense.findFirstOrThrow>>;
+// Occurrences carry their series' fixedAmount so the DTO can report `fixed`.
+const withSeries = { series: { select: { fixedAmount: true } } } as const;
+type ExpenseRow = Prisma.ExpenseGetPayload<{ include: typeof withSeries }>;
 
 function toDTO(row: ExpenseRow): Expense {
   return {
@@ -42,6 +44,7 @@ function toDTO(row: ExpenseRow): Expense {
     paid: row.paidAt ? formatCalendarDate(row.paidAt) : undefined,
     monthly: row.seriesId !== null,
     seriesId: row.seriesId ?? undefined,
+    fixed: row.series?.fixedAmount ?? true,
   };
 }
 
@@ -95,6 +98,7 @@ export async function listExpenses(storeId: string, options?: ListExpensesOption
       ...(options?.outletId ? { outletId: options.outletId } : {}),
     },
     orderBy: { dueDate: 'asc' },
+    include: withSeries,
   });
   return rows.map(toDTO);
 }
@@ -107,6 +111,8 @@ const createExpenseSchema = z.object({
   amount: z.number().int().positive(),
   due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   monthly: z.boolean(),
+  // Only meaningful with monthly; false means the amount is re-entered each month.
+  fixed: z.boolean().optional(),
   paidToday: z.boolean().optional(),
 });
 
@@ -119,6 +125,7 @@ async function findExistingExpense(
   if (!idempotencyKey) return null;
   const byKey = await prisma.expense.findUnique({
     where: { storeId_idempotencyKey: { storeId, idempotencyKey } },
+    include: withSeries,
   });
   if (!byKey) return null;
   return toDTO(byKey);
@@ -176,6 +183,7 @@ export async function createExpense(
             dueDate,
             paidAt,
           },
+          include: withSeries,
         });
         if (paidAt && outletId) {
           await applyExpensePaidRollup(tx, {
@@ -199,6 +207,7 @@ export async function createExpense(
             category: data.category,
             amount: data.amount,
             dueDay,
+            fixedAmount: data.fixed ?? true,
           },
         });
         const expense = await tx.expense.create({
@@ -214,6 +223,7 @@ export async function createExpense(
             seriesId: series.id,
             periodMonth: data.due.slice(0, 7),
           },
+          include: withSeries,
         });
         if (paidAt && outletId) {
           await applyExpensePaidRollup(tx, {
@@ -237,8 +247,14 @@ export async function createExpense(
   return toDTO(row);
 }
 
-export async function markExpensePaid(storeId: string, id: string, paidDate = todayIST()): Promise<Expense> {
+export async function markExpensePaid(
+  storeId: string,
+  id: string,
+  paidDate = todayIST(),
+  amount?: number,
+): Promise<Expense> {
   await assertStoreWritable(storeId);
+  const newAmount = z.number().int().positive().optional().parse(amount);
   let paidAt: Date;
   try { paidAt = parseCalendarDate(paidDate); } catch { throw new ValidationError('Choose a valid paid date.'); }
   if (paidDate > todayIST()) throw new ValidationError('Paid date cannot be in the future.');
@@ -247,25 +263,37 @@ export async function markExpensePaid(storeId: string, id: string, paidDate = to
     await lockExpenses(tx, storeId);
     const existing = await tx.expense.findUnique({
       where: { id },
-      select: { storeId: true, outletId: true, amount: true, paidAt: true },
+      select: { storeId: true, outletId: true, amount: true, paidAt: true, seriesId: true, periodMonth: true, series: { select: { fixedAmount: true } } },
     });
     if (!existing || existing.storeId !== storeId) throw new Error('Expense not found.');
     if (existing.paidAt) {
-      return tx.expense.findUniqueOrThrow({ where: { id } });
+      return tx.expense.findUniqueOrThrow({ where: { id }, include: withSeries });
     }
     if (existing.outletId) await assertOutletWritable(storeId, existing.outletId);
 
+    const finalAmount = newAmount ?? existing.amount;
     const updated = await tx.expense.update({
       where: { id },
-      data: { paidAt },
+      data: { paidAt, amount: finalAmount },
+      include: withSeries,
     });
+
+    // A bill whose amount changes monthly carries the latest amount forward as the
+    // estimate for this series' later unpaid months, existing and yet to be generated.
+    if (newAmount !== undefined && existing.seriesId && existing.series?.fixedAmount === false) {
+      await tx.recurringExpenseSeries.update({ where: { id: existing.seriesId }, data: { amount: newAmount } });
+      await tx.expense.updateMany({
+        where: { seriesId: existing.seriesId, paidAt: null, periodMonth: { gt: existing.periodMonth ?? '' } },
+        data: { amount: newAmount },
+      });
+    }
 
     if (existing.outletId) {
       await applyExpensePaidRollup(tx, {
         storeId,
         outletId: existing.outletId,
         paidAt,
-        amount: existing.amount,
+        amount: finalAmount,
       });
     }
 
@@ -287,7 +315,10 @@ async function refreshExpenseTotal(tx: Prisma.TransactionClient, storeId: string
   });
 }
 
-const updateExpenseSchema = createExpenseSchema.pick({ title: true, category: true, amount: true, due: true, outletId: true }).extend({ outletId: z.string().trim().nullable().optional() });
+const updateExpenseSchema = createExpenseSchema.pick({ title: true, category: true, amount: true, due: true, outletId: true }).extend({
+  outletId: z.string().trim().nullable().optional(),
+  paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
 export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
 
 export async function updateExpense(storeId: string, id: string, input: UpdateExpenseInput): Promise<Expense> {
@@ -295,6 +326,15 @@ export async function updateExpense(storeId: string, id: string, input: UpdateEx
   const data = updateExpenseSchema.parse(input);
   const dueDate = parseCalendarDate(data.due);
   const outletId = data.outletId || null;
+  let paidAt: Date | undefined;
+  if (data.paidDate !== undefined) {
+    try { paidAt = parseCalendarDate(data.paidDate); } catch { throw new ValidationError('Choose a valid paid date.'); }
+    const today = todayIST();
+    if (data.paidDate > today) throw new ValidationError('Paid date cannot be in the future.');
+    if (data.paidDate < `${Number(today.slice(0, 4)) - 2}${today.slice(4)}`) {
+      throw new ValidationError('Paid date cannot be more than 2 years ago.');
+    }
+  }
   const row = await prisma.$transaction(async tx => {
     await lockExpenses(tx, storeId);
     const existing = await tx.expense.findFirst({ where: { id, storeId } });
@@ -305,13 +345,15 @@ export async function updateExpense(storeId: string, id: string, input: UpdateEx
     if (existing.seriesId && data.due.slice(0, 7) !== existing.periodMonth) {
       throw new ValidationError('Keep a monthly bill in its original month.');
     }
+    if (paidAt && !existing.paidAt) throw new ValidationError('Only a paid expense has a paid date to change.');
     const updated = await tx.expense.update({ where: { id }, data: {
-      title: data.title, category: data.category, amount: data.amount, dueDate, outletId,
-    } });
+      title: data.title, category: data.category, amount: data.amount, dueDate, outletId, ...(paidAt ? { paidAt } : {}),
+    }, include: withSeries });
     if (existing.paidAt && existing.outletId) {
       await refreshExpenseTotal(tx, storeId, existing.outletId, existing.paidAt);
     }
-    if (updated.paidAt && updated.outletId && updated.outletId !== existing.outletId) {
+    const paidDateMoved = updated.paidAt?.getTime() !== existing.paidAt?.getTime();
+    if (updated.paidAt && updated.outletId && (updated.outletId !== existing.outletId || paidDateMoved)) {
       await refreshExpenseTotal(tx, storeId, updated.outletId, updated.paidAt);
     }
     return updated;
