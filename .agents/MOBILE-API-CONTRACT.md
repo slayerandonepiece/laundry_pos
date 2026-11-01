@@ -435,6 +435,7 @@ Every route under `/api/v1`. "Outlet" = does it read `X-Outlet-Id`.
 
 | Route | Methods | Role | Outlet |
 | --- | --- | --- | --- |
+| `/health` | GET | public | — |
 | `/auth/login` | POST | public | — |
 | `/auth/logout` | POST | any | — |
 | `/auth/status` | GET | any | — |
@@ -512,8 +513,23 @@ Notes:
   returns an empty 204; deleting a recurring occurrence stops its series.
   Both routes are OWNER-only.
 - `POST /expenses/{id}/pay` accepts no body, `{}`, or an optional
-  `{ "paidDate": "YYYY-MM-DD" }`. Omission uses today in IST; future
-  dates are rejected. A paid expense retains its original date on retry.
+  `{ "paidDate": "YYYY-MM-DD", "amount": <integer paise > 0> }`. Omission uses
+  today in IST; future dates are rejected. `amount` replaces the expense's
+  amount in the same transaction as marking it paid. For an occurrence of a
+  non-fixed monthly bill it also becomes the series amount and the amount of
+  that series' later unpaid occurrences (next month's estimate); for a fixed
+  series only the paid occurrence changes. A paid expense retains its original
+  date **and amount** on retry (a retry's `amount`/`paidDate` are ignored).
+- Variable-amount monthly bills: `POST /expenses` accepts optional `fixed`
+  (boolean, default `true`, only meaningful with `monthly: true`, ignored for
+  one-time bills). Every expense DTO (GET list, POST, PUT, pay) carries
+  `fixed: boolean` (`false` only for occurrences of a `fixed: false` series).
+  `PUT /expenses/{id}` accepts optional `paidDate` (`YYYY-MM-DD`) to correct
+  the paid date of an already-paid expense (omitted = unchanged); 400 errors:
+  "Only a paid expense has a paid date to change.", "Paid date cannot be in
+  the future.", "Paid date cannot be more than 2 years ago.", "Choose a valid
+  paid date.". `PUT` does not change `fixed`. Editing or paying an expense
+  moves `expensesUpdatedAt` in `/sync/status` (the occurrence's `updatedAt`).
 - To set an employee active/inactive idempotently, use `PUT /employees/{id}` with an explicit `active` (the mobile app will stop using the toggle endpoint).
 - **Employee outlet assignments** (`POST /employees`, `PUT /employees/{id}`):
   the optional `outlets` (array of outlet ids) and `defaultOutletId` set which
@@ -699,3 +715,13 @@ Always four rows, in the order `PENDING`, `IN_PROGRESS`, `READY`, `DELIVERED`
 `INVOICE_PDF`. An organization with no override reads the platform template live, and `updatedAt`
 is then the platform row's; an override row uses its own. Owners and employees get identical rows.
 `GET /orders/{code}/message` is unchanged.
+
+## Health / database warm-up (added 2026-10-31)
+
+`GET /api/v1/health` — no auth, no `X-Store-Id` / `X-Outlet-Id`. Runs one
+trivial query (`SELECT 1`) so a cold Neon database wakes before the user's
+real requests. The app calls it on launch/resume.
+
+- `200 {"ok": true}` — database reachable.
+- `503 {"ok": false}` — query failed; no error details are returned.
+- Response is `Cache-Control: private, no-store`; never cached.

@@ -14,6 +14,6 @@ export interface PaymentMethodOption { id: string; name: string; active: boolean
 export interface Payment { id: string; amount: number; date: string; method: PaymentMethod; clientActionId?: string; receiptNumber?: string }
 export interface StatusEvent { status: WorkStatus; at: string; by: string }
 export interface Order { history?: StatusEvent[]; id: string; name: string; phone: string; date: string; due: string; completed?: string; legacyCancelled?: boolean; imported?: boolean; status: WorkStatus; lines: Line[]; payments: Payment[]; notes: string; outletId?: string; offlineId?: string }
-export interface Expense { id: string; title: string; category: string; amount: number; due: string; paid?: string; monthly: boolean; seriesId?: string; outletId?: string }
+export interface Expense { id: string; title: string; category: string; amount: number; due: string; paid?: string; monthly: boolean; seriesId?: string; outletId?: string; fixed?: boolean }
 export interface Profile { name: string; phone: string; email: string; store: string; address: string; status?: string; isLocked?: boolean }
 export interface DateRange { from: string; to: string }
