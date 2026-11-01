@@ -37,8 +37,8 @@ const slug = (key: string) => key.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 async function setupOrg(key: string) {
   const store = await prisma.store.create({ data: { id: `store-sales-${key}`, name: `Sales ${key}` } });
   await prisma.subscription.create({ data: { storeId: store.id, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: new Date('2100-01-01') } });
-  const outletA = await prisma.outlet.create({ data: { outletCode: `SLA${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `A ${key}` } });
-  const outletB = await prisma.outlet.create({ data: { outletCode: `SLB${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `B ${key}` } });
+  const outletA = await prisma.outlet.create({ data: { outletCode: `SLA${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `A ${key}`, paidThroughDate: new Date('2100-01-01') } });
+  const outletB = await prisma.outlet.create({ data: { outletCode: `SLB${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `B ${key}`, paidThroughDate: new Date('2100-01-01') } });
   const product = await prisma.product.create({ data: { storeId: store.id, name: 'Wash', category: 'Laundry', type: 'ITEM', price: 10000, active: true } });
   const owner = await prisma.user.create({ data: { name: `Owner ${key}`, phone: testPhone(`sales_owner_${key}`), passwordHash: await hashPassword('password123') } });
   await prisma.storeMembership.create({ data: { storeId: store.id, userId: owner.id, role: 'OWNER' } });

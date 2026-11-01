@@ -47,6 +47,7 @@ try {
     'tests/workspace-announcements.integration.test.ts',
     'tests/account-deletion.integration.test.ts',
     'tests/app-update.integration.test.ts',
+    'tests/health.integration.test.ts',
     'tests/document-numbering.integration.test.ts',
     'tests/org-settings.integration.test.ts',
     'tests/order-flow.integration.test.ts',
@@ -54,6 +55,7 @@ try {
     'tests/order-corrections.integration.test.ts',
     'tests/sales-search.integration.test.ts',
     'tests/subscription-terms.integration.test.ts',
+    'tests/outlet-billing.integration.test.ts',
     'tests/sync-status-templates.integration.test.ts',
     'tests/subscription-plan-mobile.integration.test.ts',
   ], {

@@ -51,8 +51,8 @@ async function fixture() {
   await prisma.subscription.createMany({ data: [store.id, other.id].map(storeId => ({
     storeId, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: parseCalendarDate('2100-01-01'),
   })) });
-  const a = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-A', displayName: 'A' } });
-  const b = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-B', displayName: 'B' } });
+  const a = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-A', displayName: 'A', paidThroughDate: new Date('2100-01-01') } });
+  const b = await prisma.outlet.create({ data: { storeId: store.id, outletCode: 'EXP-B', displayName: 'B', paidThroughDate: new Date('2100-01-01') } });
   const owner = await user('owner');
   const employee = await user('employee');
   const otherOwner = await user('other_owner');
@@ -89,7 +89,7 @@ test('PUT updates fields and outlet; omitted and null outlet become organization
     { title: 'Water', category: 'Utilities', amount: 220, due, outletId: f.b.id },
     f.store.id, { 'x-outlet-id': f.a.id }), params(row.id));
   assert.equal(changed.status, 200);
-  assert.deepEqual(await changed.json(), { id: row.id, outletId: f.b.id, title: 'Water', category: 'Utilities', amount: 220, due, monthly: false });
+  assert.deepEqual(await changed.json(), { id: row.id, outletId: f.b.id, title: 'Water', category: 'Utilities', amount: 220, due, monthly: false, fixed: true });
   const wide = await routes.PUT(request('PUT', row.id, f.tokens.owner, { title: 'Water', category: 'Utilities', amount: 220, due }), params(row.id));
   assert.equal(wide.status, 200);
   assert.equal((await wide.json()).outletId, undefined);
@@ -185,4 +185,118 @@ test('lapsed subscription forbids PUT, DELETE and pay', async () => {
   } finally {
     await prisma.subscription.update({ where: { storeId: f.store.id }, data: { paidThroughDate: parseCalendarDate('2100-01-01') } });
   }
+});
+
+function post(body: object) {
+  return new NextRequest('http://localhost/api/v1/expenses', {
+    method: 'POST', headers: { authorization: `Bearer ${f.tokens.owner}`, 'x-store-id': f.store.id, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+function pay(id: string, body?: object, tokenValue = f.tokens.owner) {
+  return payRoute.POST(request('POST', id, tokenValue, body), params(id));
+}
+function put(id: string, paidDate?: string) {
+  return routes.PUT(request('PUT', id, f.tokens.owner, { title: 'Rent', category: 'Fixed', amount: 100, due: todayIST(), outletId: f.a.id, ...(paidDate ? { paidDate } : {}) }), params(id));
+}
+function daysAgo(n: number) {
+  return new Date(Date.now() + 5.5 * 3600000 - n * 86400000).toISOString().slice(0, 10);
+}
+const thisMonth = () => todayIST().slice(0, 7);
+function nextMonth() {
+  const [y, m] = thisMonth().split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
+test('fixed defaults to true for old-style requests; fixed:false is stored on the series', async () => {
+  const old = await listRoute.POST(post({ ...input({ monthly: true }), outletId: f.a.id }));
+  assert.equal(old.status, 201);
+  const oldBody = await old.json();
+  assert.equal(oldBody.fixed, true);
+  assert.equal((await prisma.recurringExpenseSeries.findUniqueOrThrow({ where: { id: oldBody.seriesId } })).fixedAmount, true);
+  const variable = await (await listRoute.POST(post({ ...input({ monthly: true, fixed: false }), outletId: f.a.id }))).json();
+  assert.equal(variable.fixed, false);
+  // fixed is ignored for a one-time bill.
+  const once = await (await listRoute.POST(post({ ...input({ fixed: false }), outletId: f.a.id }))).json();
+  assert.equal(once.fixed, true);
+  const listed: { id: string; fixed: boolean }[] = await (await listRoute.GET(request('GET', 'x'))).json();
+  assert.equal(listed.find(e => e.id === variable.id)?.fixed, false);
+});
+
+test('non-fixed series: pay with amount updates the occurrence, the series and next month', async () => {
+  const row = await expenses.createExpense(f.store.id, input({ monthly: true, fixed: false, due: `${thisMonth()}-15`, amount: 500 }), f.a.id);
+  await expenses.listExpenses(f.store.id, { outletId: f.a.id }); // generates next month at 500
+  const next = () => prisma.expense.findFirstOrThrow({ where: { seriesId: row.seriesId, periodMonth: nextMonth() } });
+  assert.equal((await next()).amount, 500);
+  const before = (await prisma.expense.findUniqueOrThrow({ where: { id: row.id } })).updatedAt;
+  const rolled = await total(f.a.id, todayIST());
+  const res = await pay(row.id, { amount: 730 });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.amount, 730);
+  assert.equal(body.fixed, false);
+  assert.ok((await prisma.expense.findUniqueOrThrow({ where: { id: row.id } })).updatedAt > before);
+  assert.equal((await prisma.recurringExpenseSeries.findUniqueOrThrow({ where: { id: row.seriesId } })).amount, 730);
+  assert.equal((await next()).amount, 730, 'existing unpaid next month follows');
+  assert.equal(await total(f.a.id, todayIST()), rolled + 730, 'rollup uses the new amount');
+  // A regenerated month also uses the latest amount.
+  await prisma.expense.delete({ where: { id: (await next()).id } });
+  await expenses.listExpenses(f.store.id, { outletId: f.a.id });
+  assert.equal((await next()).amount, 730);
+});
+
+test('fixed series: pay with amount changes only that occurrence', async () => {
+  const row = await expenses.createExpense(f.store.id, input({ monthly: true, due: `${thisMonth()}-16`, amount: 500 }), f.a.id);
+  await expenses.listExpenses(f.store.id, { outletId: f.a.id });
+  const res = await pay(row.id, { amount: 640 });
+  assert.equal((await res.json()).amount, 640);
+  assert.equal((await prisma.recurringExpenseSeries.findUniqueOrThrow({ where: { id: row.seriesId } })).amount, 500);
+  assert.equal((await prisma.expense.findFirstOrThrow({ where: { seriesId: row.seriesId, periodMonth: nextMonth() } })).amount, 500);
+});
+
+test('pay retry keeps the first amount and date; bad amounts are rejected', async () => {
+  const row = await expenses.createExpense(f.store.id, input({ amount: 100 }), f.a.id);
+  const first = await (await pay(row.id, { amount: 250, paidDate: '2026-09-01' })).json();
+  assert.deepEqual([first.amount, first.paid], [250, '2026-09-01']);
+  const again = await (await pay(row.id, { amount: 999, paidDate: '2026-09-02' })).json();
+  assert.deepEqual([again.amount, again.paid], [250, '2026-09-01']);
+  const fresh = await expenses.createExpense(f.store.id, input(), f.a.id);
+  for (const amount of [0, -5, 1.5, '10']) assert.equal((await pay(fresh.id, { amount })).status, 400);
+  assert.equal((await prisma.expense.findUniqueOrThrow({ where: { id: fresh.id } })).paidAt, null);
+});
+
+test('PUT paidDate: changes a paid expense and its rollup; rejects unpaid, future, too old; omitted keeps it', async () => {
+  const row = await expenses.createExpense(f.store.id, input(), f.a.id);
+  const unpaid = await put(row.id, daysAgo(1));
+  assert.equal(unpaid.status, 400);
+  assert.equal((await unpaid.json()).error, 'Only a paid expense has a paid date to change.');
+  await pay(row.id, { paidDate: daysAgo(3) });
+  const keep = await put(row.id);
+  assert.equal((await keep.json()).paid, daysAgo(3));
+  const moved = await put(row.id, daysAgo(5));
+  assert.equal(moved.status, 200);
+  assert.equal((await moved.json()).paid, daysAgo(5));
+  assert.equal(await total(f.a.id, daysAgo(3)), 0);
+  assert.equal(await total(f.a.id, daysAgo(5)), 100);
+  const future = await put(row.id, '2100-01-01');
+  assert.equal(future.status, 400);
+  assert.equal((await future.json()).error, 'Paid date cannot be in the future.');
+  const old = await put(row.id, daysAgo(800));
+  assert.equal(old.status, 400);
+  assert.equal((await old.json()).error, 'Paid date cannot be more than 2 years ago.');
+  assert.equal((await put(row.id, '2026-02-31')).status, 400);
+  assert.equal((await (await put(row.id)).json()).paid, daysAgo(5));
+});
+
+test('employee gets 403 on pay with amount and PUT paidDate; a blocked outlet gets 403 payment_lapsed on pay', async () => {
+  const row = await expenses.createExpense(f.store.id, input(), f.a.id);
+  assert.equal((await pay(row.id, { amount: 5 }, f.tokens.employee)).status, 403);
+  assert.equal((await routes.PUT(request('PUT', row.id, f.tokens.employee, { title: 'x', category: 'y', amount: 1, due: todayIST(), paidDate: daysAgo(1) }), params(row.id))).status, 403);
+  const c = await prisma.outlet.create({ data: { storeId: f.store.id, outletCode: 'EXP-C', displayName: 'C', paidThroughDate: new Date('2100-01-01') } });
+  const blocked = await expenses.createExpense(f.store.id, input(), c.id);
+  await prisma.outlet.update({ where: { id: c.id }, data: { paidThroughDate: parseCalendarDate('2020-01-01') } });
+  const res = await pay(blocked.id, { amount: 50 });
+  assert.equal(res.status, 403);
+  assert.equal((await res.json()).reason, 'payment_lapsed');
+  assert.equal((await prisma.expense.findUniqueOrThrow({ where: { id: blocked.id } })).paidAt, null);
 });

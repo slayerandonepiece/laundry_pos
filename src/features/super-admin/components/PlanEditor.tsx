@@ -3,17 +3,16 @@ import { useId, useState } from 'react';
 import { Button } from '@/features/admin/components/Primitives';
 import { useDialogClose, DialogFooter } from './Dialog';
 import { createPlanAction, updatePlanAction } from '../actions/subscription-plans.actions';
-import type { BillingCycle, PlanInput, SubscriptionPlanListItem } from '../types';
+import type { BillingCycle, PlanInput, PlanKind, SubscriptionPlanListItem } from '../types';
 
 export default function PlanEditor({ plan, onSaved }: { plan?: SubscriptionPlanListItem; onSaved: (plan: SubscriptionPlanListItem) => void }) {
-  const depositRadioName = useId();
+  const kindRadioName = useId();
   const cycleRadioName = useId();
   const [defaultTrialDays, setDefaultTrialDays] = useState(plan?.defaultTrialDays?.toString() ?? '');
   const onCancel = useDialogClose();
   const [name, setName] = useState(plan?.name ?? '');
-  const [depositAmount, setDepositAmount] = useState(plan ? String(plan.depositAmount / 100) : '10000');
-  const [annualFeeAmount, setAnnualFeeAmount] = useState(plan ? String(plan.annualFeeAmount / 100) : '5000');
-  const [depositWaivedByDefault, setDepositWaivedByDefault] = useState(plan?.depositWaivedByDefault ?? false);
+  const [kind, setKind] = useState<PlanKind>(plan?.kind ?? 'RECURRING');
+  const [amount, setAmount] = useState(plan ? String(plan.amount / 100) : '');
   const [billingCycle, setBillingCycle] = useState<BillingCycle>(plan?.billingCycle ?? 'ANNUAL');
   const [notes, setNotes] = useState(plan?.notes ?? '');
   const [error, setError] = useState('');
@@ -21,17 +20,15 @@ export default function PlanEditor({ plan, onSaved }: { plan?: SubscriptionPlanL
 
   function submit() {
     if (!name.trim()) return setError('Enter a plan name.');
-    if (!Number.isFinite(Number(depositAmount)) || Number(depositAmount) < 0) return setError('Enter a valid deposit amount.');
-    if (!Number.isFinite(Number(annualFeeAmount)) || Number(annualFeeAmount) < 0) return setError('Enter a valid annual fee.');
+    if (!amount.trim() || !Number.isFinite(Number(amount)) || Number(amount) < 0) return setError('Enter a valid amount.');
     if (defaultTrialDays && (!Number.isSafeInteger(Number(defaultTrialDays)) || Number(defaultTrialDays) < 0)) return setError('Enter a whole number of trial days.');
     setBusy(true);
     setError('');
     const input: PlanInput = {
       name: name.trim(),
-      depositAmount: depositWaivedByDefault ? 0 : Math.round(Number(depositAmount) * 100),
+      kind,
+      amount: Math.round(Number(amount) * 100),
       defaultTrialDays: defaultTrialDays === '' ? null : Number(defaultTrialDays),
-      annualFeeAmount: Math.round(Number(annualFeeAmount) * 100),
-      depositWaivedByDefault,
       billingCycle,
       notes: notes.trim(),
     };
@@ -45,15 +42,14 @@ export default function PlanEditor({ plan, onSaved }: { plan?: SubscriptionPlanL
   }
 
   return <div className="ad-form">
-    <label>Plan name<input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Standard annual" required /></label>
+    <label>Plan name<input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Standard" required /></label>
+    <label>Amount (₹)<input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></label>
     <fieldset className="subscription-mode">
-      <legend>One-time deposit</legend>
-      <label className="ad-checkbox"><input type="radio" name={depositRadioName} checked={!depositWaivedByDefault} onChange={() => setDepositWaivedByDefault(false)} />Charge a deposit</label>
-      {!depositWaivedByDefault && <label>Amount (₹)<input type="number" min="0" step="0.01" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} /></label>}
-      <label className="ad-checkbox"><input type="radio" name={depositRadioName} checked={depositWaivedByDefault} onChange={() => { setDepositWaivedByDefault(true); setDepositAmount('0'); }} />No deposit — organizations on this plan skip the deposit</label>
+      <legend>Type</legend>
+      <label className="ad-checkbox"><input type="radio" name={kindRadioName} checked={kind === 'ONE_TIME'} onChange={() => setKind('ONE_TIME')} />One time — charged once to the organization, like a setup deposit</label>
+      <label className="ad-checkbox"><input type="radio" name={kindRadioName} checked={kind === 'RECURRING'} onChange={() => setKind('RECURRING')} />Recurring — charged every billing cycle for each outlet it is on</label>
     </fieldset>
-    <label>Annual maintenance fee (₹)<input type="number" min="0" step="0.01" value={annualFeeAmount} onChange={e => setAnnualFeeAmount(e.target.value)} /></label>
-    <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+    {kind === 'RECURRING' && <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <legend style={{ padding: 0, marginBottom: 8 }}>Billing cycle</legend>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
@@ -67,7 +63,7 @@ export default function PlanEditor({ plan, onSaved }: { plan?: SubscriptionPlanL
           <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted, #64748b)' }}>{description}</span>
         </label>)}
       </div>
-    </fieldset>
+    </fieldset>}
     <label>Default trial period (optional)<input type="number" min="0" step="1" value={defaultTrialDays} onChange={e => setDefaultTrialDays(e.target.value)} placeholder="Days" /></label>
     <p className="ad-help">Leave blank for no default trial.</p>
     <label>Notes (optional)<textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What this plan is for — shown on the plan card, not to the owner" /></label>

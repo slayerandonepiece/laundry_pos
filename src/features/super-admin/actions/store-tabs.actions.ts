@@ -1,7 +1,7 @@
 'use server';
 
 import { requireSuperAdmin } from '@/server/auth/session';
-import { listStoreInvoices } from '@/server/services/stores';
+import { listStoreInvoices, listOutletBilling, type OutletBillingRow } from '@/server/services/stores';
 import { listStoreMembers } from '@/server/services/platform-users';
 import { listOutletsForStore, listOutletsForStoreAdmin, listOutletMembershipsForStore } from '@/server/services/outlets';
 import { getOrgLifecycleFacts, type OrgLifecycleFacts } from '@/server/services/store-lifecycle';
@@ -29,6 +29,7 @@ export interface PeopleTabData {
 
 export interface SubscriptionTabData {
   invoices: StoreInvoice[];
+  outlets: OutletBillingRow[];
   plans: SubscriptionPlanListItem[];
   hasSubscription: boolean;
   trialEndsAt?: string;
@@ -78,13 +79,15 @@ export async function fetchStorePeopleDataAction(storeId: string): Promise<Peopl
 
 export async function fetchStoreSubscriptionDataAction(storeId: string): Promise<SubscriptionTabData> {
   await requireSuperAdmin();
-  const [invoices, plans, subscriptionRow] = await Promise.all([
+  const [invoices, outlets, plans, subscriptionRow] = await Promise.all([
     listStoreInvoices(storeId),
+    listOutletBilling(storeId),
     listPlans(),
     prisma.subscription.findUnique({ where: { storeId }, select: { trialEndsAt: true } }),
   ]);
   return {
     invoices,
+    outlets,
     plans: plans.filter(p => !p.archivedAt),
     hasSubscription: subscriptionRow !== null,
     trialEndsAt: subscriptionRow?.trialEndsAt ? formatCalendarDate(subscriptionRow.trialEndsAt) : undefined,

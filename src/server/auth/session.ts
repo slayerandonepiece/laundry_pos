@@ -1,4 +1,4 @@
-import { isSubscriptionLapsed } from '@/lib/subscriptionAccess';
+import { isSubscriptionLapsed, outletBilling, type OutletBilling } from '@/lib/subscriptionAccess';
 import 'server-only';
 import { cookies } from 'next/headers';
 import { prisma } from '@/server/db';
@@ -55,6 +55,8 @@ export interface AllowedOutlet {
   displayName: string;
   isDefault: boolean;
   status: OutletStatus;
+  /** This outlet's own billing standing; a blocked outlet cannot take orders, payments or expenses. */
+  billing: OutletBilling;
 }
 
 export interface OutletSelection {
@@ -285,6 +287,16 @@ export async function assertStoreWritable(storeId: string): Promise<void> {
   if (isBillingPending({ status: store.status, deletedAt: store.deletedAt, trialEndsAt, paidThroughDate, accessGrantedUntil: overrideUntil, today })) {
     throw new AuthError('FORBIDDEN', 'billing_pending');
   }
+}
+
+/**
+ * For writes that name an outlet without a session (expenses): refuses an outlet whose own billing term
+ * has ended, like requireOutletSession does for orders. Call after assertStoreWritable.
+ */
+export async function assertOutletWritable(storeId: string, outletId: string): Promise<void> {
+  const outlet = await prisma.outlet.findFirst({ where: { id: outletId, storeId }, select: { paidThroughDate: true } });
+  if (!outlet) return;
+  if ((await outletBillingFor(storeId))(outlet.paidThroughDate).blocked) throw new AuthError('FORBIDDEN', 'payment_lapsed');
 }
 
 export async function requireStoreSession(
@@ -550,6 +562,8 @@ export interface StoreAccessStatus {
   paidThroughDate?: string;
   trialEndsAt?: string;
   subscriptionState?: SubscriptionAccessState;
+  // Each outlet this person can see, with its own billing standing (owners: every active outlet).
+  outlets?: { id: string; name: string; billing: OutletBilling }[];
 }
 
 // Non-throwing sibling of requireStoreSession, for UI surfaces (the client
@@ -610,7 +624,40 @@ export async function getStoreAccessStatus(userId: string, storeId?: string): Pr
   else if (subscriptionState === 'RESTRICTED') blockedReason = 'payment_lapsed';
   else if (isSubscriptionLapsed(today, paidThroughDate, trialEndsAt, overrideUntil)) blockedReason = 'payment_lapsed';
 
-  return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate, trialEndsAt, subscriptionState };
+  let outlets: StoreAccessStatus['outlets'];
+  if (!blockedReason) {
+    const { allowedOutlets } = await resolveAllowedOutlets(userId, membership.storeId, membership.role);
+    if (allowedOutlets.length) {
+      outlets = allowedOutlets.map(outlet => ({ id: outlet.id, name: outlet.displayName, billing: outlet.billing }));
+      // An employee whose every outlet is past its term has nothing left to work in.
+      if (membership.role === 'EMPLOYEE' && outlets.every(outlet => outlet.billing.blocked)) {
+        blockedReason = 'payment_lapsed';
+        return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate: outlets.map(o => o.billing.paidThroughDate).filter(Boolean).sort().at(-1), trialEndsAt, subscriptionState, outlets };
+      }
+    }
+  }
+
+  return { storeId: membership.storeId, storeRole: membership.role, blockedReason, paidThroughDate, trialEndsAt, subscriptionState, outlets };
+}
+
+/** Days before an outlet's paid-through date that its renewal reminder starts. */
+const OUTLET_WARNING_DAYS = PAYMENT_WARNING_DAYS;
+
+/** Reads what an outlet's access depends on once, so callers can judge any number of outlets. */
+async function outletBillingFor(storeId: string): Promise<(paidThrough: Date | null) => OutletBilling> {
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: { accessGrantedUntil: true, subscription: { select: { paidThroughDate: true, trialEndsAt: true, depositPaidAt: true } } },
+  });
+  const today = todayIST();
+  const orgPaidThrough = store?.subscription?.paidThroughDate ? formatCalendarDate(store.subscription.paidThroughDate) : undefined;
+  const trialEndsAt = store?.subscription?.trialEndsAt ? formatCalendarDate(store.subscription.trialEndsAt) : undefined;
+  const overrideUntil = store?.accessGrantedUntil ? formatCalendarDate(store.accessGrantedUntil) : undefined;
+  return paidThrough => outletBilling({
+    today,
+    outletPaidThrough: paidThrough ? formatCalendarDate(paidThrough) : undefined,
+    orgPaidThrough, trialEndsAt, overrideUntil, depositSettled: !!store?.subscription?.depositPaidAt, warnDays: OUTLET_WARNING_DAYS,
+  });
 }
 
 /**
@@ -628,16 +675,18 @@ export async function resolveAllowedOutlets(
       where: { storeId, status: 'ACTIVE' },
       orderBy: { createdAt: 'asc' },
     });
+    const billingOf = await outletBillingFor(storeId);
     const allowedOutlets: AllowedOutlet[] = outlets.map((o, idx) => ({
       id: o.id,
       outletCode: o.outletCode,
       displayName: o.displayName,
       isDefault: idx === 0,
       status: o.status,
+      billing: billingOf(o.paidThroughDate),
     }));
     return {
       allowedOutlets,
-      defaultOutletId: allowedOutlets[0]?.id ?? null,
+      defaultOutletId: (allowedOutlets.find(o => !o.billing.blocked) ?? allowedOutlets[0])?.id ?? null,
     };
   }
 
@@ -653,15 +702,19 @@ export async function resolveAllowedOutlets(
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
   });
 
+  const billingOf = await outletBillingFor(storeId);
   const allowedOutlets: AllowedOutlet[] = memberships.map(m => ({
     id: m.outlet.id,
     outletCode: m.outlet.outletCode,
     displayName: m.outlet.displayName,
     isDefault: m.isDefault,
     status: m.outlet.status,
+    billing: billingOf(m.outlet.paidThroughDate),
   }));
 
-  const defaultOutlet = allowedOutlets.find(o => o.isDefault) ?? allowedOutlets[0];
+  // A blocked outlet is never the default while another of theirs is open.
+  const open = allowedOutlets.filter(o => !o.billing.blocked);
+  const defaultOutlet = open.find(o => o.isDefault) ?? open[0] ?? allowedOutlets.find(o => o.isDefault) ?? allowedOutlets[0];
   return {
     allowedOutlets,
     defaultOutletId: defaultOutlet?.id ?? null,
@@ -701,6 +754,12 @@ export async function requireOutletSession(
   }
 
   const storeSession = await requireStoreSession(outlet.storeId, role, sessionOverride, options);
+
+  // Each outlet is billed on its own: this outlet being past its term blocks it even though the
+  // organization's other outlets are still paid. Reads that opt into allowRestricted stay open.
+  if (!options?.allowRestricted && (await outletBillingFor(outlet.storeId))(outlet.paidThroughDate).blocked) {
+    throw new AuthError('FORBIDDEN', 'payment_lapsed');
+  }
 
   if (storeSession.storeRole === 'EMPLOYEE') {
     const membership = await prisma.outletMembership.findUnique({

@@ -352,6 +352,7 @@ export default function StoreDetailHub({
             <StoreSubscriptionTab
               store={store}
               invoices={tabCache.subscription.invoices}
+              outlets={tabCache.subscription.outlets}
               plans={tabCache.subscription.plans}
               hasSubscription={tabCache.subscription.hasSubscription}
               trialEndsAt={tabCache.subscription.trialEndsAt}

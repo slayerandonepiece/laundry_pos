@@ -152,6 +152,15 @@ Revokes the caller's active session token.
 
 ---
 
+### `GET /api/v1/health`
+
+Warm-up ping used by the app to wake the database (Neon cold start). Runs `SELECT 1`.
+
+- **Auth**: none (no `X-Store-Id` needed).
+- **Response `200 OK`**: `{ "ok": true }`. **`503`**: `{ "ok": false }` (no error details). Not cached (`no-store`).
+
+---
+
 ### `GET /api/v1/auth/status`
 
 Returns current session user details and accessible stores. Used for app startup / session revalidation.
@@ -746,10 +755,12 @@ Lists expenses recorded for the store.
       "amount": 250000,
       "due": "2026-09-20",
       "paid": "2026-09-11",
-      "monthly": false
+      "monthly": false,
+      "fixed": true
     }
   ]
   ```
+  A monthly occurrence also carries `seriesId`; `outletId` is present when the expense belongs to an outlet. `fixed` is `false` only for an occurrence of a monthly bill created with `fixed: false` (its amount changes every month); it is `true` for every one-time bill and every fixed monthly bill.
 
 ---
 
@@ -766,10 +777,12 @@ Records a store expense. **Restricted to `OWNER`**.
     "amount": 1500000,
     "due": "2026-09-30",
     "paid": "2026-09-11",
-    "monthly": true
+    "monthly": true,
+    "fixed": false
   }
   ```
-- **Response `201 Created`**: Returns created expense DTO.
+  `fixed` is optional (default `true`) and only matters with `"monthly": true`; it is ignored for a one-time bill. With `fixed: false`, `amount` is the first month's (estimated) amount and later months are generated with the latest amount paid (see `/pay`).
+- **Response `201 Created`**: Returns created expense DTO (with `fixed`).
 
 ---
 
@@ -778,8 +791,10 @@ Records a store expense. **Restricted to `OWNER`**.
 Marks an existing expense as paid. **Restricted to `OWNER`**.
 
 - **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
-- **Request Body**: Optional `{ "paidDate": "2026-09-11" }`; omitted or `{}` uses today in IST. Future dates are rejected.
-- **Response `200 OK`**: Returns updated expense.
+- **Request Body**: Optional `{ "paidDate": "2026-09-11", "amount": 182500 }`; omitted or `{}` uses today in IST. `amount` is optional integer paise, greater than 0; it sets the expense's amount in the same transaction as marking it paid (the paid rollup uses it). Future dates are rejected (400 "Paid date cannot be in the future."; an unparseable date is 400 "Choose a valid paid date.").
+- For an occurrence of a non-fixed monthly bill, `amount` also becomes the series amount and the amount of that series' later **unpaid** occurrences, so the next month's estimate is the latest amount. For a fixed series only the occurrence being paid changes.
+- Paying an already-paid expense is a no-op: the stored amount and paid date are kept and the request's `amount`/`paidDate` are ignored.
+- **Response `200 OK`**: Returns updated expense. A non-positive, non-integer or non-number `amount` returns 400 (zod messages: "Too small: expected number to be >0", "Invalid input: expected int, received number", "Invalid input: expected number, received string"). An outlet whose billing term has ended returns 403 `payment_lapsed`.
 
 ---
 
@@ -788,8 +803,9 @@ Marks an existing expense as paid. **Restricted to `OWNER`**.
 Edits an expense. **Restricted to `OWNER`**.
 
 - **Auth**: Bearer token + `X-Store-Id` (Role: `OWNER`).
-- **Request Body**: `{ "title": "Shop Rent", "category": "Rent", "amount": 1500000, "due": "2026-09-30", "outletId": "optional-outlet-id" }`. Amount is integer paise. Omit `outletId` or pass `null` to make the expense organization-wide. `X-Outlet-Id` does not override the body.
-- **Response `200 OK`**: Returns updated expense DTO. A recurring occurrence cannot move to another month: "Keep a monthly bill in its original month."
+- **Request Body**: `{ "title": "Shop Rent", "category": "Rent", "amount": 1500000, "due": "2026-09-30", "outletId": "optional-outlet-id", "paidDate": "2026-09-05" }`. Amount is integer paise. Omit `outletId` or pass `null` to make the expense organization-wide. `X-Outlet-Id` does not override the body.
+- **`paidDate`** (optional, `YYYY-MM-DD`) corrects the paid date of an already-paid expense and moves its paid-amount rollup to the new day. Omitted = paid date unchanged. 400 errors: "Only a paid expense has a paid date to change." (the expense is unpaid), "Paid date cannot be in the future.", "Paid date cannot be more than 2 years ago.", "Choose a valid paid date." (not a real calendar date).
+- **Response `200 OK`**: Returns updated expense DTO (with `fixed`). A recurring occurrence cannot move to another month: "Keep a monthly bill in its original month." `fixed` cannot be changed by PUT.
 
 ### `DELETE /api/v1/expenses/[id]`
 

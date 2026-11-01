@@ -104,7 +104,7 @@ export default function OutletDetail({
 
   return (
     <>
-      {paymentWarning && <PaymentWarningBanner isOwner={isOwner} paidThroughDate={paymentWarning.paidThroughDate} />}
+      {paymentWarning && <PaymentWarningBanner isOwner={isOwner} paidThroughDate={paymentWarning.paidThroughDate} outlet={paymentWarning.outletNotice} />}
       
       <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <Link 

@@ -63,7 +63,7 @@ export default function ChangePlanDialog({ store, plans, onSaved }: {
 
     <div className="ad-form-grid">
       <label>Deposit (₹)<input type="number" min="0" step="1" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} /></label>
-      <label>Annual maintenance (₹)<input type="number" min="0" step="1" value={annualFeeAmount} onChange={e => setAnnualFeeAmount(e.target.value)} /></label>
+      <label>Annual fee per outlet (₹)<input type="number" min="0" step="1" value={annualFeeAmount} onChange={e => setAnnualFeeAmount(e.target.value)} /></label>
     </div>
     <label>Discount (₹)<input type="number" min="0" step="1" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} /></label>
 

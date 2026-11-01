@@ -50,7 +50,7 @@ const slug = (key: string) => key.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 async function setupOrg(key: string) {
   const store = await prisma.store.create({ data: { id: `store-cor-${key}`, name: `Corrections ${key}` } });
   await prisma.subscription.create({ data: { storeId: store.id, depositAmount: 0, annualFeeAmount: 0, paidThroughDate: new Date('2100-01-01') } });
-  const outlet = await prisma.outlet.create({ data: { outletCode: `COR${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `Outlet ${key}` } });
+  const outlet = await prisma.outlet.create({ data: { outletCode: `COR${slug(key)}`.slice(0, 20), storeId: store.id, displayName: `Outlet ${key}`, paidThroughDate: new Date('2100-01-01') } });
   const product = await prisma.product.create({ data: { storeId: store.id, name: 'Wash', category: 'Laundry', type: 'ITEM', price: 10000, active: true } });
   const make = async (role: string) => prisma.user.create({ data: { name: `${role} ${key}`, phone: testPhone(`cor_${role}_${key}`), passwordHash: await hashPassword('password123'), isSuperAdmin: role === 'admin' } });
   const [owner, employee, admin] = await Promise.all([make('owner'), make('employee'), make('admin')]);
